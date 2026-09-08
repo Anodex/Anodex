@@ -3,6 +3,7 @@ import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
 import { anodex } from '../../../../lib/anodex'
 import { useUiStore } from '../../../../stores/uiStore'
 import { Button } from '../../../../components/ui/Button'
+import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { SettingRow } from '../../SettingRow'
 import { ToggleControl } from '../../controls'
 import pageStyles from '../../SettingsPage.module.css'
@@ -26,6 +27,7 @@ export function RemoteSettings(): JSX.Element {
   const [manualPort, setManualPort] = useState<string | null>(null)
   const [listenPort, setListenPort] = useState<string | null>(null)
   const [qrEnlarged, setQrEnlarged] = useState(false)
+  const [confirmingUnpair, setConfirmingUnpair] = useState(false)
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -159,6 +161,7 @@ export function RemoteSettings(): JSX.Element {
   }
 
   const revoke = async (): Promise<void> => {
+    setConfirmingUnpair(false)
     setStatus(await anodex.remote.revoke())
     notify({
       kind: 'success',
@@ -175,7 +178,20 @@ export function RemoteSettings(): JSX.Element {
         label="Remote access"
         description={
           listening
-            ? `Listening on port ${status?.port ?? '—'}. Your phone must be on the same network.`
+            ? // Not "must be on the same network" — this page lists mesh and
+              // internet addresses a few rows down, and describeAddress() calls
+              // them "works anywhere". The claim contradicted the screen it was
+              // printed on, and it is the sentence somebody reads before deciding
+              // whether the feature is any use to them away from the desk.
+              //
+              // "below" only when there is in fact a list below; with no address
+              // found, pointing at one would repeat the original mistake in the
+              // other direction.
+              `Listening on port ${status?.port ?? '—'}.${
+                (status?.addresses.length ?? 0) > 0
+                  ? ' Your phone reaches it at one of the addresses below.'
+                  : ' No reachable address found yet — add one below.'
+              }`
             : 'Let one paired phone use Anodex while you are away from the computer.'
         }
         control={
@@ -387,7 +403,7 @@ export function RemoteSettings(): JSX.Element {
             }
             control={
               status?.pairedDevice ? (
-                <Button variant="danger" onClick={() => void revoke()}>
+                <Button variant="danger" onClick={() => setConfirmingUnpair(true)}>
                   Unpair
                 </Button>
               ) : (
@@ -447,6 +463,23 @@ export function RemoteSettings(): JSX.Element {
             </div>
           )}
         </>
+      )}
+
+      {/* Asked, because the desktop is the only thing that can undo it. Revoking
+          takes effect immediately and the phone cannot re-pair itself — somebody
+          has to come back to this screen and show a new code. The dialog already
+          existed for exactly this ("so callers don't fall back to window.confirm");
+          this button simply never used it. */}
+      {confirmingUnpair && status?.pairedDevice && (
+        <ConfirmDialog
+          title="Unpair this phone?"
+          message="Its saved key stops working immediately. To connect again you'll need to show it a new pairing code from this screen."
+          detail={status.pairedDevice.name}
+          confirmLabel="Unpair"
+          icon="smartphone"
+          onCancel={() => setConfirmingUnpair(false)}
+          onConfirm={() => void revoke()}
+        />
       )}
     </div>
   )

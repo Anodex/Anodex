@@ -265,6 +265,75 @@ Before finishing a change that touches the filesystem, shell, or timing, ask
 which of the three it was written against and whether the other two behave the
 same. When you cannot test them, say so.
 
+## Releasing
+
+**Merging is not shipping.** A change that a user would notice is not delivered
+until there is a release on GitHub carrying it, because that is the only thing
+the in-app updater can see. `anodex-mobile` has always been released this way —
+every change gets a version and a real set of notes — and this repository is
+held to the same standard. When work lands here, cut the release too, rather
+than leaving it merged and invisible.
+
+### Version numbers
+
+`MAJOR.MINOR.PATCH`, and the updater only cares that the new number sorts
+higher than the installed one.
+
+- **PATCH** (`0.2.0` → `0.2.1`) — bug fixes only, nothing new.
+- **MINOR** (`0.2.1` → `0.3.0`) — a new capability. Resets patch to 0.
+- **MAJOR** — still `0`, meaning the shape of the app is not yet promised.
+
+The version lives in **three** places and all three must agree: `version` in
+`package.json`, and _both_ `version` (root) and `packages[""].version` in
+`package-lock.json`. Missing the third is easy — `package-lock.json` also
+contains unrelated dependencies that happen to sit at the same number, so never
+blanket-replace the string; edit the two known lines. A lockfile that disagrees
+with `package.json` fails CI rather than shipping wrong, which is the good case;
+the bad case is noticing during a release.
+
+### Cutting one
+
+`.github/workflows/package.yml` triggers on `tags: ['v*']` and runs
+`npm run dist -- --publish always`. So the tag _is_ the release trigger — push
+it and the three platform builds publish themselves.
+
+Two settings exist because their absence produced a release that looked correct
+and did nothing:
+
+- `releaseType: release` in `electron-builder.yml`. electron-builder drafts by
+  default, and **a draft release is invisible to electron-updater** — the whole
+  chain runs against something no client can see, and every install goes on
+  reporting that it is up to date.
+- `latest.yml` must be published beside the installer. That file, not the
+  installer, is what the updater reads. Builds used to upload as workflow
+  artifacts, which only somebody already inside the repository can reach.
+
+### Release notes are written, not generated
+
+This is the part that is easy to skip and the part people actually read. Say
+what changed and why it mattered, in the app's own voice — the same voice the
+code comments use. A generated list of commit subjects is not release notes.
+
+Include the install line: which file to download per platform, and the fact
+that each platform is built on its own machine (Anodex ships the llama.cpp
+runtime for the system it was built on, so a Windows build made on Linux fails
+the moment a vision model loads).
+
+### Verify the bytes match the tag
+
+`anodex-mobile` shipped a release tagged 0.44.0 whose APK contained 0.43.0. The
+phone updated, reinstalled the same build, and offered the update again for
+ever — an install loop with nothing visibly wrong at either end. The cause was
+picking a CI run by recency moments after pushing, catching the merge that came
+just before the version bump.
+
+`tools/release_apk.py` there now resolves the run by commit sha and refuses to
+upload an APK whose `versionName` does not match the tag. This repository
+publishes from the tagged commit's own workflow run so it cannot make that
+mistake — but the lesson generalises: **a correct tag on the wrong bytes is
+indistinguishable from success until somebody installs it.** Check the version
+inside the artifact, not just the name on the release.
+
 ## Security notes
 
 - Never expose Node/Electron APIs directly to the renderer. Use the typed preload
