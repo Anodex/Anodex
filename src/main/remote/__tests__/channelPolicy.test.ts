@@ -76,3 +76,25 @@ describe('remote channel policy', () => {
     expect(decision.message).toContain('terminal:write')
   })
 })
+
+/**
+ * The memory carve-out, pinned in both directions.
+ *
+ * Written because the useful half of this is what it still refuses. A future
+ * change that widens `memory:` to the whole prefix would look reasonable in a
+ * diff — two channels are already allowed — and would quietly hand a phone the
+ * ability to write memories, which are injected into every later prompt.
+ */
+describe('memory from a phone', () => {
+  it('can read what is remembered and forget one line', () => {
+    expect(decideRemoteChannel('memory:list').allowed).toBe(true)
+    expect(decideRemoteChannel('memory:delete').allowed).toBe(true)
+  })
+
+  it('cannot write one', () => {
+    // Forgetting only narrows what the model is told. Adding steers every later
+    // conversation, from a device that might be in somebody else's hand.
+    expect(decideRemoteChannel('memory:create').allowed).toBe(false)
+    expect(decideRemoteChannel('memory:update').allowed).toBe(false)
+  })
+})
