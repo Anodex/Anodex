@@ -12584,6 +12584,29 @@
               }
             ]
           }
+        },
+        "origin": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "literal",
+                "value": "scheduled"
+              },
+              {
+                "kind": "literal",
+                "value": "agent"
+              },
+              {
+                "kind": "literal",
+                "value": "autorun"
+              }
+            ]
+          }
         }
       }
     },
