@@ -15,7 +15,24 @@ export default defineConfig({
     // checkout of this same repo, including its own test files. Without
     // excluding it, a stray
     // worktree gets swept into every test run here by Vitest's default glob.
-    exclude: ['node_modules', 'e2e', 'dist', 'out', '.claude']
+    exclude: ['node_modules', 'e2e', 'dist', 'out', '.claude'],
+    /**
+     * Fifteen seconds, against a default of five.
+     *
+     * Three suites — `fileTools`, `boundedChatRunner`, `gatheringStreakPlumbing` —
+     * time out intermittently on the Windows runner and never anywhere else. They
+     * finish in well under a second here on Windows with a warm cache, so the cost
+     * is the runner's cold transform and disk, not the tests: the first case in a
+     * heavy file pays for the whole module graph, and on a contended runner that
+     * alone can exceed five seconds.
+     *
+     * This makes a slow start survivable rather than making a hang invisible. A
+     * test that genuinely never finishes still fails; it fails ten seconds later.
+     * Raising it much further would be the version that hides things.
+     */
+    testTimeout: 15_000,
+    /** Same reason: a `beforeAll` that imports the graph pays the same cold cost. */
+    hookTimeout: 30_000
   },
   resolve: {
     alias: {

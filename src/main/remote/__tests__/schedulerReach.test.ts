@@ -46,8 +46,12 @@ describe('a phone asking for the scheduled tasks', () => {
 
   // The scheduler handlers pull in the service, the settings store and the
   // keep-awake shim behind them. On Windows that first cold transform costs more
-  // than a default test timeout all by itself, and charging it to whichever case
+  // than the default test timeout all by itself, and charging it to whichever case
   // happens to run first makes that case look broken. Pay it once, up front.
+  //
+  // The config now allows longer too, which covers the same problem elsewhere —
+  // this stays because paying the cost in a hook names it, rather than leaving one
+  // case mysteriously slower than its neighbours.
   beforeAll(async () => {
     await import('../handlerRegistry')
     await import('../../scheduler/SchedulerStore')
