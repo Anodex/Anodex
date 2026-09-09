@@ -13,6 +13,7 @@
 // src/main/updates/verifyRelease.ts byte for byte. Signing the digest rather
 // than the file keeps a 300 MB installer out of memory on both sides.
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
+import { RELEASE_KEY_SOURCE, pem, shippedPublicKey } from './release-key-source.mjs'
 import { createReadStream, readFileSync, writeFileSync } from 'node:fs'
 
 const args = process.argv.slice(2)
@@ -32,9 +33,25 @@ if (files.length === 0) {
 }
 
 const privateKey = createPrivateKey(readFileSync(keyPath))
-// Derived rather than supplied, so the self-check below cannot be fooled by
-// passing a public key that does not belong to the signing key.
-const publicKey = createPublicKey(privateKey)
+
+// Checked against the key the app actually carries, not the one derived from
+// what we just signed with. Deriving it would only prove the signature is
+// self-consistent — true of any key, including the wrong one.
+const shipped = shippedPublicKey()
+
+if (!shipped) {
+  console.error(`No release key compiled into ${RELEASE_KEY_SOURCE}.`)
+  console.error('Builds from this tree cannot verify an update. Run: npm run release:keygen')
+  process.exit(1)
+}
+
+if (pem(createPublicKey(privateKey)) !== pem(shipped)) {
+  console.error(`The key at ${keyPath} is not the key compiled into ${RELEASE_KEY_SOURCE}.`)
+  console.error('Signing with it would produce a release every install refuses.')
+  process.exit(1)
+}
+
+const publicKey = shipped
 
 function sha512(path) {
   return new Promise((resolve, reject) => {
