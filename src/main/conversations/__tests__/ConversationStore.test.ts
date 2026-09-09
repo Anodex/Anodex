@@ -97,6 +97,92 @@ describe('ConversationStore path safety', () => {
   })
 })
 
+describe('ConversationStore remote saves', () => {
+  // A paired phone reads a conversation through `conversations:get`, which answers
+  // with the last N turns because a long transcript cannot be buffered over a
+  // socket. It then saves what it is holding. Written straight to disk that is not
+  // an update, it is a deletion of everything the phone could not see — which is
+  // what happened to a real conversation: continued once from the phone, found
+  // afterwards holding two messages and its original createdAt.
+  const turn = (id: string, content = 'x'): Conversation['messages'][number] =>
+    ({ id, role: 'user', content }) as Conversation['messages'][number]
+
+  it('keeps the turns a remote client never saw', () => {
+    conversationStore.save(
+      conversation({ messages: [turn('a'), turn('b'), turn('c')], createdAt: 100 })
+    )
+
+    // The tail, plus one new turn — exactly the shape the phone sends back.
+    conversationStore.save(
+      conversation({ messages: [turn('c'), turn('d')], createdAt: 999, updatedAt: 5 }),
+      { fromRemote: true }
+    )
+
+    const stored = conversationStore.get('chat-1')
+    expect(stored?.messages.map((message) => message.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(stored?.updatedAt).toBe(5)
+  })
+
+  it('keeps everything when a remote client saves an empty transcript', () => {
+    // The sharp case. A failed read on the phone becomes an empty conversation
+    // bound to a real id, and the first message then saves one turn over the lot.
+    conversationStore.save(conversation({ messages: [turn('a'), turn('b')] }))
+    conversationStore.save(conversation({ messages: [turn('new')] }), { fromRemote: true })
+
+    expect(conversationStore.get('chat-1')?.messages.map((m) => m.id)).toEqual(['a', 'b', 'new'])
+  })
+
+  it('takes the title and project a remote client sends', () => {
+    // Merging is about turns only. Everything else the phone says is current.
+    conversationStore.save(conversation({ messages: [turn('a')], title: 'Old' }))
+    conversationStore.save(
+      conversation({ messages: [turn('a')], title: 'New', projectId: 'proj1' }),
+      { fromRemote: true }
+    )
+
+    const stored = conversationStore.get('chat-1')
+    expect(stored?.title).toBe('New')
+    expect(stored?.projectId).toBe('proj1')
+  })
+
+  it('keeps the original createdAt, which a partial client cannot know', () => {
+    conversationStore.save(conversation({ messages: [turn('a')], createdAt: 100 }))
+    conversationStore.save(conversation({ messages: [turn('a')], createdAt: 999 }), {
+      fromRemote: true
+    })
+
+    expect(conversationStore.get('chat-1')?.createdAt).toBe(100)
+  })
+
+  it('does not let a remote save resurrect an archived conversation', () => {
+    conversationStore.save(conversation({ messages: [turn('a')] }))
+    conversationStore.archive('chat-1')
+
+    conversationStore.save(conversation({ messages: [turn('b')] }), { fromRemote: true })
+
+    expect(conversationStore.get('chat-1')?.archived).toBe(true)
+  })
+
+  it('still replaces wholesale for a local save, which can legitimately delete', () => {
+    // The desktop can edit and delete individual turns. Merging its writes would
+    // make deleting a message impossible.
+    conversationStore.save(conversation({ messages: [turn('a'), turn('b')] }))
+    conversationStore.save(conversation({ messages: [turn('a')] }))
+
+    expect(conversationStore.get('chat-1')?.messages.map((m) => m.id)).toEqual(['a'])
+  })
+
+  it('writes a remote save for a conversation it has never seen', () => {
+    // A chat started on the phone. There is nothing to merge onto, and refusing it
+    // would mean the phone could not start a conversation at all.
+    conversationStore.save(conversation({ id: 'from-phone', messages: [turn('a')] }), {
+      fromRemote: true
+    })
+
+    expect(conversationStore.get('from-phone')?.messages.map((m) => m.id)).toEqual(['a'])
+  })
+})
+
 describe('ConversationStore persistence', () => {
   it('moves the file when a conversation changes project, leaving no duplicate', () => {
     conversationStore.save(conversation())
