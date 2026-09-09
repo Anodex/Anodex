@@ -14,6 +14,7 @@
 // made by a key CI has never seen is what makes that substitution fail.
 import { execFileSync } from 'node:child_process'
 import { createHash, createPublicKey, createPrivateKey, sign, verify } from 'node:crypto'
+import { RELEASE_KEY_SOURCE, pem, shippedPublicKey } from './release-key-source.mjs'
 import { createReadStream, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -35,22 +36,15 @@ const dir = flag('dir', join('dist', 'release', tag))
 
 const gh = (...a) => execFileSync('gh', a, { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
 
-// The key the installed app will judge this release with. Read from source
-// rather than derived from the private key, because the failure this catches is
-// exactly the two drifting apart: sign with a rotated key, forget to ship its
-// public half, and every install refuses the update with no way back.
-const SOURCE = 'src/main/updates/releaseKey.ts'
-const shipped = /RELEASE_PUBLIC_KEY_PEM: string \| null = `([^`]+)`/.exec(
-  readFileSync(SOURCE, 'utf-8')
-)
+// The key the installed app will judge this release with.
+const SOURCE = RELEASE_KEY_SOURCE
+const shippedKey = shippedPublicKey()
 
-if (!shipped) {
+if (!shippedKey) {
   console.error(`No release key compiled into ${SOURCE}.`)
   console.error('Builds from this tree cannot verify an update. Run: npm run release:keygen')
   process.exit(1)
 }
-
-const shippedKey = createPublicKey(shipped[1].trim())
 let privateKey
 try {
   privateKey = createPrivateKey(readFileSync(keyPath))
@@ -60,10 +54,7 @@ try {
   process.exit(1)
 }
 
-if (
-  createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString().trim() !==
-  shippedKey.export({ type: 'spki', format: 'pem' }).toString().trim()
-) {
+if (pem(createPublicKey(privateKey)) !== pem(shippedKey)) {
   console.error(`The key at ${keyPath} is not the key compiled into ${SOURCE}.`)
   console.error('Publishing this would ship a release every install refuses. Nothing was changed.')
   process.exit(1)

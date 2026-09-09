@@ -297,8 +297,9 @@ the bad case is noticing during a release.
 `npm run dist -- --publish always`. So the tag _is_ the release trigger — push
 it and the three platform builds package themselves into a **draft** release.
 
-A draft is where they stop. Publishing is a separate, deliberate step that
-happens after the installers are signed; see below.
+A draft is where they stop until every platform has built _and_ signed. The
+`publish` job then makes the release visible. Nothing is offered to anybody in
+between, which is the entire point of the draft.
 
 Two settings exist because their absence produced a release that looked correct
 and did nothing:
@@ -315,57 +316,53 @@ and did nothing:
 ### Signing it
 
 Every installer is signed with the Anodex release key, and an install refuses an
-update it cannot verify. This is the step that makes an update trustworthy
-rather than merely intact.
+update it cannot verify. **This happens automatically in CI** — there is no
+manual step in a normal release.
 
-The distinction is worth being precise about. `latest.yml` carries a sha512 for
+The distinction worth being precise about: `latest.yml` carries a sha512 for
 each installer, but that hash travels in the same GitHub release as the
-installer — it catches corruption in transit and nothing else. Anyone able to
+installer. It catches corruption in transit and nothing else. Anyone able to
 write to a release can replace both halves, and before signing existed every
 install would have accepted the result. The Ed25519 signature is what makes that
-substitution fail, because the private key is not in the repository, not in CI,
-and not reachable by any token that can write a release.
+substitution fail.
 
-After CI finishes, one command does the rest:
+Each platform job signs the installer it just built, using the
+`ANODEX_RELEASE_SIGNING_KEY` secret, and uploads the `.sig` beside it. The
+`publish` job then undrafts the release — and only runs if all three succeeded,
+so a partial release stays an invisible draft rather than becoming the
+half-release v0.2.1 shipped as.
 
-```
-npm run release:finish -- v0.2.2
-```
+`sign-release` verifies each signature against the public key **compiled into
+the app**, not against the key it just signed with. Deriving it from the private
+key would only prove the signature is self-consistent, which is true of any key
+including the wrong one. This is what catches a rotated secret whose public half
+was never shipped — a release that would look perfect in CI and be refused by
+every install.
 
-Download, sign, upload, verify, publish. It reads the key from
-`~/.anodex/release-signing-key.pem` unless `--key` says otherwise, and it
-refuses rather than half-finishes:
+**Where the key lives, and what that costs.** In the repository's Actions
+secrets. That is a deliberate trade: releases need no manual step, and there is
+nothing on anybody's laptop to lose — but it means the signature no longer
+protects against someone who controls this repository, since they could read the
+secret. It still protects against a leaked release-write token, a stolen
+credential, or a tampered asset. If the threat model ever needs to include
+account compromise, the key has to move back offline.
 
-- **the release is already published** — too late; signing has to happen while
-  it is still invisible.
-- **fewer than three installers** — this repo has shipped half a release before.
-  Cheaper to catch here than after somebody cannot install.
-- **the signing key is not the one compiled into `releaseKey.ts`** — checked
-  before anything is uploaded, because publishing a release signed by the wrong
-  key would be refused by every install, with no way back except another
-  release.
+**GitHub secrets cannot be read back out.** If the only copy is the secret, it is
+already lost. Keep a backup somewhere else; `npm run release:keygen` is only
+useful for making a _new_ key, which means shipping a new build before anyone can
+update past it.
 
-Each signature is verified against the _shipped_ public key rather than the one
-that just made it, so what passes here is what an installed copy of Anodex will
-actually conclude.
+`npm run release:finish -- <tag>` still exists for signing a release by hand —
+if CI's signing step failed, or the secret was missing. It refuses on an
+already-published release, on fewer than three installers, and on a key that is
+not the one compiled into `releaseKey.ts`.
 
-`npm run release:sign` still exists for signing files by hand.
-
-**The failure mode to know:** publish a release without uploading its `.sig`
-files and every install will refuse the update. That is correct behaviour — the
-check is fail-closed on purpose, because whoever can replace an installer can
-equally delete the signature beside it — but the first time it happens it will
-look exactly like a broken updater. If an install reports "this release carries
-no signature", the release is at fault, not the client.
-
-The key itself is generated once, by `npm run release:keygen`, on the machine
-that cuts releases — once for the life of the key, not once per release. Its public half is compiled into the app
-(`src/main/updates/releaseKey.ts`), which is what pins the trust: the copy
-somebody already installed is the thing that judges the update, so reaching the
-release is not enough to forge one. The corollary is that **losing the private
-key cannot be undone by reissuing it** — a new key means shipping a build
-carrying the new public half before anyone can update past it. Back it up
-offline.
+**The failure mode to know:** a release published without its `.sig` files is
+refused by every install. That is correct behaviour — the check is fail-closed on
+purpose, because whoever can replace an installer can equally delete the
+signature beside it — but the first time it happens it will look exactly like a
+broken updater. If an install reports "this release carries no signature", the
+release is at fault, not the client.
 
 ### Release notes are written, not generated
 
