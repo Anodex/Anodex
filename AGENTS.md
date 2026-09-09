@@ -267,14 +267,29 @@ same. When you cannot test them, say so.
 
 ## Getting a change onto main
 
-`main` is reached through a pull request, not a direct push. A `pre-push` hook
-refuses one, with `ANODEX_ALLOW_MAIN_PUSH=1` as the deliberate escape hatch.
+A pull request is how a change reaches `main`, because it is the only way CI
+runs _before_ the change lands rather than after.
 
-That is not bureaucracy for its own sake. 02af5ce went straight to `main`,
+Nothing local enforces that any more. A `pre-push` hook used to refuse a direct
+push; it was removed on 2026-09-09 for costing more than it caught. It fired on
+every intended direct push as well as every unintended one, and an escape hatch
+typed often enough stops being a signal and becomes a prefix.
+
+Server-side rules are the replacement, when they are wanted. The repository went
+public on 2026-09-06, so GitHub's rulesets are available at no cost;
+`docs/BRANCH_PROTECTION.md` carries the one to create. **It is not turned on.**
+
+So this is now a convention you are choosing to keep, and it is worth keeping.
+02af5ce went straight to `main`,
 never ran CI, and shipped a `UpdateStatus` change without regenerating
 `protocol/anodex-protocol.json` — which failed the protocol gate on `main` and
 therefore on _every_ open pull request, none of which had done anything wrong.
 The five minutes a pull request costs are cheaper than the hour that took.
+
+A direct push to `main` is now just a push, so when you make one, run what CI
+would have run first — `npm run lint`, `npm run format:check`, `npm run
+typecheck`, `npm test` — because nothing else will before it is on the branch
+everybody builds from.
 
 The five steps are one command:
 

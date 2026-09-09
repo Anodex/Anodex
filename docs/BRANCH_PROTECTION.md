@@ -47,28 +47,19 @@ Two choices in it worth knowing about:
 The mobile repo takes the same shape with a single required check, `Assemble and
 test`.
 
-Once a ruleset is in place, `.husky/pre-push` becomes redundant and the
-`ANODEX_ALLOW_MAIN_PUSH` escape hatch becomes a lie — the server would refuse the
-push the hook just waved through. Remove both in the same change.
+## The local hook is gone
 
-## The local hook, until then
+`.husky/pre-push` → `scripts/guard-main-push.mjs` refused a direct push to `main`
+until 2026-09-09, when it was removed for costing more than it caught.
 
-`.husky/pre-push` → `scripts/guard-main-push.mjs` is a speed bump against pushing
-to `main` out of habit — the failure that actually happens — and not a security
-control:
+It was never a control, and its own comment said so: it applied only to clones
+that had run `npm install`, `git push --no-verify` walked past it, and any
+collaborator could set `ANODEX_ALLOW_MAIN_PUSH=1`. What it could do was refuse
+the push you meant to make, every time, until the override became something you
+typed without reading — which is a reminder that has stopped reminding anyone of
+anything.
 
-- it only applies to clones that have run `npm install` (which installs husky);
-- `git push --no-verify` bypasses it;
-- any collaborator can set the escape-hatch variable;
-- it cannot run CI, so it cannot require a green build.
-
-Treat it as a reminder that happens to be automated. It refuses both a direct
-push to `main` and a delete of `main`.
-
-## Pushing anyway
-
-For a genuine direct push — a hotfix, a revert of a bad merge:
-
-```bash
-ANODEX_ALLOW_MAIN_PUSH=1 git push
-```
+**So nothing enforces this today.** A direct push to `main` succeeds, and lands
+without CI having seen it. The convention in `AGENTS.md` — a pull request, so CI
+runs before the change rather than after — is now upheld by choosing to, and the
+ruleset above is what to create if that is not enough.
