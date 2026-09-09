@@ -51,6 +51,30 @@ jobs:
       - name: Protocol contract is up to date
         run: npm run protocol:check
 
+  # A `commit-msg` hook already strips coding-agent attribution, and it works —
+  # but a hook only runs where somebody installed it. Forty-one trailers reached
+  # `main` in the five weeks after that hook landed, from worktrees without husky
+  # wired, from `--no-verify`, and from merges made on github.com, and the
+  # history has had to be rewritten more than once as a result. This is the same
+  # rule enforced somewhere nobody configures.
+  #
+  # No `npm ci`: it is git and Node's standard library, so it costs seconds.
+  attribution:
+    name: No coding-agent attribution
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, and the pull request's own head rather than the synthetic
+      # merge commit — the merge commit's message is GitHub's, not the author's.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check the commits this pull request adds
+        run: npm run check:attribution -- "origin/${{ github.base_ref }}..HEAD"
+
   test:
     name: Unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
