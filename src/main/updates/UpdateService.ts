@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import type { UpdateDownloadedEvent } from 'electron-updater'
 import type { UpdateStatus } from '@shared/update.types'
 import { createLogger } from '../utils/logger'
+import { verifyUpdateFile } from './verifyRelease'
 
 const log = createLogger('updater')
 
@@ -44,9 +46,9 @@ class UpdateService extends EventEmitter {
         percent: Math.round(progress.percent)
       })
     )
-    autoUpdater.on('update-downloaded', (info) => {
-      this.pendingVersion = info.version
-      this.setStatus({ state: 'downloaded', version: info.version })
+    autoUpdater.on('update-downloaded', (event) => {
+      this.pendingVersion = event.version
+      void this.verifyDownload(event)
     })
     autoUpdater.on('error', (error) => {
       log.warn('Update check failed:', error)
@@ -80,6 +82,49 @@ class UpdateService extends EventEmitter {
     } catch (error) {
       log.warn('downloadUpdate threw:', error)
     }
+  }
+
+  /**
+   * Checks a finished download against the release signing key before it is
+   * offered as installable.
+   *
+   * This runs here rather than through electron-updater's own
+   * `verifyUpdateCodeSignature` hook for two reasons: that hook is Windows-only,
+   * and it is skipped entirely when the app is unsigned, so on this build it
+   * would never fire. Gating our own `downloaded` state covers all three
+   * platforms and stays correct if the app is code-signed later, when the
+   * platform check becomes an additional layer rather than a replacement.
+   *
+   * `installAndRestart` only acts on `downloaded`, and `autoInstallOnAppQuit`
+   * is off, so a rejected file has no path to being run.
+   */
+  private async verifyDownload(event: UpdateDownloadedEvent): Promise<void> {
+    this.setStatus({ state: 'verifying', version: event.version })
+
+    let verdict: Awaited<ReturnType<typeof verifyUpdateFile>>
+    try {
+      verdict = await verifyUpdateFile({
+        downloadedFile: event.downloadedFile,
+        version: event.version,
+        files: event.files
+      })
+    } catch (error) {
+      // An unexpected failure is still a failure to verify. Refuse rather than
+      // fall through to `downloaded`.
+      verdict = { verdict: 'rejected', reason: (error as Error).message }
+    }
+
+    if (verdict.verdict === 'rejected') {
+      log.error(`Refusing update ${event.version}: ${verdict.reason}`)
+      this.setStatus({ state: 'rejected', version: event.version, reason: verdict.reason })
+      return
+    }
+
+    if (verdict.verdict === 'unenforced') {
+      log.warn(`Update ${event.version} installed without a signature check — ${verdict.reason}`)
+    }
+
+    this.setStatus({ state: 'downloaded', version: event.version })
   }
 
   /** Quits and installs the already-downloaded update. Only valid after `downloaded`. */

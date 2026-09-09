@@ -285,8 +285,12 @@ function updatePresentation(status: UpdateStatus): {
       return { title: "You're up to date", icon: 'check', tone: 'success' }
     case 'downloading':
       return { title: 'Downloading update', icon: 'download', tone: 'neutral' }
+    case 'verifying':
+      return { title: 'Checking the download', icon: 'shield-question', tone: 'neutral' }
     case 'downloaded':
       return { title: 'Ready to install', icon: 'check', tone: 'success' }
+    case 'rejected':
+      return { title: 'Update refused', icon: 'alert', tone: 'danger' }
     case 'error':
       return { title: 'Update check failed', icon: 'alert', tone: 'danger' }
   }
