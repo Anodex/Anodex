@@ -7045,6 +7045,12 @@
                   "value": "downloading"
                 }
               },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
               "percent": {
                 "optional": false,
                 "type": {
@@ -7060,10 +7066,52 @@
                 "optional": false,
                 "type": {
                   "kind": "literal",
+                  "value": "verifying"
+                }
+              },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "state": {
+                "optional": false,
+                "type": {
+                  "kind": "literal",
                   "value": "downloaded"
                 }
               },
               "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "state": {
+                "optional": false,
+                "type": {
+                  "kind": "literal",
+                  "value": "rejected"
+                }
+              },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "reason": {
                 "optional": false,
                 "type": {
                   "kind": "string"
@@ -7173,6 +7221,12 @@
                   "value": "downloading"
                 }
               },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
               "percent": {
                 "optional": false,
                 "type": {
@@ -7188,10 +7242,52 @@
                 "optional": false,
                 "type": {
                   "kind": "literal",
+                  "value": "verifying"
+                }
+              },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "state": {
+                "optional": false,
+                "type": {
+                  "kind": "literal",
                   "value": "downloaded"
                 }
               },
               "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "state": {
+                "optional": false,
+                "type": {
+                  "kind": "literal",
+                  "value": "rejected"
+                }
+              },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "reason": {
                 "optional": false,
                 "type": {
                   "kind": "string"

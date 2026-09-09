@@ -32,6 +32,22 @@ describe('updateStatusText', () => {
     )
   })
 
+  it('describes the signature check in progress', () => {
+    expect(updateStatusText({ state: 'verifying', version: '0.2.1' })).toBe(
+      'Checking that version 0.2.1 is genuine…'
+    )
+  })
+
+  it('describes a refused update', () => {
+    expect(
+      updateStatusText({
+        state: 'rejected',
+        version: '0.2.1',
+        reason: 'this release carries no signature'
+      })
+    ).toBe('Version 0.2.1 was not installed: this release carries no signature.')
+  })
+
   it('describes an error', () => {
     expect(updateStatusText({ state: 'error', message: 'network down' })).toBe(
       "Couldn't check for updates: network down"
