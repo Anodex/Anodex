@@ -14,8 +14,12 @@ export function updateStatusText(status: UpdateStatus): string {
       return "You're on the latest version."
     case 'downloading':
       return `Downloading update… ${status.percent}%`
+    case 'verifying':
+      return `Checking that version ${status.version} is genuine…`
     case 'downloaded':
       return `Version ${status.version} downloaded — restart to install.`
+    case 'rejected':
+      return `Version ${status.version} was not installed: ${status.reason}.`
     case 'error':
       return `Couldn't check for updates: ${status.message}`
   }

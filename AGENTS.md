@@ -324,18 +324,74 @@ the bad case is noticing during a release.
 
 `.github/workflows/package.yml` triggers on `tags: ['v*']` and runs
 `npm run dist -- --publish always`. So the tag _is_ the release trigger — push
-it and the three platform builds publish themselves.
+it and the three platform builds package themselves into a **draft** release.
+
+A draft is where they stop until every platform has built _and_ signed. The
+`publish` job then makes the release visible. Nothing is offered to anybody in
+between, which is the entire point of the draft.
 
 Two settings exist because their absence produced a release that looked correct
 and did nothing:
 
-- `releaseType: release` in `electron-builder.yml`. electron-builder drafts by
-  default, and **a draft release is invisible to electron-updater** — the whole
-  chain runs against something no client can see, and every install goes on
-  reporting that it is up to date.
+- `releaseType: draft` in `electron-builder.yml`. **A draft release is invisible
+  to electron-updater.** That was once the bug — the whole chain ran against
+  something no client could see, and every install went on reporting it was up
+  to date. It is now the mechanism: invisibility is exactly what you want in the
+  window between "the installers exist" and "the installers are signed".
 - `latest.yml` must be published beside the installer. That file, not the
   installer, is what the updater reads. Builds used to upload as workflow
   artifacts, which only somebody already inside the repository can reach.
+
+### Signing it
+
+Every installer is signed with the Anodex release key, and an install refuses an
+update it cannot verify. **This happens automatically in CI** — there is no
+manual step in a normal release.
+
+The distinction worth being precise about: `latest.yml` carries a sha512 for
+each installer, but that hash travels in the same GitHub release as the
+installer. It catches corruption in transit and nothing else. Anyone able to
+write to a release can replace both halves, and before signing existed every
+install would have accepted the result. The Ed25519 signature is what makes that
+substitution fail.
+
+Each platform job signs the installer it just built, using the
+`ANODEX_RELEASE_SIGNING_KEY` secret, and uploads the `.sig` beside it. The
+`publish` job then undrafts the release — and only runs if all three succeeded,
+so a partial release stays an invisible draft rather than becoming the
+half-release v0.2.1 shipped as.
+
+`sign-release` verifies each signature against the public key **compiled into
+the app**, not against the key it just signed with. Deriving it from the private
+key would only prove the signature is self-consistent, which is true of any key
+including the wrong one. This is what catches a rotated secret whose public half
+was never shipped — a release that would look perfect in CI and be refused by
+every install.
+
+**Where the key lives, and what that costs.** In the repository's Actions
+secrets. That is a deliberate trade: releases need no manual step, and there is
+nothing on anybody's laptop to lose — but it means the signature no longer
+protects against someone who controls this repository, since they could read the
+secret. It still protects against a leaked release-write token, a stolen
+credential, or a tampered asset. If the threat model ever needs to include
+account compromise, the key has to move back offline.
+
+**GitHub secrets cannot be read back out.** If the only copy is the secret, it is
+already lost. Keep a backup somewhere else; `npm run release:keygen` is only
+useful for making a _new_ key, which means shipping a new build before anyone can
+update past it.
+
+`npm run release:finish -- <tag>` still exists for signing a release by hand —
+if CI's signing step failed, or the secret was missing. It refuses on an
+already-published release, on fewer than three installers, and on a key that is
+not the one compiled into `releaseKey.ts`.
+
+**The failure mode to know:** a release published without its `.sig` files is
+refused by every install. That is correct behaviour — the check is fail-closed on
+purpose, because whoever can replace an installer can equally delete the
+signature beside it — but the first time it happens it will look exactly like a
+broken updater. If an install reports "this release carries no signature", the
+release is at fault, not the client.
 
 ### Release notes are written, not generated
 
