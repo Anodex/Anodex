@@ -17,6 +17,41 @@ const STATE_FILE = 'state.json'
 const GENERAL_DIR = 'general'
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
 
+/** How a save should be treated. See [ConversationStore.save]. */
+export interface SaveOptions {
+  /**
+   * True when the write came from a paired device rather than from this app.
+   *
+   * Such a client may be holding only the tail of the conversation, so its
+   * messages are merged onto what is on disk rather than replacing it.
+   */
+  fromRemote?: boolean
+}
+
+/**
+ * Fold a partial transcript into the stored one.
+ *
+ * Everything already on disk is kept, in its own order; anything the caller
+ * brought that we have not seen before is appended. Matching is by message id,
+ * which is unique per turn — a reply carries its request's id with `:reply`
+ * appended, so the two never collide.
+ *
+ * `createdAt` is taken from the stored record on purpose. A client that has only
+ * seen the last twenty turns cannot know when the first one was written, and the
+ * one time it guesses wrong the conversation sorts to the wrong end of the list.
+ */
+function mergeRemoteSave(stored: Conversation, incoming: Conversation): Conversation {
+  const known = new Set(stored.messages.map((message) => message.id))
+  const added = incoming.messages.filter((message) => !known.has(message.id))
+
+  return {
+    ...stored,
+    ...incoming,
+    createdAt: stored.createdAt,
+    messages: [...stored.messages, ...added]
+  }
+}
+
 /** A cached conversation together with the file that backs it. */
 interface CacheEntry {
   conversation: Conversation
@@ -87,19 +122,41 @@ class ConversationStore {
     return this.ensureCache().get(id)?.conversation
   }
 
-  /** Persist a single conversation, keeping the cache in sync. */
-  save(conversation: Conversation): void {
+  /**
+   * Persist a single conversation, keeping the cache in sync.
+   *
+   * `fromRemote` is not a permission flag — it says the caller is holding a
+   * *partial* transcript. The phone reads a conversation through
+   * `conversations:get`, which answers with the last `limit` turns because a long
+   * one cannot be buffered over a socket, and it has no way to send back what it
+   * was never given. A plain write of what it holds therefore replaces a thousand
+   * turns with the twenty it could see.
+   *
+   * That is not hypothetical. A conversation started at the desk, continued once
+   * from the phone, was found afterwards holding two messages and its original
+   * `createdAt` — the rest overwritten by an atomic write with nothing behind it.
+   *
+   * So a remote save may add turns and may update the title, the project and the
+   * timestamps. It may not remove a turn. The phone has no feature that deletes
+   * one, so there is nothing legitimate being refused here.
+   */
+  save(conversation: Conversation, options: SaveOptions = {}): void {
     const normalized = sanitizeConversationTranscript(conversation).conversation
     assertSafeId(normalized.id, 'conversation id')
-    const dir = this.dirForProject(normalized.projectId)
-    this.ensureDir(dir)
-    const filePath = join(dir, `${normalized.id}.json`)
 
     const existing = this.ensureCache().get(normalized.id)
+    const toWrite =
+      options.fromRemote && existing
+        ? mergeRemoteSave(existing.conversation, normalized)
+        : normalized
+
+    const dir = this.dirForProject(toWrite.projectId)
+    this.ensureDir(dir)
+    const filePath = join(dir, `${toWrite.id}.json`)
 
     try {
-      writeJsonAtomic(filePath, normalized)
-      this.ensureCache().set(normalized.id, { conversation: normalized, filePath })
+      writeJsonAtomic(filePath, toWrite)
+      this.ensureCache().set(normalized.id, { conversation: toWrite, filePath })
     } catch (error) {
       log.error('Failed to save conversation:', filePath, error)
       throw error

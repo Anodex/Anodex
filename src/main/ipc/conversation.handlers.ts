@@ -37,7 +37,10 @@ export function registerConversationHandlers(): void {
 
   ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {
     try {
-      conversationStore.save(conversation)
+      // A remote client may only be holding the tail of this conversation, so its
+      // turns are merged rather than written over what is on disk. See
+      // `ConversationStore.save`.
+      conversationStore.save(conversation, { fromRemote: isRemoteCall(event) })
 
       // A phone can now write conversations, and the desktop had no way to hear
       // about it — a chat started on the phone simply did not exist here until
