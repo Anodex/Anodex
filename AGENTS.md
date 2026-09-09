@@ -265,6 +265,35 @@ Before finishing a change that touches the filesystem, shell, or timing, ask
 which of the three it was written against and whether the other two behave the
 same. When you cannot test them, say so.
 
+## Getting a change onto main
+
+`main` is reached through a pull request, not a direct push. A `pre-push` hook
+refuses one, with `ANODEX_ALLOW_MAIN_PUSH=1` as the deliberate escape hatch.
+
+That is not bureaucracy for its own sake. 02af5ce went straight to `main`,
+never ran CI, and shipped a `UpdateStatus` change without regenerating
+`protocol/anodex-protocol.json` — which failed the protocol gate on `main` and
+therefore on _every_ open pull request, none of which had done anything wrong.
+The five minutes a pull request costs are cheaper than the hour that took.
+
+The five steps are one command:
+
+```
+npm run ship -- "fix(updates): stop the notice flickering"
+```
+
+Branch (named from the commit subject), commit, push, open the pull request,
+wait for CI, merge, delete the branch, return to an updated `main`.
+
+- It shows what it is about to commit and asks first. Outside a terminal it
+  refuses unless given `--yes`, because the one thing worse than friction is a
+  script that quietly opens pull requests on a public repository.
+- Staged changes win if there are any, so `git add -p` is not silently widened
+  into everything currently open. Otherwise it takes tracked modifications;
+  `--all` includes untracked files.
+- `--no-merge` opens the pull request and stops.
+- If CI fails nothing is merged, and the branch and pull request stay put.
+
 ## Releasing
 
 **Merging is not shipping.** A change that a user would notice is not delivered
