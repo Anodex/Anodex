@@ -7045,6 +7045,12 @@
                   "value": "downloading"
                 }
               },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
               "percent": {
                 "optional": false,
                 "type": {
@@ -7171,6 +7177,12 @@
                 "type": {
                   "kind": "literal",
                   "value": "downloading"
+                }
+              },
+              "version": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
                 }
               },
               "percent": {
