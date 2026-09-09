@@ -120,6 +120,14 @@ jobs:
       # secret and lands in RUNNER_TEMP, which is ephemeral; the trap removes it
       # even when signing fails.
       #
+      # `--manifest` rather than a glob, for two reasons found the hard way on
+      # v0.3.0. The signature must be named what the updater asks for, which is
+      # the name in `latest.yml` (`Anodex-Setup-0.3.0.exe`), not the local
+      # filename (`Anodex Setup 0.3.0.exe`) — GitHub turns those spaces into
+      # dots, and the updater then requested a file that did not exist. And a
+      # glob also signed the branded installer shell, which is not a release
+      # artifact at all.
+      #
       # `sign-release` checks the signature against the public key compiled into
       # the app, not against the key it just signed with. That is what catches a
       # rotated secret whose public half was never shipped — a release that
@@ -137,7 +145,7 @@ jobs:
           KEYFILE="$RUNNER_TEMP/release-key.pem"
           trap 'rm -f "$KEYFILE"' EXIT
           echo "$SIGNING_KEY" > "$KEYFILE"
-          node scripts/sign-release.mjs --key "$KEYFILE" ${{ matrix.artifact }}
+          node scripts/sign-release.mjs --key "$KEYFILE" --manifest dist
 
       # The `.sig` has to reach the release before it is published, because the
       # updater fetches it from there and refuses an update without one.
