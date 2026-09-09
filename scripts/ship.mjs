@@ -115,6 +115,29 @@ if (has('no-merge')) {
   process.exit(0)
 }
 
+// GitHub needs a moment to register a new pull request's checks, and asking too
+// early gets "no checks reported" - not a failure, just the answer arriving
+// before the question means anything. The first version of this script read
+// that as a red build and refused to merge a perfectly good change.
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+process.stdout.write('\nWaiting for CI to start')
+let started = false
+for (let attempt = 0; attempt < 24 && !started; attempt += 1) {
+  const probe = spawnSync('gh', ['pr', 'checks', url], { encoding: 'utf-8' })
+  started = !/no checks reported/i.test(`${probe.stdout ?? ''}${probe.stderr ?? ''}`)
+  if (!started) {
+    process.stdout.write('.')
+    sleep(5000)
+  }
+}
+console.log()
+
+if (!started) {
+  console.error(`No checks appeared after two minutes. Have a look yourself:\n  ${url}`)
+  process.exit(1)
+}
+
 console.log('\nWaiting for CI...')
 // Not `execFileSync`: this takes minutes, and the checks should appear as they
 // land rather than arriving all at once when it is already over.
