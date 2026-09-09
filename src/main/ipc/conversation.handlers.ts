@@ -9,6 +9,7 @@ import type {
 } from '@shared/conversation.types'
 import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
+import { forRemote } from '../conversations/remoteTranscript'
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
 
@@ -22,15 +23,25 @@ export function registerConversationHandlers(): void {
     conversationStore.list().map(toSummary)
   )
 
-  ipcMain.handle(IpcChannel.Conversations.get, (_event, conversationId: string, limit?: number) => {
+  ipcMain.handle(IpcChannel.Conversations.get, (event, conversationId: string, limit?: number) => {
     const conversation = conversationStore.get(conversationId)
     if (!conversation) return null
-    if (limit == null || conversation.messages.length <= limit) return conversation
 
     // The tail, because that is what a reader wants and what a model was last
     // talking about. Sending the head of a thousand-turn conversation is both
     // larger and less useful.
-    return { ...conversation, messages: conversation.messages.slice(-limit) }
+    const tail =
+      limit == null || conversation.messages.length <= limit
+        ? conversation
+        : { ...conversation, messages: conversation.messages.slice(-limit) }
+
+    // A count is not a size. Two hundred turns of an agent transcript carry tool
+    // calls, render blocks and context assemblies the phone never reads, and one
+    // reply asked to write a web page carries the page — which is how a 6MB frame
+    // came to be refused outright by `MAX_RESPONSE_BYTES`, leaving conversations
+    // that simply would not open from away. `forRemote` sends the four fields the
+    // phone does read, and as many turns of them as will fit.
+    return isRemoteCall(event) ? forRemote(tail) : tail
   })
 
   ipcMain.handle(IpcChannel.Conversations.listArchived, () => conversationStore.listArchived())
