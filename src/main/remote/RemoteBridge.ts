@@ -11,6 +11,7 @@ import {
 import { collectHostAddresses } from './addresses'
 import { EXPECTED_MOBILE_VERSION } from './mobileRelease'
 import { decideRemoteChannel } from './channelPolicy'
+import { farewellCode, type RemoteFarewell } from '@shared/remoteFarewell'
 import { hostname } from 'node:os'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
@@ -57,6 +58,15 @@ const HANDSHAKE_TIMEOUT_MS = 10_000
  * - **Re-dispatch, never fork.** Calls go to the same handler functions the
  *   renderer uses, so a feature cannot exist on one client and not the other.
  */
+/**
+ * How long a farewell gets to leave before the socket is cut.
+ *
+ * Short, because this sits between the user pressing Quit and the window going
+ * away, and a goodbye nobody waits for is not worth the wait. Long enough for a
+ * frame already queued on a live connection.
+ */
+const FAREWELL_GRACE_MS = 250
+
 export class RemoteBridge {
   private server: HttpsServer | null = null
   private sockets: WebSocketServer | null = null
@@ -151,8 +161,16 @@ export class RemoteBridge {
     return this.port ?? port
   }
 
-  /** Stop listening and drop every client. */
-  async stop(): Promise<void> {
+  /**
+   * Stop listening, having told every client why.
+   *
+   * [farewell] is sent as the WebSocket close code and reason. That is the whole
+   * point of the argument: a dropped socket is the same shape whether the computer
+   * slept, quit, or was carried out of Wi-Fi range, so a phone that is told nothing
+   * has to offer its user a list of guesses. This used to call `terminate()`, which
+   * drops the TCP connection with no close frame at all.
+   */
+  async stop(farewell: RemoteFarewell = 'quitting'): Promise<void> {
     const server = this.server
     const sockets = this.sockets
     this.server = null
@@ -160,6 +178,29 @@ export class RemoteBridge {
     detachAllRemoteClients()
 
     if (sockets) {
+      // `close` queues a close frame; `terminate` would cut the connection before it
+      // could go out. So: ask politely, give the frames a moment to leave, and only
+      // then insist — a socket that is already gone will not answer a close frame,
+      // and quitting must not wait on one.
+      for (const socket of sockets.clients) {
+        try {
+          socket.close(farewellCode(farewell), farewell)
+        } catch {
+          socket.terminate()
+        }
+      }
+      await Promise.race([
+        new Promise<void>((resolve) => setTimeout(resolve, FAREWELL_GRACE_MS)),
+        Promise.all(
+          [...sockets.clients].map(
+            (socket) =>
+              new Promise<void>((resolve) => {
+                if (socket.readyState === socket.CLOSED) resolve()
+                else socket.once('close', () => resolve())
+              })
+          )
+        ).then(() => undefined)
+      ])
       for (const socket of sockets.clients) socket.terminate()
       await new Promise<void>((resolve) => sockets.close(() => resolve()))
     }
