@@ -334,3 +334,16 @@
   font-family: var(--font-mono);
   color: var(--text);
 }
+
+/*
+ * The two things you can do to a paired phone, side by side.
+ *
+ * Renewing sits before unpairing deliberately: it is the one that fixes a phone
+ * that cannot connect, and until it existed the only control here was the
+ * destructive one.
+ */
+.pairedActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

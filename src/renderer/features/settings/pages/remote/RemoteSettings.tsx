@@ -398,14 +398,36 @@ export function RemoteSettings(): JSX.Element {
             label="Paired phone"
             description={
               status?.pairedDevice
-                ? `${status.pairedDevice.name} · last seen ${formatSeen(status.pairedDevice.lastSeenEpochMs)}`
+                ? status.pairedDevice.trustsThisIdentity === false
+                  ? // Said plainly, because the pairing is already dead and the
+                    // "last seen" line reads as healthy through exactly that. The
+                    // phone pins the certificate, so an identity that has changed
+                    // underneath it is indistinguishable from an impostor and every
+                    // connection is refused.
+                    `${status.pairedDevice.name} · paired to an older identity of this computer, ` +
+                    'so it can no longer connect. Show it a new code.'
+                  : `${status.pairedDevice.name} · last seen ${formatSeen(status.pairedDevice.lastSeenEpochMs)}`
                 : 'No phone is paired yet.'
             }
             control={
               status?.pairedDevice ? (
-                <Button variant="danger" onClick={() => setConfirmingUnpair(true)}>
-                  Unpair
-                </Button>
+                <div className={styles.pairedActions}>
+                  {/*
+                    Renewing without unpairing first.
+                    
+                    `PairingService` already replaces the device on a successful
+                    pairing, so this was only ever missing from the UI — and its
+                    absence meant the single route back for a phone that could not
+                    connect was the destructive one, which also throws away the key
+                    while you are standing there with nothing to replace it yet.
+                  */}
+                  <Button onClick={() => void showCode()} disabled={busy}>
+                    Show a new code
+                  </Button>
+                  <Button variant="danger" onClick={() => setConfirmingUnpair(true)}>
+                    Unpair
+                  </Button>
+                </div>
               ) : (
                 <Button onClick={() => void showCode()} disabled={busy}>
                   Pair a phone
