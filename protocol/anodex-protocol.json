@@ -8004,6 +8004,7 @@
     "attachments:complete-upload",
     "attachments:discard-upload",
     "attachments:upload-chunk",
+    "chat:context-usage",
     "remote:notification",
     "scheduler:parse-when"
   ],

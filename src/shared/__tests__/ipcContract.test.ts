@@ -98,7 +98,14 @@ const PHONE_ONLY = new Set([
   // process to run a pure function it already has. This exists because the phone
   // is Kotlin and cannot, and a second parser over there would drift from this one
   // without anything reporting it.
-  'Scheduler.parseWhen'
+  'Scheduler.parseWhen',
+  // The desktop's own meter computes this projection in the renderer, from three
+  // stores it already holds. The phone holds none of them — not the settings, not
+  // the system prompt the turn will carry, not the tool schemas — so it has to be
+  // able to read the number instead of deriving it. The renderer has no reason to
+  // ask main for something it can work out locally, and a second implementation
+  // over in Kotlin would be a second set of answers to the same four questions.
+  'Chat.contextUsage'
 ])
 
 describe('IPC channel wiring', () => {

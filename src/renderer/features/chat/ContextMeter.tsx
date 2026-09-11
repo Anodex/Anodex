@@ -1,15 +1,12 @@
 import { useId, useMemo } from 'react'
-import { estimateProjectedContextUsage } from '@shared/contextProjection'
+import { latestFixedContext, projectConversationContext } from '@shared/contextProjection'
 import { providerMaxResponseTokens } from '@shared/maxResponseTokens'
-import { cloudContextWindowTokens, DEFAULT_RECALL_WINDOW_FRACTION } from '@shared/contextBudget'
-import { configuredProviderModel } from '@shared/agentRunProviders'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Icon } from '../../components/Icon'
 import { contextHeadroom } from '@shared/contextHeadroom'
 import styles from './ContextMeter.module.css'
-import { resolveActiveStyle } from '@shared/chatPersonality'
 
 function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`
@@ -22,26 +19,8 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   const engineContextSize = useModelStore((s) => s.engine.contextSize)
   const recommendedContextSize = useModelStore((s) => s.engine.recommendedContextSize)
   const providerActive = useSettingsStore((s) => s.settings?.provider.active)
-  // The meter has to price the voice the turn will actually carry, which is the
-  // selected personality when there is one — not the free-text field it shadows.
-  const systemPrompt = useSettingsStore((s) =>
-    s.settings
-      ? resolveActiveStyle({
-          saved: s.settings.assistantStyle.personalities,
-          activeId: s.settings.assistantStyle.activePersonalityId,
-          globalStyle: s.settings.assistantStyle.globalStyle
-        })
-      : undefined
-  )
-  const providers = useSettingsStore((s) => s.settings?.provider)
-
-  const recallWindowFraction = useMemo(
-    () =>
-      providerActive === 'local'
-        ? (providers?.local.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION)
-        : undefined,
-    [providerActive, providers]
-  )
+  const settings = useSettingsStore((s) => s.settings)
+  const providers = settings?.provider
 
   /**
    * The reply ceiling the active provider is configured with, if any. Off is
@@ -54,34 +33,6 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
     [providers]
   )
 
-  // `engine.contextSize` only reflects the local llama engine — cloud
-  // providers never touch it, so a cloud chat would otherwise leave the meter
-  // pinned to whatever the local model's window last was (or hidden, if no
-  // local model had ever been loaded this session). Use the provider's own
-  // known window instead, mirroring what `contextAssembler.ts`'s
-  // `boundHistoryForCloudProvider` actually sends.
-  //
-  // This was a branch naming Anthropic and OpenAI, with every other provider
-  // taking the local fall-through — reintroducing the exact bug the branch was
-  // written to fix, for the nine providers it did not name.
-  const contextSize = useMemo(() => {
-    if (!providers || !providerActive || providerActive === 'local') return engineContextSize
-    return cloudContextWindowTokens(
-      providerActive,
-      configuredProviderModel(providers, providerActive)
-    )
-  }, [providerActive, providers, engineContextSize])
-
-  const fixedContext = useMemo(
-    () =>
-      providerActive === 'local' && conversation
-        ? [...conversation.messages]
-            .reverse()
-            .find((message) => message.role === 'assistant' && message.contextBudget)?.contextBudget
-        : undefined,
-    [conversation, providerActive]
-  )
-
   /**
    * Whether this machine could run the loaded model in a much larger window.
    *
@@ -92,17 +43,18 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
    */
   const headroom = contextHeadroom(engineContextSize, recommendedContextSize)
 
-  const info = useMemo(() => {
-    if (!contextSize || !conversation || conversation.messages.length === 0) return null
+  // Only for the output-cap note in the popover; the projection reads it itself.
+  const fixedContext = useMemo(
+    () => latestFixedContext(conversation, providerActive),
+    [conversation, providerActive]
+  )
 
-    return estimateProjectedContextUsage({
-      conversation,
-      contextSize,
-      systemPrompt,
-      fixedContext,
-      recallWindowFraction
-    })
-  }, [conversation, contextSize, systemPrompt, fixedContext, recallWindowFraction])
+  // The same call the phone makes over `chat:context-usage`. Deriving it twice is
+  // how the two meters would come to disagree.
+  const info = useMemo(
+    () => projectConversationContext({ conversation, settings, engineContextSize }),
+    [conversation, settings, engineContextSize]
+  )
 
   if (!info) return null
 
