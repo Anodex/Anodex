@@ -14,6 +14,7 @@ import {
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
+import { type RemoteFarewell } from '@shared/remoteFarewell'
 import {
   chooseRemoteIdentity,
   identityOf,
@@ -269,7 +270,7 @@ export class RemoteService {
     // Rebound rather than deferred to the next launch: a setting that appears to
     // take effect and does not is worse than one that asks for a restart.
     if (this.bridge?.listening) {
-      await this.stop()
+      await this.stop('restarting')
       await this.start()
       if (this.state.internetEnabled) await this.acquireInternetRoute()
     }
@@ -433,7 +434,7 @@ export class RemoteService {
     } else {
       await this.releaseMapping()
       this.internet = { enabled: false, address: null, port: null, source: 'none', problem: null }
-      await this.stop()
+      await this.stop('disabled')
     }
 
     this.state.enabled = enabled
@@ -548,8 +549,30 @@ export class RemoteService {
     log.info(`remote listener ready on 0.0.0.0:${bound}`)
   }
 
-  private async stop(): Promise<void> {
-    await this.bridge?.stop()
+  /**
+   * Stop the listener, telling every client which of the reasons it was.
+   *
+   * The default is the quiet one. Every caller below names its own, because the
+   * phone's offline screen is only as good as what it is told: "Anodex was closed"
+   * and "remote access was switched off" send the user to different places, and
+   * until now they arrived as the same dead socket.
+   */
+  private async stop(farewell: RemoteFarewell = 'quitting'): Promise<void> {
+    await this.bridge?.stop(farewell)
+    this.bridge = null
+  }
+
+  /**
+   * The computer is suspending.
+   *
+   * Nothing called this before, so sleeping — much the most common reason a desktop
+   * stops answering — was invisible to the phone. The listener is not stopped: the
+   * sockets will not survive the suspend anyway, and the point is only to get a
+   * reason out while there is still a connection to carry it.
+   */
+  async sleeping(): Promise<void> {
+    if (!this.bridge?.listening) return
+    await this.bridge.stop('sleeping')
     this.bridge = null
   }
 
