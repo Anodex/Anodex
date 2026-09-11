@@ -21,6 +21,9 @@ import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
 import { isRemoteCall, resolveClientChannel } from '../clients/clientRegistry'
 import { rehydrateUploadedImage } from '../remote/uploadStore'
+import { projectConversationContext } from '@shared/contextProjection'
+import { conversationStore } from '../conversations/ConversationStore'
+import { settingsStore } from '../settings/SettingsStore'
 
 const log = createLogger('ipc:chat')
 
@@ -128,6 +131,40 @@ export function registerChatHandlers(): void {
       return err('chat.generation-failed', message)
     } finally {
       releaseGeneration(request.conversationId, controller)
+    }
+  })
+
+  /**
+   * How full one conversation's context is, for a client that cannot work it out.
+   *
+   * The desktop's own meter derives this in the renderer from three stores it
+   * already holds. A phone holds none of them — not the settings, not the system
+   * prompt the turn will carry, not the tool schemas — so without this it had
+   * nothing to draw and drew nothing.
+   *
+   * It had been reading `contextTokensUsed` off the engine state instead, which is
+   * a different number: the live KV-cache index, present only while a generation
+   * is in flight in that session and `undefined` the rest of the time. The meter
+   * on the machine has never used it.
+   *
+   * Named rather than active, because the phone is often looking at a different
+   * conversation than the desk is.
+   */
+  ipcMain.handle(IpcChannel.Chat.contextUsage, (_event, conversationId: string) => {
+    try {
+      return ok(
+        projectConversationContext({
+          conversation: conversationStore.get(conversationId),
+          settings: settingsStore.get(),
+          engineContextSize: llamaService.getState().contextSize
+        })
+      )
+    } catch (error) {
+      return err(
+        'chat.context-usage-failed',
+        'Could not measure the context for that conversation.',
+        toErrorMessage(error)
+      )
     }
   })
 

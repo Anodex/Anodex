@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../conversation.types'
 import { MAX_MODEL_TOOL_RESULT_CHARS, reservedNonHistoryTokens } from '../contextBudget'
-import { estimateProjectedContextUsage, planManualContextCompaction } from '../contextProjection'
+import {
+  estimateProjectedContextUsage,
+  latestFixedContext,
+  planManualContextCompaction,
+  projectConversationContext
+} from '../contextProjection'
+import { createDefaultSettings } from '../settings.defaults'
+import { resolveActiveStyle } from '../chatPersonality'
+import { DEFAULT_RECALL_WINDOW_FRACTION } from '../contextBudget'
 
 function conversation(messages: Conversation['messages']): Conversation {
   return {
@@ -360,5 +368,149 @@ describe('planManualContextCompaction', () => {
     )
 
     expect(plan).toBeNull()
+  })
+})
+
+describe('projectConversationContext', () => {
+  const settings = createDefaultSettings('C:/models')
+
+  it('is the number the phone had no way to compute', () => {
+    // The whole reason this exists. `contextTokensUsed` on the engine state is the
+    // live KV-cache index — present only while a generation is in flight, and the
+    // meter on the machine has never used it. The phone was reading it, so it drew
+    // nothing almost all of the time.
+    const usage = projectConversationContext({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'what changed in the workspace?', createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'four files, mostly tests.', createdAt: 2 }
+      ]),
+      settings,
+      engineContextSize: 8_192
+    })
+
+    expect(usage).not.toBeNull()
+    expect(usage!.contextSize).toBe(8_192)
+    expect(usage!.usedTokens).toBeGreaterThan(0)
+    expect(usage!.pct).toBeGreaterThan(0)
+  })
+
+  it('agrees exactly with calling the estimator directly', () => {
+    // The guard that makes one function worth having. If these two ever diverge,
+    // the meter on the phone and the meter on the machine are reporting different
+    // numbers for the same conversation.
+    const messages: Conversation['messages'] = [
+      { id: 'm1', role: 'user', content: 'a question worth some tokens', createdAt: 1 }
+    ]
+
+    const viaHelper = projectConversationContext({
+      conversation: conversation(messages),
+      settings,
+      engineContextSize: 4_096
+    })
+
+    const viaEstimator = estimateProjectedContextUsage({
+      conversation: conversation(messages),
+      contextSize: 4_096,
+      systemPrompt: resolveActiveStyle({
+        saved: settings.assistantStyle.personalities,
+        activeId: settings.assistantStyle.activePersonalityId,
+        globalStyle: settings.assistantStyle.globalStyle
+      }),
+      fixedContext: undefined,
+      recallWindowFraction:
+        settings.provider.local.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION
+    })
+
+    expect(viaHelper).toEqual(viaEstimator)
+  })
+
+  it('has nothing to report without a conversation, settings, or a window', () => {
+    // Null rather than a zero. A context nobody measured is not an empty one, and
+    // the phone draws no ring at all for null — which is the difference between
+    // "not known" and "nothing used".
+    expect(
+      projectConversationContext({ conversation: undefined, settings, engineContextSize: 8_192 })
+    ).toBeNull()
+
+    expect(
+      projectConversationContext({
+        conversation: conversation([]),
+        settings,
+        engineContextSize: 8_192
+      })
+    ).toBeNull()
+
+    expect(
+      projectConversationContext({
+        conversation: conversation([{ id: 'm1', role: 'user', content: 'hi', createdAt: 1 }]),
+        settings: null,
+        engineContextSize: 8_192
+      })
+    ).toBeNull()
+
+    // No local model loaded: there is no window to measure against, so there is no
+    // fraction to draw. This is the common case on a fresh start.
+    expect(
+      projectConversationContext({
+        conversation: conversation([{ id: 'm1', role: 'user', content: 'hi', createdAt: 1 }]),
+        settings,
+        engineContextSize: 0
+      })
+    ).toBeNull()
+  })
+
+  it('measures a cloud chat against the provider window, not the local engine', () => {
+    // `engineContextSize` only ever describes the local llama engine. A cloud chat
+    // measured against it would be reporting whatever the last local model's window
+    // happened to be.
+    const cloud = structuredClone(settings)
+    cloud.provider.active = 'anthropic'
+
+    const usage = projectConversationContext({
+      conversation: conversation([{ id: 'm1', role: 'user', content: 'hello', createdAt: 1 }]),
+      settings: cloud,
+      engineContextSize: 512
+    })
+
+    expect(usage).not.toBeNull()
+    expect(usage!.contextSize).toBeGreaterThan(512)
+  })
+})
+
+describe('latestFixedContext', () => {
+  it('is the newest local turn that recorded one', () => {
+    const budget = (systemTokens: number) => ({
+      contextSize: 8_192,
+      inputLimitTokens: 7_373,
+      systemTokens,
+      promptTokens: 20,
+      toolSchemaTokens: 0,
+      fixedTokens: systemTokens + 20,
+      reservedTokens: 819,
+      activeToolCount: 0,
+      deferredToolCount: 0,
+      toolRoutingApplied: false
+    })
+
+    const found = latestFixedContext(
+      conversation([
+        { id: 'm1', role: 'assistant', content: 'older', createdAt: 1, contextBudget: budget(100) },
+        { id: 'm2', role: 'assistant', content: 'newer', createdAt: 2, contextBudget: budget(200) }
+      ]),
+      'local'
+    )
+
+    expect(found?.systemTokens).toBe(200)
+  })
+
+  it('is nothing at all for a cloud provider', () => {
+    // Only local turns record it, so a cloud chat that once ran locally must not
+    // keep being priced against the wrapper accounting of that older turn.
+    expect(
+      latestFixedContext(
+        conversation([{ id: 'm1', role: 'assistant', content: 'x', createdAt: 1 }]),
+        'anthropic'
+      )
+    ).toBeUndefined()
   })
 })

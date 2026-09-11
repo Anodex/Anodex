@@ -3,10 +3,15 @@ import { currentLedgerRevision, type ConversationContext } from './context.types
 import type { Conversation } from './conversation.types'
 import type { ToolCall } from './tools.types'
 import {
+  cloudContextWindowTokens,
+  DEFAULT_RECALL_WINDOW_FRACTION,
   MANUAL_COMPACTION_RECENT_TURNS,
   MAX_MODEL_TOOL_RESULT_CHARS,
   reservedNonHistoryTokens
 } from './contextBudget'
+import { configuredProviderModel } from './agentRunProviders'
+import { resolveActiveStyle } from './chatPersonality'
+import type { AppSettings } from './settings.types'
 import { buildCompactionSystemPrompt } from './contextPrompt'
 import { messageToHistoryTurn } from './chatSanitizer'
 /**
@@ -344,4 +349,78 @@ function lastTurnId(turns: ChatHistoryTurn[]): string | null {
     if (id) return id
   }
   return null
+}
+
+/**
+ * The projection the meter shows, from the three things that decide it.
+ *
+ * Extracted because there is now a second caller. `ContextMeter` derived all of
+ * this inline — which window to measure against, which system prompt the turn
+ * will really carry, how much of the history the ledger replays, and whether the
+ * last turn left exact accounting behind — and the phone needs the same number.
+ *
+ * A second implementation would have been a second set of answers to those four
+ * questions, and the meter on the phone would quietly disagree with the meter on
+ * the machine. Same function, one answer.
+ */
+/**
+ * Exact wrapper/tokenizer accounting left behind by the most recent local turn.
+ *
+ * Only local turns record it, and only the newest one is current. Exported because
+ * the meter's popover reports the output cap out of the same record, and deriving
+ * "the last turn's budget" in two places is how the headline figure and the note
+ * under it come to describe different turns.
+ */
+export function latestFixedContext(
+  conversation: Conversation | undefined,
+  providerActive: string | undefined
+): ContextBudgetUsage | undefined {
+  if (providerActive !== 'local' || !conversation) return undefined
+  return [...conversation.messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.contextBudget)?.contextBudget
+}
+
+export function projectConversationContext({
+  conversation,
+  settings,
+  engineContextSize
+}: {
+  conversation: Conversation | undefined | null
+  settings: AppSettings | undefined | null
+  engineContextSize: number | undefined | null
+}): ProjectedContextUsage | null {
+  if (!conversation || conversation.messages.length === 0) return null
+  if (!settings) return null
+
+  const providers = settings.provider
+  const providerActive = providers.active
+
+  // `engine.contextSize` only reflects the local llama engine — cloud providers
+  // never touch it, so a cloud chat would otherwise be measured against whatever
+  // the local model's window last was, or against nothing at all if no local
+  // model had ever been loaded.
+  const contextSize =
+    providerActive === 'local'
+      ? engineContextSize
+      : cloudContextWindowTokens(providerActive, configuredProviderModel(providers, providerActive))
+
+  if (!contextSize) return null
+
+  return estimateProjectedContextUsage({
+    conversation,
+    contextSize,
+    // The voice the turn will actually carry, which is the selected personality
+    // when there is one — not the free-text field it shadows.
+    systemPrompt: resolveActiveStyle({
+      saved: settings.assistantStyle.personalities,
+      activeId: settings.assistantStyle.activePersonalityId,
+      globalStyle: settings.assistantStyle.globalStyle
+    }),
+    fixedContext: latestFixedContext(conversation, providerActive),
+    recallWindowFraction:
+      providerActive === 'local'
+        ? (providers.local.recallWindowFraction ?? DEFAULT_RECALL_WINDOW_FRACTION)
+        : undefined
+  })
 }
