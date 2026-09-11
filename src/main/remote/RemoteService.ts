@@ -14,6 +14,12 @@ import {
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
+import {
+  chooseRemoteIdentity,
+  identityOf,
+  type IdentityChoice,
+  type StoredIdentity
+} from './identityRecovery'
 import { PairingService, type PairedDevice, type PairedDeviceStore } from './pairing'
 import { PROTOCOL_VERSION, RemoteBridge } from './RemoteBridge'
 
@@ -54,6 +60,18 @@ interface PersistedState {
    */
   previousCertPem?: string
   previousEncryptedKeyPem?: string
+  /**
+   * Every identity this machine has served, other than the current one.
+   *
+   * Replaces the single `previous*` pair above, which held one spare and deleted it
+   * on recovery — overwriting the current identity in the same move and leaving no
+   * route back to it. Migrated on read; the old fields are kept in the type so a
+   * downgrade still finds something it understands.
+   *
+   * Only ever appended to. One entry per identity this machine has generated, which
+   * in practice is one or two.
+   */
+  archivedIdentities?: StoredIdentity[]
   /**
    * A public address a paired phone reported reaching this machine on.
    *
@@ -115,7 +133,10 @@ export class RemoteService {
         if (changed) this.onStatusChanged?.(this.status())
       }
     }
-    this.pairing = new PairingService(store)
+    // The third argument is what lets recovery know which identity a phone would
+    // accept. Read lazily rather than captured, because the certificate is chosen
+    // after this constructor runs.
+    this.pairing = new PairingService(store, Date.now, () => this.certificate?.sha256)
   }
 
   /**
@@ -535,52 +556,83 @@ export class RemoteService {
   private async ensureCertificate(): Promise<RemoteCertificate> {
     if (this.certificate) return this.certificate
 
-    const keyPem = this.decrypt(this.state.encryptedKeyPem)
-    if (this.state.certPem && keyPem) {
+    const choice = chooseRemoteIdentity({
+      current: identityOf(this.state.certPem, this.state.encryptedKeyPem),
+      archived: this.archivedIdentities(),
+      decrypt: (encrypted: string) => this.decrypt(encrypted),
+      pairedFingerprint: this.state.device?.certFingerprint
+    })
+
+    if (choice.serve) {
+      if (choice.outcome === 'recovered') {
+        // Said precisely, because the previous version of this line claimed the
+        // opposite of what it had done. Recovering restores *an* identity; whether
+        // it is the one the phone in the user's pocket pinned is a separate fact,
+        // and the one they actually need.
+        log.info(
+          choice.breaksPairing
+            ? 'recovered an older remote identity — it is not the one this phone paired with, ' +
+                'so pairing again from this computer is the only way back'
+            : 'recovered the remote identity this phone paired with — pairings work again'
+        )
+        log.warn(
+          'the identity in use until now could not be read this launch; it is kept on disk ' +
+            'in case a later launch can read it'
+        )
+      }
+
+      this.writeIdentities(choice)
       this.certificate = {
-        certPem: this.state.certPem,
-        privateKeyPem: keyPem,
-        sha256: fingerprintOf(this.state.certPem)
+        certPem: choice.serve.certPem,
+        privateKeyPem: choice.serve.privateKeyPem,
+        sha256: fingerprintOf(choice.serve.certPem)
       }
       return this.certificate
     }
 
-    // An identity that was replaced because it could not be read, and now can be.
-    // That means the earlier failure was about the process rather than the file, so
-    // the original is preferred and every pairing made under it starts working again
-    // without anyone touching a phone.
-    const recovered = this.decrypt(this.state.previousEncryptedKeyPem)
-    if (this.state.previousCertPem && recovered) {
-      log.info('recovered the previous remote identity — earlier pairings work again')
-      this.certificate = {
-        certPem: this.state.previousCertPem,
-        privateKeyPem: recovered,
-        sha256: fingerprintOf(this.state.previousCertPem)
-      }
-      this.state.certPem = this.state.previousCertPem
-      this.state.encryptedKeyPem = this.state.previousEncryptedKeyPem
-      delete this.state.previousCertPem
-      delete this.state.previousEncryptedKeyPem
-      this.persist()
-      return this.certificate
-    }
-
-    // Set aside rather than overwritten, so this is recoverable on a later launch
-    // that can read it. Without this the replacement was final, and a phone away
-    // from home lost its only route back with no way to be told why.
-    if (this.state.certPem && this.state.encryptedKeyPem) {
-      log.warn('keeping the unreadable identity aside in case a later launch can read it')
-      this.state.previousCertPem = this.state.certPem
-      this.state.previousEncryptedKeyPem = this.state.encryptedKeyPem
+    if (this.state.device) {
+      log.warn(
+        'no stored remote identity could be read, so the paired phone will refuse this ' +
+          'computer until it is paired again'
+      )
     }
 
     log.info('generating a new remote identity — any previous pairing is now invalid')
     const created = await generateRemoteCertificate(`Anodex on ${hostname()}`)
     this.certificate = created
-    this.state.certPem = created.certPem
-    this.state.encryptedKeyPem = this.encrypt(created.privateKeyPem)
-    this.persist()
+    this.writeIdentities({
+      ...choice,
+      current: { certPem: created.certPem, encryptedKeyPem: this.encrypt(created.privateKeyPem) },
+      // The unreadable one joins the archive rather than being dropped. This is the
+      // move the old code got wrong in the other direction, and it is the only thing
+      // that makes a bad launch survivable.
+      archived: choice.current ? [choice.current, ...choice.archived] : choice.archived
+    })
     return created
+  }
+
+  /**
+   * Everything this machine has served but is not serving now.
+   *
+   * Migrates the old single `previous*` pair, which is what installs before this
+   * change have on disk.
+   */
+  private archivedIdentities(): StoredIdentity[] {
+    const archived = [...(this.state.archivedIdentities ?? [])]
+    const legacy = identityOf(this.state.previousCertPem, this.state.previousEncryptedKeyPem)
+    if (legacy && !archived.some((identity) => identity.certPem === legacy.certPem)) {
+      archived.push(legacy)
+    }
+    return archived
+  }
+
+  private writeIdentities(choice: IdentityChoice): void {
+    this.state.certPem = choice.current?.certPem
+    this.state.encryptedKeyPem = choice.current?.encryptedKeyPem
+    this.state.archivedIdentities = choice.archived
+    delete this.state.previousCertPem
+    delete this.state.previousEncryptedKeyPem
+    this.persist()
   }
 
   /** Stable identity for this desktop, so pairing binds to the machine not its address. */
