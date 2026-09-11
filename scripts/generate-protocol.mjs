@@ -40,6 +40,14 @@ const ts = require('typescript')
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PRELOAD = path.join(ROOT, 'src', 'preload', 'index.ts')
+/**
+ * The main process, as a second root.
+ *
+ * Nothing reaches main from the preload bridge, so without this the program cannot
+ * see a single `ipcMain.handle` — and the channels that exist *only* for the phone
+ * were therefore the only ones with no described shape. See `collectHandlerChannels`.
+ */
+const MAIN = path.join(ROOT, 'src', 'main', 'index.ts')
 const OUTPUT = path.join(ROOT, 'protocol', 'anodex-protocol.json')
 
 /**
@@ -68,13 +76,26 @@ function main() {
   const channels = collectChannels(source, checker, definitions, apiType)
 
   const known = collectDeclaredChannels(program)
-  const unmapped = [...known].filter((c) => !channels.some((entry) => entry.channel === c)).sort()
+
+  // Channels the renderer never calls, described from the handler that serves them.
+  //
+  // The bridge can only describe what the renderer uses, so every channel that
+  // exists *for the phone* — `chat:context-usage`, `scheduler:parse-when`, the
+  // upload channels — came out shapeless, and the phone is the one client with no
+  // other way to learn them. `ChatSession.kt` says it shapes its requests "from
+  // `protocol/anodex-protocol.json` rather than from memory"; for those it was back
+  // to memory.
+  const described = new Set(channels.map((entry) => entry.channel))
+  const fromHandlers = collectHandlerChannels(program, checker, definitions, known, described)
+
+  const all = [...channels, ...fromHandlers]
+  const unmapped = [...known].filter((c) => !all.some((entry) => entry.channel === c)).sort()
 
   const artifact = {
     protocolVersion: PROTOCOL_VERSION,
     generatedBy: 'scripts/generate-protocol.mjs',
     note: 'Generated. Do not edit by hand; run the script and commit the result.',
-    channels: channels.sort((a, b) => a.channel.localeCompare(b.channel)),
+    channels: all.sort((a, b) => a.channel.localeCompare(b.channel)),
     // Channels declared but never reached from the preload bridge. Not an error: some exist for
     // main-side broadcasts the renderer subscribes to elsewhere. Recorded so the mobile side can
     // see what is deliberately unavailable rather than guessing it was forgotten.
@@ -121,7 +142,7 @@ function createProgram() {
   if (config.error) fail(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
 
   const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT)
-  return ts.createProgram([PRELOAD], { ...parsed.options, noEmit: true })
+  return ts.createProgram([PRELOAD, MAIN], { ...parsed.options, noEmit: true })
 }
 
 /**
@@ -400,6 +421,113 @@ function namedTypeOf(type, checker) {
  * `context-menu:*`) and reported 183 where there are 201. A drift check that quietly ignores a
  * tenth of the surface is worse than no check, because it reports success.
  */
+/**
+ * Describe the channels only main knows about, from their `ipcMain.handle` calls.
+ *
+ * A fallback, not a replacement: anything the preload bridge already describes is
+ * left alone, because `AnodexApi` states the contract deliberately while a handler
+ * merely implements it. This is for the channels the bridge cannot see at all.
+ *
+ * The first parameter of every handler is Electron's `IpcMainInvokeEvent`, which has
+ * no wire representation and is dropped.
+ */
+function collectHandlerChannels(program, checker, definitions, known, described) {
+  const entries = []
+  const seen = new Set()
+
+  for (const file of program.getSourceFiles()) {
+    const name = file.fileName.replace(/\\/g, '/')
+    if (!name.includes('/src/main/') || name.includes('__tests__')) continue
+
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.expression.getText() === 'ipcMain' &&
+        node.expression.name.getText() === 'handle' &&
+        node.arguments.length >= 2
+      ) {
+        const channel = literalValueOf(node.arguments[0], checker)
+        const listener = node.arguments[1]
+        if (channel && known.has(channel) && !described.has(channel) && !seen.has(channel)) {
+          const shape = describeHandler(listener, checker, definitions)
+          if (shape) {
+            seen.add(channel)
+            entries.push({ channel, kind: 'invoke', servedBy: 'ipcMain.handle', ...shape })
+          }
+        }
+      }
+      // Pushes, which are the other half of what only main knows. `remote:notification`
+      // is sent with `client.send(channel, payload)` and never handled, so the
+      // handler walk above cannot see it — and it is the one channel that exists
+      // purely to reach a phone.
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.getText() === 'send' &&
+        node.arguments.length >= 2
+      ) {
+        const channel = literalValueOf(node.arguments[0], checker)
+        if (channel && known.has(channel) && !described.has(channel) && !seen.has(channel)) {
+          seen.add(channel)
+          entries.push({
+            channel,
+            kind: 'event',
+            servedBy: 'push',
+            args: [],
+            payload: serializeType(
+              checker.getTypeAtLocation(node.arguments[1]),
+              checker,
+              definitions,
+              0
+            )
+          })
+        }
+      }
+
+      ts.forEachChild(node, visit)
+    }
+
+    visit(file)
+  }
+
+  return entries
+}
+
+/** One handler's arguments and result, from the function it was registered with. */
+function describeHandler(listener, checker, definitions) {
+  const type = checker.getTypeAtLocation(listener)
+  const signature = checker.getSignaturesOfType(type, ts.SignatureKind.Call)[0]
+  if (!signature) return null
+
+  // Drop the `IpcMainInvokeEvent`. It is Electron's own plumbing and never crosses
+  // the wire, so a client that saw it listed would be told to send something it
+  // cannot construct.
+  const args = signature
+    .getParameters()
+    .slice(1)
+    .map((param) => ({
+      name: param.getName(),
+      optional: Boolean(param.flags & ts.SymbolFlags.Optional),
+      type: serializeType(
+        checker.getTypeOfSymbolAtLocation(param, listener),
+        checker,
+        definitions,
+        0
+      )
+    }))
+
+  return {
+    args,
+    result: serializeType(
+      unwrapPromise(signature.getReturnType(), checker),
+      checker,
+      definitions,
+      0
+    )
+  }
+}
+
 function collectDeclaredChannels(program) {
   const found = new Set()
   const ipcFile = program
