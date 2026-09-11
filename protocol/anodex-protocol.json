@@ -113,6 +113,306 @@
       }
     },
     {
+      "channel": "attachments:abort-upload",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "id": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:begin-upload",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "name": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "sizeBytes": {
+                "optional": false,
+                "type": {
+                  "kind": "number"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "id": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:complete-upload",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "id": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "mimeType": {
+                      "optional": true,
+                      "type": {
+                        "kind": "union",
+                        "of": [
+                          {
+                            "kind": "undefined"
+                          },
+                          {
+                            "kind": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "path": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "name": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "sizeBytes": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    },
+                    "kind": {
+                      "optional": false,
+                      "type": {
+                        "kind": "union",
+                        "of": [
+                          {
+                            "kind": "literal",
+                            "value": "image"
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "text"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:discard-upload",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "path",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "attachments:pick-files",
       "kind": "invoke",
       "api": "attachments.pickFiles",
@@ -283,6 +583,81 @@
                       }
                     }
                   ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:upload-chunk",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "id": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "data": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "received": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -521,6 +896,67 @@
                     },
                     {
                       "$ref": "ChatCompactResult"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "chat:context-usage",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "conversationId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "null"
+                    },
+                    {
+                      "$ref": "ProjectedContextUsage"
                     }
                   ]
                 }
@@ -5891,6 +6327,15 @@
       }
     },
     {
+      "channel": "remote:notification",
+      "kind": "event",
+      "servedBy": "push",
+      "args": [],
+      "payload": {
+        "$ref": "RemoteNotification"
+      }
+    },
+    {
       "channel": "remote:revoke",
       "kind": "invoke",
       "api": "remote.revoke",
@@ -6205,6 +6650,31 @@
         "of": {
           "$ref": "ScheduledTask"
         }
+      }
+    },
+    {
+      "channel": "scheduler:parse-when",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "text",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "ParsedWhen"
+          }
+        ]
       }
     },
     {
@@ -7998,16 +8468,7 @@
       }
     }
   ],
-  "unmappedChannels": [
-    "attachments:abort-upload",
-    "attachments:begin-upload",
-    "attachments:complete-upload",
-    "attachments:discard-upload",
-    "attachments:upload-chunk",
-    "chat:context-usage",
-    "remote:notification",
-    "scheduler:parse-when"
-  ],
+  "unmappedChannels": [],
   "definitions": {
     "AgentRun": {
       "kind": "object",
@@ -18894,6 +19355,37 @@
         }
       }
     },
+    "ParsedWhen": {
+      "kind": "object",
+      "properties": {
+        "recurrence": {
+          "optional": false,
+          "type": {
+            "$ref": "TaskRecurrence"
+          }
+        },
+        "label": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "note": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
     "Partial<Omit<McpNewLocalServerConfig, \"type\">>": {
       "kind": "object",
       "properties": {
@@ -19398,6 +19890,113 @@
                 "kind": "number"
               }
             ]
+          }
+        }
+      }
+    },
+    "ProjectedContextUsage": {
+      "kind": "object",
+      "properties": {
+        "contextSize": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "usedTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "pct": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "systemTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "historyTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "toolSchemaTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "reservedTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "historyBudgetTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "activeToolCount": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "deferredToolCount": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "toolRoutingApplied": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "snapshotTokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "recentTurns": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "omittedTurns": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "snapshotTurns": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "totalTurns": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "snapshotApplied": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
           }
         }
       }
@@ -20234,6 +20833,63 @@
                 "kind": "string"
               }
             ]
+          }
+        }
+      }
+    },
+    "RemoteNotification": {
+      "kind": "object",
+      "properties": {
+        "kind": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "finished"
+              },
+              {
+                "kind": "literal",
+                "value": "failed"
+              },
+              {
+                "kind": "literal",
+                "value": "needs-approval"
+              }
+            ]
+          }
+        },
+        "title": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "body": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "conversationId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "atEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
           }
         }
       }
