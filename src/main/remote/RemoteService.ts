@@ -183,7 +183,14 @@ export class RemoteService {
         ? {
             name: device.name,
             pairedAtEpochMs: device.pairedAtEpochMs,
-            lastSeenEpochMs: device.lastSeenEpochMs
+            lastSeenEpochMs: device.lastSeenEpochMs,
+            // Only claimed when both halves are known. A phone paired before the
+            // fingerprint was recorded gets `undefined` — not known, rather than
+            // known to be wrong.
+            trustsThisIdentity:
+              device.certFingerprint && this.certificate
+                ? device.certFingerprint === this.certificate.sha256
+                : undefined
           }
         : null,
       internet: this.internet
@@ -670,12 +677,38 @@ export class RemoteService {
     return safeStorage.encryptString(value).toString('base64')
   }
 
+  /**
+   * Read an encrypted value, saying *which* kind of failure it was.
+   *
+   * The two are different problems with the same symptom, and until now both were
+   * logged as "could not decrypt the remote private key":
+   *
+   * - **Not available.** `safeStorage` is not ready, or this system has no keyring.
+   *   Nothing is wrong with the file; a later launch will read it.
+   * - **Would not decrypt.** The key store is available and rejected this
+   *   ciphertext, which means it was written under a different key — a different
+   *   user, a different profile directory, or a `Local State` that has since been
+   *   replaced.
+   *
+   * Only the second says anything about the data, and only the second is worth
+   * investigating. Telling them apart is the difference between "wait" and "this
+   * identity is not coming back", and an hour was spent on that distinction because
+   * the log did not draw it.
+   */
   private decrypt(value: string | undefined): string | null {
-    if (!value || !safeStorage.isEncryptionAvailable()) return null
+    if (!value) return null
+    if (!safeStorage.isEncryptionAvailable()) {
+      log.warn('secure storage is not available this launch; the stored identity cannot be read')
+      return null
+    }
     try {
       return safeStorage.decryptString(Buffer.from(value, 'base64'))
     } catch (error) {
-      log.warn('could not decrypt the remote private key:', error)
+      log.warn(
+        'secure storage is available but rejected this ciphertext — it was written under a ' +
+          'different key, so this identity cannot be recovered on this profile:',
+        error
+      )
       return null
     }
   }

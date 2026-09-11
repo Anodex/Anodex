@@ -20914,6 +20914,23 @@
           "type": {
             "kind": "number"
           }
+        },
+        "trustsThisIdentity": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              },
+              {
+                "kind": "boolean"
+              }
+            ]
+          }
         }
       }
     },
