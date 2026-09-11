@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, powerMonitor } from 'electron'
 import { createMainWindow } from './window'
 import { closeToast } from './toastWindow'
 import { closeHtmlPreviewWindows } from './htmlPreviewWindow'
@@ -165,6 +165,14 @@ if (!app.requestSingleInstanceLock()) {
   // Release GPU/model resources and stop background work before the process
   // exits — otherwise a loaded model, an in-flight download, or a running
   // generation is just killed mid-operation instead of shut down cleanly.
+  // Tell a paired phone the computer is going to sleep, while there is still a
+  // connection to tell it on. Without this, sleeping — much the most common reason a
+  // desktop stops answering — reached the phone as an unexplained dead socket, and
+  // its offline screen had to offer the user a list of guesses instead of a fact.
+  powerMonitor.on('suspend', () => {
+    void remoteService.sleeping()
+  })
+
   app.on('will-quit', () => {
     void remoteService.shutdown()
     computerControlService.stopAll('app-quit')
