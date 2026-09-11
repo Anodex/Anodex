@@ -43,7 +43,15 @@ interface Protocol {
     args?: Array<{ name: string; optional: boolean; type: ProtocolType }>
     result?: ProtocolType
     payload?: ProtocolType
+    /**
+     * Present only on channels the preload bridge cannot describe, naming what was
+     * read instead — the `ipcMain.handle` that serves them, or the push that sends
+     * them. Absent means `AnodexApi` stated the shape, which is the better source.
+     */
+    servedBy?: 'ipcMain.handle' | 'push'
   }>
+  /** Channels with no described shape at all. Expected to stay empty. */
+  unmappedChannels: string[]
   definitions: Record<string, ProtocolType>
 }
 
@@ -94,6 +102,41 @@ describe('the contract Anodex Mobile is built against', () => {
 
     it('history turns carry role and content', () => {
       expect(requiredFieldsOf({ $ref: 'ChatHistoryTurn' })).toEqual(['content', 'role'])
+    })
+  })
+
+  describe('the shape of every channel', () => {
+    it('leaves nothing undescribed', () => {
+      // The phone is the only client without another way to learn a channel's shape.
+      // The renderer has `AnodexApi`; the phone has this file, and `ChatSession.kt`
+      // says so — it shapes its requests "from `protocol/anodex-protocol.json` rather
+      // than from memory".
+      //
+      // The generator used to read only the preload bridge, so it could describe only
+      // what the *renderer* calls. Every channel that exists for the phone therefore
+      // came out shapeless: the five upload channels, `scheduler:parse-when`,
+      // `chat:context-usage`, and `remote:notification` — eight channels, all of them
+      // built for the one client that had to guess at them.
+      expect(protocol.unmappedChannels).toEqual([])
+    })
+
+    it('describes the phone-only ones from what actually serves them', () => {
+      // Not from the preload bridge, which has never heard of these. A handler
+      // describes them now, and a push describes the notification.
+      for (const name of ['chat:context-usage', 'scheduler:parse-when']) {
+        expect(channel(name).servedBy, name).toBe('ipcMain.handle')
+      }
+
+      expect(channel('remote:notification').servedBy).toBe('push')
+      expect(channel('remote:notification').kind).toBe('event')
+    })
+
+    it('drops the Electron event that never crosses the wire', () => {
+      // Every `ipcMain.handle` listener takes an `IpcMainInvokeEvent` first. A client
+      // told to send one would be told to construct something it cannot.
+      const usage = channel('chat:context-usage')
+
+      expect(usage.args?.map((arg) => arg.name)).toEqual(['conversationId'])
     })
   })
 
