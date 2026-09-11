@@ -74,6 +74,18 @@ export interface RemotePairedDevice {
   name: string
   pairedAtEpochMs: number
   lastSeenEpochMs: number
+  /**
+   * Whether this phone pinned the certificate the listener is actually serving.
+   *
+   * False means the pairing is already dead and the phone will refuse every
+   * connection — it pins the fingerprint, so a changed identity is indistinguishable
+   * from an impostor. Settings said "last seen 2 hours ago" through exactly that,
+   * which reads as healthy when nothing about it is.
+   *
+   * Undefined for a phone paired before the fingerprint was recorded: not known, as
+   * opposed to known to be wrong.
+   */
+  trustsThisIdentity?: boolean
 }
 
 export interface RemoteStatus {
