@@ -165,6 +165,12 @@ that apply if you do send code.
 Security findings are welcome too, and have their own private channel:
 [SECURITY.md](SECURITY.md).
 
+Anodex is built on a great deal of software other people wrote, none of which the licence
+above covers. Those components keep their own terms, and their licences and copyright
+notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) — generated from what is
+actually installed, and packaged into the application so the notices ship with the code they
+belong to.
+
 ## Project status
 
 Anodex is under active development. The [roadmap](ROADMAP.md) tracks the work in

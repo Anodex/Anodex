@@ -1,7 +1,17 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -12,6 +22,17 @@ const ROOT = resolve(import.meta.dirname, '..')
 const RESOURCE_ROOT = resolve(ROOT, 'resources', 'llama-server')
 const TARGET = resolve(RESOURCE_ROOT, `${process.platform}-${process.arch}`)
 const MARKER = join(TARGET, '.release.json')
+
+/**
+ * llama.cpp is MIT, which requires its copyright notice to travel with copies
+ * of the software. The upstream release archives do not carry one — they ship
+ * `LICENSE-LLVM-OpenMP` for the bundled libomp and nothing for llama.cpp
+ * itself — so extracting the archive faithfully is not enough to be compliant.
+ * Anodex keeps a verbatim copy of the upstream LICENSE and installs it beside
+ * the binaries it covers.
+ */
+const LICENSE_NOTICE = 'LICENSE-llama.cpp.txt'
+const LICENSE_SOURCE = resolve(RESOURCE_ROOT, LICENSE_NOTICE)
 
 const assets = {
   'win32-x64': {
@@ -58,6 +79,7 @@ if (existsSync(MARKER)) {
     binary &&
     existsSync(binary)
   ) {
+    await installLicenseNotice()
     process.stdout.write(`llama-server ${LLAMA_CPP_RELEASE} is already prepared.\n`)
     process.exit(0)
   }
@@ -109,9 +131,27 @@ try {
       2
     )}\n`
   )
+  await installLicenseNotice()
   process.stdout.write(`Prepared ${basename(installedBinary)} for ${platformKey}.\n`)
 } finally {
   await rm(temp, { recursive: true, force: true })
+}
+
+/**
+ * Puts llama.cpp's licence in the same directory as the binaries it covers, so
+ * the two cannot be separated by a packaging change. Missing source text is a
+ * hard failure rather than a warning: a build that quietly drops a required
+ * notice is exactly the outcome this exists to prevent.
+ */
+async function installLicenseNotice() {
+  if (!existsSync(LICENSE_SOURCE)) {
+    throw new Error(
+      `${LICENSE_NOTICE} is missing from resources/llama-server. llama.cpp is MIT and its ` +
+        'notice has to ship with the runtime; restore the file rather than skipping this.'
+    )
+  }
+  await mkdir(TARGET, { recursive: true })
+  await copyFile(LICENSE_SOURCE, join(TARGET, LICENSE_NOTICE))
 }
 
 async function findBinary(directory) {
