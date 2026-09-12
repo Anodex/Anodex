@@ -34,6 +34,7 @@ import type {
   AppSettings,
   DiagnosticEntry,
   DiagnosticLogFile,
+  ProfileSettings,
   SettingsPatch
 } from './settings.types'
 import type {
@@ -221,6 +222,19 @@ export const IpcChannel = {
   },
   Settings: {
     get: 'settings:get',
+    /**
+     * Just the profile: a name, an avatar, and the account's own labels.
+     *
+     * Separate from `settings:get` because the whole `settings:` prefix is denied
+     * to a paired phone, and rightly — that blob carries the permission mode, the
+     * MCP servers and the model directory, and a client able to read it is one
+     * step from a client able to change it.
+     *
+     * A display name is none of those things. This is the same narrowing
+     * `models:get-state` already makes: one read, carrying nothing that widens the
+     * blast radius, rather than an exception on the prefix.
+     */
+    getProfile: 'settings:get-profile',
     update: 'settings:update',
     /**
      * main → renderer: settings changed somewhere other than this window.
@@ -710,6 +724,8 @@ export interface AnodexApi {
     /** main → renderer: settings were changed by a paired phone. */
     onChanged(listener: (settings: AppSettings) => void): () => void
     get(): Promise<AppSettings>
+    /** Just the profile — the one part of settings a paired phone may read. */
+    getProfile(): Promise<ProfileSettings>
     update(patch: SettingsPatch): Promise<AppSettings>
     openModelsDir(): Promise<void>
     /** Copies the chosen picture into userData; resolves null if cancelled. */
