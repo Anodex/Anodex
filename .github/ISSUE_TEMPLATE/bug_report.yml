@@ -9,7 +9,7 @@ body:
 
         **Before you paste anything:** no API keys, tokens, passwords, certificates, pairing codes or model credentials. No private email contents, and nothing from a workspace you would not publish. Redact rather than omit — `sk-…REDACTED` still tells me the shape of the thing.
 
-        Found a **security** problem? Do not open this. See [SECURITY.md](../blob/main/SECURITY.md) for the private channel.
+        Found a **security** problem? Do not open this. See [SECURITY.md](https://github.com/Anodex/Anodex/blob/main/SECURITY.md) for the private channel.
 
   - type: textarea
     id: what-happened

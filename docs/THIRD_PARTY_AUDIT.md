@@ -7,6 +7,12 @@ ourselves without making the product worse.
 Re-run the measurements before trusting the numbers — dependency trees drift. The commands
 used are noted in each section.
 
+> **Partly superseded.** Four of the five compliance gaps below were closed on 2026-09-11,
+> and the open question about the bundled model's licence has been answered with evidence.
+> The original text is kept because the reasoning still holds and the history is worth
+> having, but **read [the 2026-09-11 addendum](#addendum--2026-09-11) before acting on any
+> "unfinished" item in it.** Individual items are marked where they have changed.
+
 ---
 
 ## The headline
@@ -57,8 +63,10 @@ kind of thing that changes in a minor version.
   `LICENSES.chromium.html` into the build. This is currently the only place we are compliant
   by default.
 - **llama.cpp / ggml** — MIT. Official prebuilt binaries in `resources/llama-server/`,
-  downloaded by `npm run prepare:vision`, ~95 MB of DLLs. **No license file ships alongside
-  them** (gap, see below).
+  downloaded by `npm run prepare:vision`, ~95 MB of DLLs. ~~**No license file ships
+  alongside them**~~ — **closed 2026-09-11.** The archives turned out to carry no llama.cpp
+  licence at all, only `LICENSE-LLVM-OpenMP` for the bundled libomp, so Anodex now supplies
+  the text itself. See the addendum.
 - **node-llama-cpp** — MIT.
 
 ### Model weights
@@ -71,6 +79,12 @@ invisible to every dependency scanner and model licences are frequently _not_ st
 source. Expected to be Apache-2.0 from Nomic AI, but that is an unverified recollection —
 **confirm against the model card**, and confirm the provenance of that specific GGUF
 quantization, which may have been produced by someone other than Nomic.
+
+> **Answered 2026-09-11, and the recollection was right.** Apache-2.0 — and the quantization
+> is Nomic's own, not a third party's: the bundled file's SHA-256 matches the Git LFS object
+> id Hugging Face reports for `nomic-ai/nomic-embed-text-v1.5-GGUF` byte for byte. Recorded,
+> with the command to re-check it, in
+> [`resources/embedding-model/NOTICE.md`](../resources/embedding-model/NOTICE.md).
 
 The wider version of the question: our model-recommendation and Hugging Face download system
 points users at third-party models. Models a _user_ chooses are the user's business, but
@@ -89,7 +103,10 @@ and a paid product attracts more scrutiny than a free one. Worth a review before
 ### Icons
 
 The glyphs in `src/renderer/components/Icon.tsx` are Lucide-shaped (Lucide is ISC, which
-requires retaining its copyright notice). We have no attribution for them today.
+requires retaining its copyright notice). ~~We have no attribution for them today.~~
+**Closed 2026-09-11** — `src/renderer/assets/LICENSE-lucide.txt` carries the ISC text and the
+MIT text for the icons Lucide itself derives from Feather, and the set is credited in
+`THIRD-PARTY-NOTICES.md`.
 
 ### Fonts
 
@@ -99,11 +116,16 @@ None bundled. System fonts only. Clean.
 
 ## Compliance gaps to close before selling
 
-1. **No `THIRD-PARTY-NOTICES` file** in the repo or the build, beyond Electron's own.
-2. **llama.cpp binaries and the .gguf model ship with no accompanying licence text.**
-3. **Icon attribution** for the Lucide-derived glyph set.
-4. **`package.json` says `"license": "UNLICENSED"`, `"private": true`.** Fine today; needs a
-   deliberate decision before distribution.
+1. ~~**No `THIRD-PARTY-NOTICES` file** in the repo or the build, beyond Electron's own.~~
+   **Closed 2026-09-11** — generated from the installed tree and packaged.
+2. ~~**llama.cpp binaries and the .gguf model ship with no accompanying licence text.**~~
+   **Closed 2026-09-11** — each now carries its licence in the directory it ships in.
+3. ~~**Icon attribution** for the Lucide-derived glyph set.~~ **Closed 2026-09-11.**
+4. ~~**`package.json` says `"license": "UNLICENSED"`, `"private": true`.**~~ **Closed** — the
+   field is now `"SEE LICENSE IN LICENSE.md"`, and that file exists. `"private": true` stays,
+   correctly: Anodex is not published to npm.
+5. **Still open: the provider logos.** Trademarks, not licensed assets — see above. Nothing
+   has been done about this, and nothing in the licensing work changes it.
 
 ---
 
@@ -238,9 +260,109 @@ main-process dependencies present, renderer-only packages absent.
 
 ## Suggested next steps
 
-1. Generate `THIRD-PARTY-NOTICES.md` from the dependency tree, add the llama.cpp / model /
-   Lucide entries, and ship it via `extraResources`.
-2. Confirm the nomic-embed-text-v1.5 licence from its model card.
-3. Review the provider-logo trademark question.
-4. Decide the `package.json` licence field.
+1. ~~Generate `THIRD-PARTY-NOTICES.md` from the dependency tree, add the llama.cpp / model /
+   Lucide entries, and ship it via `extraResources`.~~ **Done 2026-09-11.**
+2. ~~Confirm the nomic-embed-text-v1.5 licence from its model card.~~ **Done 2026-09-11**, and
+   the quantization's provenance with it.
+3. **Review the provider-logo trademark question.** Still open — the only compliance item from
+   this audit that has not been addressed.
+4. ~~Decide the `package.json` licence field.~~ **Done.**
 5. Optional, later: replace the two provider SDKs.
+
+---
+
+## Addendum — 2026-09-11
+
+Written after an external review of the repository's licensing setup. Four of the five gaps
+above are now closed. This records what was done, and the two things the work turned up that
+the original audit had wrong or could not see.
+
+### What the repository says now
+
+`LICENSE.md`, `CONTRIBUTING.md` and `SECURITY.md` published a **source-available, not open
+source** model: read, audit, build and run it yourself; redistribution, rebranding and
+competing distributions are not granted. `package.json` moved from `"UNLICENSED"` to
+`"SEE LICENSE IN LICENSE.md"`, the conventional npm spelling for a custom licence.
+
+That made the notice question urgent rather than theoretical. `LICENSE.md` tells the reader
+that third-party components keep their own terms, and that "where a third-party licence
+requires a notice, that notice travels with the component in the installed application" — a
+promise the build did not yet keep.
+
+### 1. `THIRD-PARTY-NOTICES.md` is generated and packaged
+
+`scripts/generate-third-party-notices.mjs` (`npm run notices`) walks the installed tree and
+emits the file. `npm run dist` regenerates it before packaging, and CI fails on drift.
+
+Three decisions in it are worth knowing about, because each is a way the obvious
+implementation would have been quietly wrong:
+
+- **It does not use `npm ls --omit=dev`.** `react` and `react-dom` are devDependencies —
+  correctly, since nothing resolves them at runtime — but Vite bundles them into the shipped
+  renderer. A production-tree walk would have dropped two shipped libraries without saying so.
+  The generator walks `node_modules` from an explicit list of shipped roots instead, and
+  **fails the build** if a devDependency is imported from `src/` without being accounted for.
+- **It does not follow `peerDependencies`.** Checked rather than assumed: the entire difference
+  between `npm ls --omit=dev` and this walk is four packages reached only as peers —
+  `@types/react`, `@types/prop-types` and `csstype` (type declarations, no JavaScript) and
+  `typescript` (the compiler, a peer of `node-llama-cpp` and of the eslint plugins). None of
+  them ships. If a production package ever declares a peer it genuinely loads at runtime, that
+  reasoning stops holding, so the comparison is written down in the script to be re-run.
+- **It is per-platform, and says so.** npm installs only the optional binaries matching the
+  host, so `@node-llama-cpp/win-x64` and friends are genuinely absent from a macOS build. A
+  Windows installer listing macOS binaries would be wrong, not more complete. The file records
+  which platform it describes, and `--check` refuses to compare across platforms rather than
+  pass on a file it cannot verify.
+
+Current count: **319 packages** for `win32-x64`. Larger than the 262 in the body of this audit
+for three reasons — the React subtree, the platform-specific binaries, and packages present at
+more than one version — not because the tree doubled.
+
+**No GPL, AGPL or LGPL anywhere**, which confirms this audit's headline against a second
+method.
+
+### 2. Notices now travel with the components
+
+- **llama.cpp** — the correction to this audit. The original text assumed the licence merely
+  was not being _copied_. In fact **the official release archives do not contain one.** The
+  Windows archive ships `LICENSE-LLVM-OpenMP`, for the bundled libomp, and nothing for
+  llama.cpp itself; no amount of careful extraction would have produced it. Anodex now keeps a
+  verbatim copy of the upstream MIT text at `resources/llama-server/LICENSE-llama.cpp.txt`,
+  and `prepare-llama-server.mjs` copies it in beside the binaries on every prepare — failing
+  loudly, not silently, if the text is missing.
+- **The embedding model** — `resources/embedding-model/LICENSE.txt` (Apache-2.0) plus a
+  `NOTICE.md` recording the source repository, size and SHA-256, and the command to re-verify
+  that hash against Hugging Face.
+- **Lucide** — `src/renderer/assets/LICENSE-lucide.txt`, covering both the ISC text and the
+  MIT text for the icons Lucide derives from Feather. The glyphs in `Icon.tsx` are drawn by
+  hand and several have been deliberately redrawn away from their Lucide originals, but the
+  set began as Lucide artwork and attribution is given on that basis.
+
+### 3. The application ships its own licence
+
+`electron-builder.yml` puts `LICENSE.md` and `THIRD-PARTY-NOTICES.md` in `extraResources`, so
+they land in `resources/` beside the components they cover, as plain files anybody can open.
+
+The first attempt listed them **both** there and under `files`, on the reasoning that the
+packaged `package.json`'s `SEE LICENSE IN LICENSE.md` should resolve inside the asar too.
+That silently produced **neither** copy in the asar: electron-builder feeds every
+`extraResources` source straight into the app package's exclusion patterns, to avoid shipping
+the same bytes twice (`app-builder-lib`, `platformPackager.ts`). Listing a path in both places
+does not duplicate it — it removes it from the first.
+
+Which is worth recording for two reasons. It is a trap anyone tidying this file could fall
+into again, hence the comment in `electron-builder.yml`. And it was only caught by unpacking a
+real build and looking: `npx electron-builder --dir`, then `npx asar list`. A configuration
+change that produces no error and no output is not evidence of anything until the package is
+opened.
+
+The surviving copy is the useful one. A notice nobody can read has not travelled anywhere, and
+the asar is not somewhere a person reads.
+
+### Still open
+
+- **Provider logos.** Trademarks, not licensed assets. Untouched.
+- **The published v0.4.0 release predates all of this.** Not a rights problem — the copyright
+  holder can grant rights at any time — but the next release should be the first where the
+  source licence, the package metadata, the packaged licence and the notices are all in step.
+  Nothing here blocks a release; it wants one to carry it.
