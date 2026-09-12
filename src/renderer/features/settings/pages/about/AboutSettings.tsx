@@ -139,6 +139,35 @@ export function AboutSettings(): JSX.Element {
         </div>
       </details>
 
+      <section className={styles.feedback} aria-label="Report a problem or suggest a change">
+        <div className={styles.feedbackCopy}>
+          <span className={styles.feedbackIcon}>
+            <Icon name="chat" size={16} />
+          </span>
+          <div>
+            <strong>Something wrong, or something missing?</strong>
+            <small>
+              Bug reports, reproduction steps and ideas are all welcome, and the forms ask for what
+              is usually missing. Please leave out keys, tokens and pairing codes.
+            </small>
+          </div>
+        </div>
+        <div className={styles.feedbackActions}>
+          <FeedbackLink href={`${REPOSITORY}/issues/new?template=bug_report.yml`} icon="alert">
+            Report a bug
+          </FeedbackLink>
+          <FeedbackLink
+            href={`${REPOSITORY}/issues/new?template=feature_request.yml`}
+            icon="sparkle"
+          >
+            Suggest an idea
+          </FeedbackLink>
+          <FeedbackLink href={`${REPOSITORY}/discussions`} icon="web">
+            Ask a question
+          </FeedbackLink>
+        </div>
+      </section>
+
       <footer className={styles.footer}>
         <div className={styles.creditsCopy}>
           <Icon name="sparkle" size={13} />
@@ -306,6 +335,33 @@ function graphicsLabel(hardware: HardwareInfo | null): string {
 function operatingSystemLabel(hardware: HardwareInfo | null, info: SystemInfo | null): string {
   if (!hardware) return 'Detecting…'
   return info?.arch ? `${hardware.os} · ${info.arch}` : hardware.os
+}
+
+/**
+ * Where a report goes.
+ *
+ * The repository is public so that problems can be reported against it; a person
+ * who has hit one should not have to go looking for where. `?template=` opens the
+ * form rather than an empty box, which is the difference between a report that can
+ * be acted on and one that needs three follow-up questions first.
+ */
+const REPOSITORY = 'https://github.com/Anodex/Anodex'
+
+function FeedbackLink({
+  href,
+  icon,
+  children
+}: {
+  href: string
+  icon: IconName
+  children: string
+}): JSX.Element {
+  return (
+    <a className={styles.feedbackLink} href={href} target="_blank" rel="noreferrer">
+      <Icon name={icon} size={13} />
+      {children}
+    </a>
+  )
 }
 
 function CreditLink({ href, children }: { href: string; children: string }): JSX.Element {
