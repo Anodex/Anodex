@@ -21,7 +21,7 @@ import { createTurnEvidenceStore, type TurnEvidenceStore } from './evidenceStore
  * "you already read that", the transport had just deleted the result and told
  * the model to read it again, and the loop guard blocked the retries in
  * between. One assistant message spent 157 tool calls inside that triangle and
- * completed zero writes (`docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1).
+ * completed zero writes (`docs/CONTEXT_SYSTEM.md §1`).
  *
  * They are kept as distinct members rather than dissolved into one bag because
  * they genuinely do different jobs — which *lines* were served, which *calls*

@@ -680,7 +680,7 @@ Not bugs — fixes that landed without a live run proving them.
   context (r = −0.15, n=31) nor run length (r = −0.11, n=45). Every remaining
   lever requires refusing a re-read, which caused the context livelock recorded
   in the `anodex-context-livelock-fix` memory. Judged model behaviour, not
-  Anodex's context handling. Full record in `docs/HANDOFF_WORKSPACE.md`.
+  Anodex's context handling. Full record in the git history of `docs/HANDOFF_WORKSPACE.md`.
 
 ## Email, chat and context — 2026-09-02
 

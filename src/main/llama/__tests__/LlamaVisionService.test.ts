@@ -990,7 +990,7 @@ describe('LlamaVisionService.generate', () => {
   })
 
   it('reports the reply ceiling a turn that never started actually had', async () => {
-    // The 4K probe in `docs/CONTEXT_OS_HANDOFF.md` recorded an effective output
+    // The 4K probe in `docs/CONTEXT_SYSTEM.md §6` recorded an effective output
     // maximum of 4,096 on a turn whose fixed input had already outgrown the
     // window — the one number a reader would use to size the problem, and the
     // one that was wrong. The loop broke out on exhaustion before ever reaching
@@ -1099,7 +1099,7 @@ describe('LlamaVisionService.generate', () => {
     // The old behaviour asked the model to re-run the tool — which
     // `ReadCoverageTracker` then refused and `loopGuard` blocked. Anodex must
     // never issue an instruction another subsystem forbids; see
-    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1.
+    // `docs/CONTEXT_SYSTEM.md §1.`
     for (const content of toolMessages) {
       expect(content).not.toContain('Run it again')
     }

@@ -350,7 +350,7 @@ describe('core prompt sizing', () => {
   it('makes the compact core substantially cheaper than the full one', () => {
     // The whole reason it exists. At 16K the long form is ~11% of the window
     // before tool schemas, history and the reply take their share — see
-    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §2.
+    // `docs/CONTEXT_SYSTEM.md §2.`
     expect(COMPACT_CODING_AGENT_PROMPT.length).toBeLessThan(CODING_AGENT_PROMPT.length / 2)
   })
 
