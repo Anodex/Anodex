@@ -36,38 +36,78 @@ export function UpdateNotice(): JSX.Element | null {
   }, [])
 
   const version =
-    status.state === 'available' || status.state === 'downloaded' ? status.version : null
+    status.state === 'available' ||
+    status.state === 'downloading' ||
+    status.state === 'verifying' ||
+    status.state === 'downloaded' ||
+    status.state === 'rejected'
+      ? status.version
+      : null
 
   // Downloading is shown only once the offer has been accepted — the bar stays put
   // and reports progress rather than vanishing, so the thing you just clicked does
   // not appear to have done nothing.
   const downloading = status.state === 'downloading' ? status.percent : null
 
+  // An update refused by the signature check is the one state nobody should
+  // have to open Settings to discover, so it takes the notice over rather than
+  // joining `error`'s quiet line on the About page.
+  const rejectedReason = status.state === 'rejected' ? status.reason : null
+  const verifying = status.state === 'verifying'
+
   if (downloading === null && version === null) return null
   if (version !== null && dismissedVersion === version) return null
 
   const ready = status.state === 'downloaded'
+  // Nothing here is clickable while bytes are moving or the signature is being
+  // checked: both are the app working, and neither is a decision to offer.
+  const settled = downloading === null && !verifying
 
   return (
     <div className={styles.notice} role="status" aria-live="polite">
-      <span className={styles.icon}>
-        <Icon name={ready ? 'check' : 'download'} size={16} />
+      <span className={`${styles.icon} ${rejectedReason !== null ? styles.iconRejected : ''}`}>
+        <Icon
+          name={
+            rejectedReason !== null
+              ? 'alert'
+              : verifying
+                ? 'shield-question'
+                : ready
+                  ? 'check'
+                  : 'download'
+          }
+          size={16}
+        />
       </span>
 
       <div className={styles.body}>
         <div className={styles.title}>
-          {ready ? `Anodex ${version} is ready to install` : `Anodex ${version} is available`}
+          {/* Never interpolate a null version: a state that forgot to carry one used
+              to render the literal "Anodex null is available". */}
+          {version === null
+            ? 'A new version of Anodex is available'
+            : rejectedReason !== null
+              ? `Anodex ${version} was not installed`
+              : verifying
+                ? `Checking Anodex ${version}`
+                : ready
+                  ? `Anodex ${version} is ready to install`
+                  : `Anodex ${version} is available`}
         </div>
         <div className={styles.message}>
-          {downloading !== null
-            ? `Downloading… ${downloading}%`
-            : ready
-              ? 'Restarting takes a few seconds. Nothing in progress is lost.'
-              : 'Downloads in the background — you can keep working.'}
+          {rejectedReason !== null
+            ? `${rejectedReason}. The copy you are running is untouched.`
+            : downloading !== null
+              ? `Downloading… ${downloading}%`
+              : verifying
+                ? 'Checking it came from Anodex…'
+                : ready
+                  ? 'Restarting takes a few seconds. Nothing in progress is lost.'
+                  : 'Downloads in the background — you can keep working.'}
         </div>
       </div>
 
-      {downloading === null && (
+      {settled && rejectedReason === null && (
         <button
           className={styles.action}
           onClick={() =>
@@ -80,7 +120,7 @@ export function UpdateNotice(): JSX.Element | null {
 
       {/* No way out while it downloads: the bar is the only progress there is, and
           closing it would leave a download running with nothing reporting it. */}
-      {downloading === null && (
+      {settled && (
         <button
           className={styles.close}
           onClick={() => setDismissedVersion(version)}

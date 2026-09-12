@@ -183,7 +183,17 @@ export const IpcChannel = {
     /** A short, optional next request for the composer after a reply finishes. */
     replaySuggestion: 'chat:replay-suggestion',
     /** main → renderer broadcast when older conversation turns were summarized to fit context. */
-    historyCompacted: 'chat:history-compacted'
+    historyCompacted: 'chat:history-compacted',
+    /**
+     * The context projection for one conversation, as a read.
+     *
+     * Exists for the phone. The desktop's own meter computes this in the renderer
+     * from stores it already holds; a remote client holds none of them, so the
+     * number has to be readable rather than derivable. Read-only, and it reports
+     * on a conversation the caller names rather than on whatever is active — a
+     * phone is often looking at a different one than the desk is.
+     */
+    contextUsage: 'chat:context-usage'
   },
   Provider: {
     /** Test whether a cloud provider API key (and configured model) actually works. */

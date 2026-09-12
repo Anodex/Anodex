@@ -14,6 +14,13 @@ import {
 import QRCode from 'qrcode'
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
+import { type RemoteFarewell } from '@shared/remoteFarewell'
+import {
+  chooseRemoteIdentity,
+  identityOf,
+  type IdentityChoice,
+  type StoredIdentity
+} from './identityRecovery'
 import { PairingService, type PairedDevice, type PairedDeviceStore } from './pairing'
 import { PROTOCOL_VERSION, RemoteBridge } from './RemoteBridge'
 
@@ -54,6 +61,18 @@ interface PersistedState {
    */
   previousCertPem?: string
   previousEncryptedKeyPem?: string
+  /**
+   * Every identity this machine has served, other than the current one.
+   *
+   * Replaces the single `previous*` pair above, which held one spare and deleted it
+   * on recovery — overwriting the current identity in the same move and leaving no
+   * route back to it. Migrated on read; the old fields are kept in the type so a
+   * downgrade still finds something it understands.
+   *
+   * Only ever appended to. One entry per identity this machine has generated, which
+   * in practice is one or two.
+   */
+  archivedIdentities?: StoredIdentity[]
   /**
    * A public address a paired phone reported reaching this machine on.
    *
@@ -115,7 +134,10 @@ export class RemoteService {
         if (changed) this.onStatusChanged?.(this.status())
       }
     }
-    this.pairing = new PairingService(store)
+    // The third argument is what lets recovery know which identity a phone would
+    // accept. Read lazily rather than captured, because the certificate is chosen
+    // after this constructor runs.
+    this.pairing = new PairingService(store, Date.now, () => this.certificate?.sha256)
   }
 
   /**
@@ -161,7 +183,14 @@ export class RemoteService {
         ? {
             name: device.name,
             pairedAtEpochMs: device.pairedAtEpochMs,
-            lastSeenEpochMs: device.lastSeenEpochMs
+            lastSeenEpochMs: device.lastSeenEpochMs,
+            // Only claimed when both halves are known. A phone paired before the
+            // fingerprint was recorded gets `undefined` — not known, rather than
+            // known to be wrong.
+            trustsThisIdentity:
+              device.certFingerprint && this.certificate
+                ? device.certFingerprint === this.certificate.sha256
+                : undefined
           }
         : null,
       internet: this.internet
@@ -248,7 +277,7 @@ export class RemoteService {
     // Rebound rather than deferred to the next launch: a setting that appears to
     // take effect and does not is worse than one that asks for a restart.
     if (this.bridge?.listening) {
-      await this.stop()
+      await this.stop('restarting')
       await this.start()
       if (this.state.internetEnabled) await this.acquireInternetRoute()
     }
@@ -412,7 +441,7 @@ export class RemoteService {
     } else {
       await this.releaseMapping()
       this.internet = { enabled: false, address: null, port: null, source: 'none', problem: null }
-      await this.stop()
+      await this.stop('disabled')
     }
 
     this.state.enabled = enabled
@@ -527,60 +556,113 @@ export class RemoteService {
     log.info(`remote listener ready on 0.0.0.0:${bound}`)
   }
 
-  private async stop(): Promise<void> {
-    await this.bridge?.stop()
+  /**
+   * Stop the listener, telling every client which of the reasons it was.
+   *
+   * The default is the quiet one. Every caller below names its own, because the
+   * phone's offline screen is only as good as what it is told: "Anodex was closed"
+   * and "remote access was switched off" send the user to different places, and
+   * until now they arrived as the same dead socket.
+   */
+  private async stop(farewell: RemoteFarewell = 'quitting'): Promise<void> {
+    await this.bridge?.stop(farewell)
+    this.bridge = null
+  }
+
+  /**
+   * The computer is suspending.
+   *
+   * Nothing called this before, so sleeping — much the most common reason a desktop
+   * stops answering — was invisible to the phone. The listener is not stopped: the
+   * sockets will not survive the suspend anyway, and the point is only to get a
+   * reason out while there is still a connection to carry it.
+   */
+  async sleeping(): Promise<void> {
+    if (!this.bridge?.listening) return
+    await this.bridge.stop('sleeping')
     this.bridge = null
   }
 
   private async ensureCertificate(): Promise<RemoteCertificate> {
     if (this.certificate) return this.certificate
 
-    const keyPem = this.decrypt(this.state.encryptedKeyPem)
-    if (this.state.certPem && keyPem) {
+    const choice = chooseRemoteIdentity({
+      current: identityOf(this.state.certPem, this.state.encryptedKeyPem),
+      archived: this.archivedIdentities(),
+      decrypt: (encrypted: string) => this.decrypt(encrypted),
+      pairedFingerprint: this.state.device?.certFingerprint
+    })
+
+    if (choice.serve) {
+      if (choice.outcome === 'recovered') {
+        // Said precisely, because the previous version of this line claimed the
+        // opposite of what it had done. Recovering restores *an* identity; whether
+        // it is the one the phone in the user's pocket pinned is a separate fact,
+        // and the one they actually need.
+        log.info(
+          choice.breaksPairing
+            ? 'recovered an older remote identity — it is not the one this phone paired with, ' +
+                'so pairing again from this computer is the only way back'
+            : 'recovered the remote identity this phone paired with — pairings work again'
+        )
+        log.warn(
+          'the identity in use until now could not be read this launch; it is kept on disk ' +
+            'in case a later launch can read it'
+        )
+      }
+
+      this.writeIdentities(choice)
       this.certificate = {
-        certPem: this.state.certPem,
-        privateKeyPem: keyPem,
-        sha256: fingerprintOf(this.state.certPem)
+        certPem: choice.serve.certPem,
+        privateKeyPem: choice.serve.privateKeyPem,
+        sha256: fingerprintOf(choice.serve.certPem)
       }
       return this.certificate
     }
 
-    // An identity that was replaced because it could not be read, and now can be.
-    // That means the earlier failure was about the process rather than the file, so
-    // the original is preferred and every pairing made under it starts working again
-    // without anyone touching a phone.
-    const recovered = this.decrypt(this.state.previousEncryptedKeyPem)
-    if (this.state.previousCertPem && recovered) {
-      log.info('recovered the previous remote identity — earlier pairings work again')
-      this.certificate = {
-        certPem: this.state.previousCertPem,
-        privateKeyPem: recovered,
-        sha256: fingerprintOf(this.state.previousCertPem)
-      }
-      this.state.certPem = this.state.previousCertPem
-      this.state.encryptedKeyPem = this.state.previousEncryptedKeyPem
-      delete this.state.previousCertPem
-      delete this.state.previousEncryptedKeyPem
-      this.persist()
-      return this.certificate
-    }
-
-    // Set aside rather than overwritten, so this is recoverable on a later launch
-    // that can read it. Without this the replacement was final, and a phone away
-    // from home lost its only route back with no way to be told why.
-    if (this.state.certPem && this.state.encryptedKeyPem) {
-      log.warn('keeping the unreadable identity aside in case a later launch can read it')
-      this.state.previousCertPem = this.state.certPem
-      this.state.previousEncryptedKeyPem = this.state.encryptedKeyPem
+    if (this.state.device) {
+      log.warn(
+        'no stored remote identity could be read, so the paired phone will refuse this ' +
+          'computer until it is paired again'
+      )
     }
 
     log.info('generating a new remote identity — any previous pairing is now invalid')
     const created = await generateRemoteCertificate(`Anodex on ${hostname()}`)
     this.certificate = created
-    this.state.certPem = created.certPem
-    this.state.encryptedKeyPem = this.encrypt(created.privateKeyPem)
-    this.persist()
+    this.writeIdentities({
+      ...choice,
+      current: { certPem: created.certPem, encryptedKeyPem: this.encrypt(created.privateKeyPem) },
+      // The unreadable one joins the archive rather than being dropped. This is the
+      // move the old code got wrong in the other direction, and it is the only thing
+      // that makes a bad launch survivable.
+      archived: choice.current ? [choice.current, ...choice.archived] : choice.archived
+    })
     return created
+  }
+
+  /**
+   * Everything this machine has served but is not serving now.
+   *
+   * Migrates the old single `previous*` pair, which is what installs before this
+   * change have on disk.
+   */
+  private archivedIdentities(): StoredIdentity[] {
+    const archived = [...(this.state.archivedIdentities ?? [])]
+    const legacy = identityOf(this.state.previousCertPem, this.state.previousEncryptedKeyPem)
+    if (legacy && !archived.some((identity) => identity.certPem === legacy.certPem)) {
+      archived.push(legacy)
+    }
+    return archived
+  }
+
+  private writeIdentities(choice: IdentityChoice): void {
+    this.state.certPem = choice.current?.certPem
+    this.state.encryptedKeyPem = choice.current?.encryptedKeyPem
+    this.state.archivedIdentities = choice.archived
+    delete this.state.previousCertPem
+    delete this.state.previousEncryptedKeyPem
+    this.persist()
   }
 
   /** Stable identity for this desktop, so pairing binds to the machine not its address. */
@@ -595,12 +677,38 @@ export class RemoteService {
     return safeStorage.encryptString(value).toString('base64')
   }
 
+  /**
+   * Read an encrypted value, saying *which* kind of failure it was.
+   *
+   * The two are different problems with the same symptom, and until now both were
+   * logged as "could not decrypt the remote private key":
+   *
+   * - **Not available.** `safeStorage` is not ready, or this system has no keyring.
+   *   Nothing is wrong with the file; a later launch will read it.
+   * - **Would not decrypt.** The key store is available and rejected this
+   *   ciphertext, which means it was written under a different key — a different
+   *   user, a different profile directory, or a `Local State` that has since been
+   *   replaced.
+   *
+   * Only the second says anything about the data, and only the second is worth
+   * investigating. Telling them apart is the difference between "wait" and "this
+   * identity is not coming back", and an hour was spent on that distinction because
+   * the log did not draw it.
+   */
   private decrypt(value: string | undefined): string | null {
-    if (!value || !safeStorage.isEncryptionAvailable()) return null
+    if (!value) return null
+    if (!safeStorage.isEncryptionAvailable()) {
+      log.warn('secure storage is not available this launch; the stored identity cannot be read')
+      return null
+    }
     try {
       return safeStorage.decryptString(Buffer.from(value, 'base64'))
     } catch (error) {
-      log.warn('could not decrypt the remote private key:', error)
+      log.warn(
+        'secure storage is available but rejected this ciphertext — it was written under a ' +
+          'different key, so this identity cannot be recovered on this profile:',
+        error
+      )
       return null
     }
   }

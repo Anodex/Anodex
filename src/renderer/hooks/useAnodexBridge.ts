@@ -18,6 +18,7 @@ import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
 import { deferredModelRestore } from './deferredRestore'
 import { TokenBatcher } from './tokenBatcher'
+import { orphanedConversationIds } from '@shared/orphanedConversations'
 
 /**
  * The active project (main process) and the active conversation's own
@@ -31,12 +32,26 @@ async function reconcileActiveProject(): Promise<void> {
   // e.g. an interrupted delete, or data left over from an older build.
   // Heal those first so they settle into general chats instead of making
   // every launch retry (and fail) activating a dead project.
-  const projectIds = new Set(useProjectStore.getState().projects.map((p) => p.id))
-  const orphaned = useChatStore
-    .getState()
-    .conversations.filter((c) => c.projectId !== null && !projectIds.has(c.projectId))
-  for (const conversation of orphaned) {
-    await useChatStore.getState().clearOrphanedProjectId(conversation.id)
+  //
+  // **Archived is not gone.** `useProjectStore.projects` comes from
+  // `projects:list`, which filters archived projects out, so checking against it
+  // alone made archiving indistinguishable from deleting: every conversation in
+  // an archived project looked orphaned, had its `projectId` nulled *and
+  // persisted*, and fell into general chats for good. Un-archiving could not undo
+  // it, because the link was gone from disk rather than merely hidden.
+  //
+  // That is how a chat that edited files in a project ends up sitting under
+  // Chats, which is supposed to mean "no project, no writing" — see
+  // `buildTools`. So the set has to be every project the machine knows of,
+  // archived or not, and only a genuinely absent id orphans anything.
+  const archived = await anodex.projects.listArchived().catch(() => [])
+  const knownProjectIds = new Set([
+    ...useProjectStore.getState().projects.map((p) => p.id),
+    ...archived.map((p) => p.id)
+  ])
+  const orphaned = orphanedConversationIds(useChatStore.getState().conversations, knownProjectIds)
+  for (const id of orphaned) {
+    await useChatStore.getState().clearOrphanedProjectId(id)
   }
 
   const { conversations, activeId } = useChatStore.getState()

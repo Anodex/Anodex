@@ -23,6 +23,18 @@ export interface PairedDevice {
   readonly name: string
   readonly pairedAtEpochMs: number
   lastSeenEpochMs: number
+  /**
+   * The certificate fingerprint this device pinned when it paired.
+   *
+   * The phone pins the certificate, so the identity *is* the pairing. Without this
+   * recorded, a machine holding more than one identity cannot tell which of them a
+   * phone would accept — and identity recovery had no choice but to guess, which is
+   * how a working pairing was once traded for an older one nothing was using.
+   *
+   * Optional because devices paired before this was recorded have no answer, and
+   * inventing one would be worse than admitting it is unknown.
+   */
+  readonly certFingerprint?: string
 }
 
 /** Persistence, injected so the rules can be tested without touching disk. */
@@ -105,7 +117,13 @@ export class PairingService {
 
   constructor(
     private readonly store: PairedDeviceStore,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    /**
+     * The fingerprint of the certificate being served, so a pairing records which
+     * identity the phone pinned. Optional so every existing caller and test keeps
+     * working; the field it fills is optional for the same reason.
+     */
+    private readonly servedFingerprint: () => string | undefined = () => undefined
   ) {}
 
   /** The paired device, if any. */
@@ -200,7 +218,8 @@ export class PairingService {
       keyHash: hashKey(deviceKey),
       name: sanitizeDeviceName(deviceName),
       pairedAtEpochMs: now,
-      lastSeenEpochMs: now
+      lastSeenEpochMs: now,
+      certFingerprint: this.servedFingerprint()
     }
 
     // Overwrites any existing device: pairing a new phone revokes the old one (§7.2).

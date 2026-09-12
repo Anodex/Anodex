@@ -115,6 +115,47 @@ jobs:
         shell: bash
         run: ls -lh dist/
 
+      # Signed on the runner that built it, rather than in a later job that
+      # would have to download every installer back again. The key arrives as a
+      # secret and lands in RUNNER_TEMP, which is ephemeral; the trap removes it
+      # even when signing fails.
+      #
+      # `--manifest` rather than a glob, for two reasons found the hard way on
+      # v0.3.0. The signature must be named what the updater asks for, which is
+      # the name in `latest.yml` (`Anodex-Setup-0.3.0.exe`), not the local
+      # filename (`Anodex Setup 0.3.0.exe`) — GitHub turns those spaces into
+      # dots, and the updater then requested a file that did not exist. And a
+      # glob also signed the branded installer shell, which is not a release
+      # artifact at all.
+      #
+      # `sign-release` checks the signature against the public key compiled into
+      # the app, not against the key it just signed with. That is what catches a
+      # rotated secret whose public half was never shipped — a release that
+      # would look perfect here and be refused by every install.
+      - name: Sign the installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.ANODEX_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::ANODEX_RELEASE_SIGNING_KEY is not set. Refusing to build a release nothing can verify."
+            exit 1
+          fi
+          KEYFILE="$RUNNER_TEMP/release-key.pem"
+          trap 'rm -f "$KEYFILE"' EXIT
+          echo "$SIGNING_KEY" > "$KEYFILE"
+          node scripts/sign-release.mjs --key "$KEYFILE" --manifest dist
+
+      # The `.sig` has to reach the release before it is published, because the
+      # updater fetches it from there and refuses an update without one.
+      - name: Attach the signature to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.sig --clobber
+
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
@@ -122,7 +163,25 @@ jobs:
           path: |
             ${{ matrix.artifact }}
             dist/latest*.yml
+            dist/*.sig
           if-no-files-found: error
           # These run to hundreds of megabytes each; the default 90 days of
           # retention on every manual packaging run is not worth the storage.
           retention-days: 14
+
+  # Publishing is what makes a release visible to electron-updater, and it
+  # happens only after all three platforms have built AND signed. `needs` fails
+  # if any matrix job did, so a partial release stays an invisible draft rather
+  # than becoming the half-release v0.2.1 shipped as.
+  publish:
+    name: Publish the release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make the release visible to the updater
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

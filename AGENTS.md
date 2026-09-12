@@ -265,6 +265,50 @@ Before finishing a change that touches the filesystem, shell, or timing, ask
 which of the three it was written against and whether the other two behave the
 same. When you cannot test them, say so.
 
+## Getting a change onto main
+
+A pull request is how a change reaches `main`, because it is the only way CI
+runs _before_ the change lands rather than after.
+
+Nothing local enforces that any more. A `pre-push` hook used to refuse a direct
+push; it was removed on 2026-09-09 for costing more than it caught. It fired on
+every intended direct push as well as every unintended one, and an escape hatch
+typed often enough stops being a signal and becomes a prefix.
+
+Server-side rules are the replacement, when they are wanted. The repository went
+public on 2026-09-06, so GitHub's rulesets are available at no cost;
+`docs/BRANCH_PROTECTION.md` carries the one to create. **It is not turned on.**
+
+So this is now a convention you are choosing to keep, and it is worth keeping.
+02af5ce went straight to `main`,
+never ran CI, and shipped a `UpdateStatus` change without regenerating
+`protocol/anodex-protocol.json` — which failed the protocol gate on `main` and
+therefore on _every_ open pull request, none of which had done anything wrong.
+The five minutes a pull request costs are cheaper than the hour that took.
+
+A direct push to `main` is now just a push, so when you make one, run what CI
+would have run first — `npm run lint`, `npm run format:check`, `npm run
+typecheck`, `npm test` — because nothing else will before it is on the branch
+everybody builds from.
+
+The five steps are one command:
+
+```
+npm run ship -- "fix(updates): stop the notice flickering"
+```
+
+Branch (named from the commit subject), commit, push, open the pull request,
+wait for CI, merge, delete the branch, return to an updated `main`.
+
+- It shows what it is about to commit and asks first. Outside a terminal it
+  refuses unless given `--yes`, because the one thing worse than friction is a
+  script that quietly opens pull requests on a public repository.
+- Staged changes win if there are any, so `git add -p` is not silently widened
+  into everything currently open. Otherwise it takes tracked modifications;
+  `--all` includes untracked files.
+- `--no-merge` opens the pull request and stops.
+- If CI fails nothing is merged, and the branch and pull request stay put.
+
 ## Releasing
 
 **Merging is not shipping.** A change that a user would notice is not delivered
@@ -295,18 +339,74 @@ the bad case is noticing during a release.
 
 `.github/workflows/package.yml` triggers on `tags: ['v*']` and runs
 `npm run dist -- --publish always`. So the tag _is_ the release trigger — push
-it and the three platform builds publish themselves.
+it and the three platform builds package themselves into a **draft** release.
+
+A draft is where they stop until every platform has built _and_ signed. The
+`publish` job then makes the release visible. Nothing is offered to anybody in
+between, which is the entire point of the draft.
 
 Two settings exist because their absence produced a release that looked correct
 and did nothing:
 
-- `releaseType: release` in `electron-builder.yml`. electron-builder drafts by
-  default, and **a draft release is invisible to electron-updater** — the whole
-  chain runs against something no client can see, and every install goes on
-  reporting that it is up to date.
+- `releaseType: draft` in `electron-builder.yml`. **A draft release is invisible
+  to electron-updater.** That was once the bug — the whole chain ran against
+  something no client could see, and every install went on reporting it was up
+  to date. It is now the mechanism: invisibility is exactly what you want in the
+  window between "the installers exist" and "the installers are signed".
 - `latest.yml` must be published beside the installer. That file, not the
   installer, is what the updater reads. Builds used to upload as workflow
   artifacts, which only somebody already inside the repository can reach.
+
+### Signing it
+
+Every installer is signed with the Anodex release key, and an install refuses an
+update it cannot verify. **This happens automatically in CI** — there is no
+manual step in a normal release.
+
+The distinction worth being precise about: `latest.yml` carries a sha512 for
+each installer, but that hash travels in the same GitHub release as the
+installer. It catches corruption in transit and nothing else. Anyone able to
+write to a release can replace both halves, and before signing existed every
+install would have accepted the result. The Ed25519 signature is what makes that
+substitution fail.
+
+Each platform job signs the installer it just built, using the
+`ANODEX_RELEASE_SIGNING_KEY` secret, and uploads the `.sig` beside it. The
+`publish` job then undrafts the release — and only runs if all three succeeded,
+so a partial release stays an invisible draft rather than becoming the
+half-release v0.2.1 shipped as.
+
+`sign-release` verifies each signature against the public key **compiled into
+the app**, not against the key it just signed with. Deriving it from the private
+key would only prove the signature is self-consistent, which is true of any key
+including the wrong one. This is what catches a rotated secret whose public half
+was never shipped — a release that would look perfect in CI and be refused by
+every install.
+
+**Where the key lives, and what that costs.** In the repository's Actions
+secrets. That is a deliberate trade: releases need no manual step, and there is
+nothing on anybody's laptop to lose — but it means the signature no longer
+protects against someone who controls this repository, since they could read the
+secret. It still protects against a leaked release-write token, a stolen
+credential, or a tampered asset. If the threat model ever needs to include
+account compromise, the key has to move back offline.
+
+**GitHub secrets cannot be read back out.** If the only copy is the secret, it is
+already lost. Keep a backup somewhere else; `npm run release:keygen` is only
+useful for making a _new_ key, which means shipping a new build before anyone can
+update past it.
+
+`npm run release:finish -- <tag>` still exists for signing a release by hand —
+if CI's signing step failed, or the secret was missing. It refuses on an
+already-published release, on fewer than three installers, and on a key that is
+not the one compiled into `releaseKey.ts`.
+
+**The failure mode to know:** a release published without its `.sig` files is
+refused by every install. That is correct behaviour — the check is fail-closed on
+purpose, because whoever can replace an installer can equally delete the
+signature beside it — but the first time it happens it will look exactly like a
+broken updater. If an install reports "this release carries no signature", the
+release is at fault, not the client.
 
 ### Release notes are written, not generated
 

@@ -13,18 +13,9 @@
 // keeps them from accumulating again.
 import { readFileSync, writeFileSync } from 'node:fs'
 
-// Matched against whole lines. Each pattern targets an attribution line, not a
-// mention — a commit body that discusses these tools in prose is left alone.
-const ATTRIBUTION_PATTERNS = [
-  // `Co-Authored-By: Claude <noreply@anthropic.com>` and relatives. Keyed on
-  // the tool identity rather than the trailer alone, so a real human
-  // co-author trailer still survives.
-  /^\s*co-authored-by:.*\b(claude|codex|copilot|cursor|anthropic\.com|openai\.com)\b/i,
-  // `🤖 Generated with [Claude Code](...)` and its variants.
-  /^\s*(?:🤖\s*)?generated with\b.*\b(claude|codex|copilot|cursor)\b/i,
-  // Assorted sign-off shapes seen from agent tooling.
-  /^\s*(?:signed-off-by|assisted-by|authored-by):.*\b(claude|codex|copilot|cursor)\b/i
-]
+// Shared with the CI check that fails a pull request carrying one of these, so
+// the hook and the gate cannot disagree about what attribution is.
+import { ATTRIBUTION_PATTERNS } from './attribution-patterns.mjs'
 
 const messagePath = process.argv[2]
 
