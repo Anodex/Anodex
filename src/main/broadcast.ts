@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import type { ClientChannel } from './clients/ClientChannel'
 import { activeRemoteClients } from './clients/clientRegistry'
 
 /**
@@ -44,4 +45,37 @@ export function sendToWindow(window: BrowserWindow, channel: string, ...args: un
 export function broadcastToWindows(channel: string, ...args: unknown[]): void {
   for (const window of BrowserWindow.getAllWindows()) sendToWindow(window, channel, ...args)
   for (const client of activeRemoteClients()) client.send(channel, args[0])
+}
+
+/**
+ * Announce a change to every client except the one that made it.
+ *
+ * The asymmetric version of the above, for state that lives on disk rather than
+ * on screen. A client that just wrote something already has it, and echoing the
+ * change back arrives mid-edit and fights its own local state — which is why
+ * conversation saves were announced only when they came from the phone.
+ *
+ * That gate was half a rule. It kept the desktop from echoing to itself, and in
+ * doing so it stopped telling the phone anything: a conversation the computer
+ * wrote was never announced to anyone, so a paired phone had no way to learn that
+ * a chat it was holding had moved on. Excluding the author rather than
+ * privileging one side gets the intended behaviour in both directions.
+ *
+ * `id` is what makes this possible — `window:<n>` for a renderer, `remote:<device>`
+ * for a phone — so the author can be recognised without the caller having to know
+ * which kind of client it was.
+ */
+export function broadcastToOtherClients(
+  author: ClientChannel,
+  channel: string,
+  payload: unknown
+): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (`window:${window.webContents.id}` === author.id) continue
+    sendToWindow(window, channel, payload)
+  }
+  for (const client of activeRemoteClients()) {
+    if (client.id === author.id) continue
+    client.send(channel, payload)
+  }
 }
