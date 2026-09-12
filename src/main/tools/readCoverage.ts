@@ -8,7 +8,7 @@ export interface LineRange {
  * Tracks which line ranges of which files have already been read within one
  * bounded task (a whole `runBoundedChatGeneration` reply spanning several
  * continuation cycles, or a whole Agent run spanning several turns) — see
- * `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`, Phase 5.
+ * `docs/CONTEXT_SYSTEM.md §5`.
  *
  * A live retest of the exact 8K project-chat audit reread the opening ~250
  * lines of the same file across FIVE overlapping `read_file_range` calls

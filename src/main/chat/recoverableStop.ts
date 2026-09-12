@@ -4,7 +4,7 @@ import type { GenerationStopReason } from '@shared/chat.types'
  * Stop reasons that only end the *turn* that hit them, not a whole multi-turn
  * run — the caller can fall through to its own retry/continue logic instead
  * of treating the stop as final. Originally `AgentRunService`'s private
- * `isRecoverableTurnStop` (see `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`,
+ * `isRecoverableTurnStop` (see `docs/CONTEXT_SYSTEM.md §5`,
  * Phase 5) — extracted so `BoundedChatRunner` can reuse the exact same
  * classification instead of cloning it, per that handoff's explicit
  * instruction not to build a second, subtly different notion of "recoverable"

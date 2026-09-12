@@ -32,7 +32,7 @@ describe('TaskLedger.reviewCall', () => {
     let verdict = review(ledger)
     for (let i = 0; i < LOOP_GUARD_LIMIT; i++) verdict = review(ledger)
 
-    // The livelock in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 was that eviction
+    // The livelock in `docs/CONTEXT_SYSTEM.md §1` was that eviction
     // told the model to re-run a tool the ledger then refused. The first fix
     // pointed it at stored evidence instead; the live runs showed that trades
     // one loop for another, because a recall costs a call *and* permanently

@@ -811,7 +811,7 @@ describe('LlamaService.generate() context-shift recovery', () => {
       // Regression fixture for the live 8K project-chat exit gate: 135 visible
       // characters and 159 thought characters against 2,035 output tokens
       // with zero completed tool calls (see
-      // docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md, P0-C). Here the
+      // docs/CONTEXT_SYSTEM.md §5). Here the
       // call actually completes, so diagnostics must show a settled call with
       // nothing left unfinished — the opposite of that failure.
       const access = asTestAccess()

@@ -354,7 +354,7 @@ export interface GenerateOutcome {
   /**
    * Bounded, non-sensitive counters for this turn (see
    * `GenerationDiagnosticsTracker`/P0-C in
-   * `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`) — how many tokens
+   * `docs/CONTEXT_SYSTEM.md §5`) — how many tokens
    * went to the visible reply vs. hidden thought vs. in-flight function
    * parameters, and which function call (if any) was still generating when
    * the turn stopped. Undefined for cloud providers, which don't expose this

@@ -67,7 +67,7 @@ Rules:
  * afford it. The long form costs about 1,840 tokens, which on a 16,384-token
  * window is 11% of everything available before tool schemas, history, evidence
  * and the reply have taken their share (see
- * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §2).
+ * `docs/CONTEXT_SYSTEM.md §2`).
  *
  * Selected by the measured context window and nothing else — never by what the
  * user or the model wrote.

@@ -177,7 +177,7 @@ export { minimumViableOutputTokens } from './localOutputBudget'
  * and tool schemas that left a 16K model roughly 1,500 tokens of actual working
  * room, so the turn could afford about one substantial file read before
  * tripping the proactive stop; everything after that was recovery. The measured
- * consequence is in `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §2.
+ * consequence is in `docs/CONTEXT_SYSTEM.md §2.`
  *
  * The stacking was never necessary: a tool result cannot exceed what
  * `computeModelToolResultBudget` allots it, and that budget is derived from the
@@ -1387,7 +1387,7 @@ function reclaimToolResultRoom(messages: ChatCompletionMessageParam[], tier: Rec
     //
     // This is the difference between the old behaviour and the current one, and
     // it is the whole fix for the livelock in
-    // `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1. This code used to tell the model
+    // `docs/CONTEXT_SYSTEM.md §1.` This code used to tell the model
     // to "run it again" — which `ReadCoverageTracker` then refused as
     // already-covered and `loopGuard` blocked on the perturbed retries. One
     // message spent 157 tool calls and produced zero writes inside that loop.

@@ -18,7 +18,7 @@ import type { SearchResult } from '../../tools/search/types'
 
 /**
  * Regression coverage for the bug reproduced in
- * docs/RUNTIME_RELIABILITY_RECOVERY_HANDOFF.md: a valid Critical Thinking
+ * docs/CONTEXT_SYSTEM.md §5: a valid Critical Thinking
  * plan was discarded whenever generation happened to stop for a recoverable
  * reason (a token limit, a context-compaction limit) instead of a clean
  * completion. `mockPlanResponse` below is deliberately mechanism-adaptive —
@@ -1488,7 +1488,7 @@ The comparison supports a real difference [[S1:P1]] [[S2:P1]].`
 describe('CriticalThinkingService research: breadth-first step scheduling (P0-D)', () => {
   /**
    * Reproduces the shape of the live 8K failure recorded in
-   * docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md: a sequential
+   * docs/CONTEXT_SYSTEM.md §5: a sequential
    * depth-first scheduler lets early steps spend their full per-step round
    * budget (and the fetches that come with it) before later approved steps
    * are ever attempted. With `maxRoundsPerStep: 2` and `maxPagesPerRound: 2`,
