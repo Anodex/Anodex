@@ -23,7 +23,7 @@ By opening this pull request I confirm that:
 
 - [ ] I have the right to submit this code, and it is not owned by an employer or anyone
       else who has not agreed to these terms.
-- [ ] I agree to the contribution terms in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
+- [ ] I agree to the contribution terms in [CONTRIBUTING.md](https://github.com/Anodex/Anodex/blob/main/CONTRIBUTING.md)
       — I keep my copyright, and Anodex gets a broad, perpetual, irrevocable licence to
       use, modify, rewrite, relicense and distribute this as part of Anodex.
 - [ ] This contains no secrets — no keys, tokens, passwords or certificates — and no

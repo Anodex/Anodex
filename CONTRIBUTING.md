@@ -90,8 +90,11 @@ And to be clear about what happens next:
 ### Please do not send
 
 - code owned by your employer, or by anyone who has not agreed to this;
-- anything under a licence incompatible with the terms above — in particular **GPL, AGPL
-  or LGPL** code, which cannot be used here;
+- **GPL-, AGPL-, LGPL- or other copyleft-licensed code**, unless the maintainer has
+  explicitly approved it first. This is a project policy, not a claim about what those
+  licences permit: reconciling them with a source-available product is work Anodex is not
+  set up to do, so the answer is no by default;
+- anything else under a licence incompatible with the terms above;
 - confidential material of any kind;
 - API keys, tokens, passwords, certificates or pairing secrets. Not in code, not in a log
   you paste into an issue. See [`SECURITY.md`](SECURITY.md).
