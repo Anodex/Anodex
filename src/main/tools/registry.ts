@@ -195,6 +195,20 @@ const EMAIL_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
  * Instantiate the tools available for a generation, producing the `functions`
  * map the engine's chat session expects.
  *
+ * ## Chats and projects are different things, and this is where that is enforced
+ *
+ * **Chats** — the general section — are for conversation and lookup. They can
+ * read code and read about projects; they cannot create or edit code, and they
+ * cannot run anything. **Project chats** live under their project and can do the
+ * work. The whole distinction reduces to `ctx.projectId`, and it is decided here
+ * rather than by prompt, so no amount of asking moves it.
+ *
+ * That also makes the placement meaningful in reverse: a chat sitting under Chats
+ * that edited files is a contradiction, and a bug somewhere else. It has happened
+ * once — `reconcileActiveProject` treated *archived* projects as deleted and
+ * nulled the `projectId` of every conversation in one, which moved finished
+ * project work into Chats after the fact.
+ *
  * - Read-only workspace tools are registered whenever a workspace folder is
  *   selected, project or not.
  * - Mutating/executing workspace tools additionally require an open project
