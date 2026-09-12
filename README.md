@@ -19,9 +19,11 @@
 </p>
 
 <p align="center">
-  <a href="#availability">Availability</a>
+  <a href="https://github.com/Anodex/Anodex/releases">Download</a>
   &nbsp;&middot;&nbsp;
   <a href="docs/FEATURES.md">Explore features</a>
+  &nbsp;&middot;&nbsp;
+  <a href="#take-it-with-you">On your phone</a>
   &nbsp;&middot;&nbsp;
   <a href="ROADMAP.md">View roadmap</a>
 </p>
@@ -79,18 +81,32 @@ becoming a black box.
 For the full product tour—including models, vision, tools, email, GitHub, MCP, and
 workspace controls—see the [feature overview](docs/FEATURES.md).
 
+## Take it with you
+
+Anodex has a native Android companion: [**Anodex Mobile**](https://github.com/Anodex/anodex-mobile).
+
+Pair it over a QR code from **Settings → Remote** and you get Chat, Workspace, Agents,
+Email and Scheduler on your phone. Every bit of the work still happens on your machine
+— the phone renders, asks and answers; it never runs a model, holds a workspace,
+executes a tool, or touches a file. Your models, projects, keys and history do not
+leave your PC.
+
+Start an agent run from away and watch it work. Read what it changed before it lands.
+See from a locked screen what the computer is doing right now.
+
 ## Availability
 
-Anodex is available publicly from source. When installers are available, they will
-be published on the [Releases page](https://github.com/Anodex/Anodex/releases).
+Installers are published on the [Releases page](https://github.com/Anodex/Anodex/releases)
+for Windows, macOS and Linux. Every release is signed against a key compiled into the
+app, and the in-app updater refuses an update it cannot verify.
 
-**Platform status:** Windows is the currently tested platform. macOS and Linux are
-not yet tested, so they are not advertised as supported release targets.
+**Platform status:** Windows is the currently tested platform. macOS and Linux build and
+publish on every release but are not yet tested, so they are not advertised as supported.
 
 ### Build from source
 
-Until then, you can run Anodex from source. You will need Git and a supported Node.js
-LTS release.
+You can also run Anodex from source. You will need Git and a supported Node.js LTS
+release.
 
 ```bash
 git clone https://github.com/Anodex/Anodex.git
