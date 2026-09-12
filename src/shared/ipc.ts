@@ -194,7 +194,20 @@ export const IpcChannel = {
      * on a conversation the caller names rather than on whatever is active — a
      * phone is often looking at a different one than the desk is.
      */
-    contextUsage: 'chat:context-usage'
+    contextUsage: 'chat:context-usage',
+    /**
+     * Whether this client wants tokens as they are generated.
+     *
+     * A phone on mobile data pays for every token twice — once in bytes and once in
+     * battery — for a turn it may not even be looking at. Switching the live stream
+     * off does not cost it the conversation: `conversations:changed` still fires when
+     * the turn is saved, so the phone catches up whole a moment later.
+     *
+     * Under `chat:` rather than `remote:` because that prefix is denied to a paired
+     * device outright, and this is a client describing itself rather than reaching
+     * into the pairing.
+     */
+    setLiveTokens: 'chat:set-live-tokens'
   },
   Provider: {
     /** Test whether a cloud provider API key (and configured model) actually works. */

@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { ClientChannel } from './clients/ClientChannel'
-import { activeRemoteClients } from './clients/clientRegistry'
+import { activeRemoteClients, wantsLiveTokens } from './clients/clientRegistry'
 
 /**
  * Frame-disposal-safe IPC delivery to renderer windows.
@@ -77,5 +77,23 @@ export function broadcastToOtherClients(
   for (const client of activeRemoteClients()) {
     if (client.id === author.id) continue
     client.send(channel, payload)
+  }
+}
+
+/**
+ * A per-token broadcast, skipping remote clients that asked for less.
+ *
+ * Separate from [broadcastToWindows] because the two have different costs. A
+ * conversation changing is one small frame; a turn is thousands, and on a metered
+ * connection that is somebody's data allowance spent on a screen they may not be
+ * looking at.
+ *
+ * Windows always receive. The preference exists for a connection that is paid for by
+ * the megabyte, which a renderer in the same process is not.
+ */
+export function broadcastLiveToken(channel: string, payload: unknown): void {
+  for (const window of BrowserWindow.getAllWindows()) sendToWindow(window, channel, payload)
+  for (const client of activeRemoteClients()) {
+    if (wantsLiveTokens(client)) client.send(channel, payload)
   }
 }

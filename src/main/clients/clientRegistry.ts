@@ -111,3 +111,25 @@ export function activeRemoteClients(): ClientChannel[] {
 export function detachAllRemoteClients(): void {
   remoteClients.clear()
 }
+
+/**
+ * Clients that have asked not to receive tokens as they are generated.
+ *
+ * By id rather than by reference, so a reconnecting phone that briefly overlaps with
+ * the socket it is replacing does not lose the preference in the gap — the ids match
+ * even when the channel objects do not.
+ *
+ * Empty means everybody gets everything, which is the behaviour this had before the
+ * preference existed and the right default: a client that has said nothing has not
+ * asked for less.
+ */
+const mutedLiveTokens = new Set<string>()
+
+export function setLiveTokens(clientId: string, wanted: boolean): void {
+  if (wanted) mutedLiveTokens.delete(clientId)
+  else mutedLiveTokens.add(clientId)
+}
+
+export function wantsLiveTokens(client: ClientChannel): boolean {
+  return !mutedLiveTokens.has(client.id)
+}

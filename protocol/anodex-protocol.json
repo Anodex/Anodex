@@ -1054,6 +1054,23 @@
       }
     },
     {
+      "channel": "chat:set-live-tokens",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "wanted",
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "kind": "void"
+      }
+    },
+    {
       "channel": "chat:stop",
       "kind": "invoke",
       "api": "chat.stop",

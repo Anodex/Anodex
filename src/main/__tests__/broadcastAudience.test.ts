@@ -36,11 +36,14 @@ vi.mock('electron', () => ({
 }))
 
 const remotes: ClientChannel[] = []
+const muted = new Set<string>()
 vi.mock('@main/clients/clientRegistry', () => ({
-  activeRemoteClients: () => remotes
+  activeRemoteClients: () => remotes,
+  wantsLiveTokens: (c: ClientChannel) => !muted.has(c.id)
 }))
 
-const { broadcastToOtherClients, broadcastToWindows } = await import('../broadcast')
+const { broadcastToOtherClients, broadcastToWindows, broadcastLiveToken } =
+  await import('../broadcast')
 
 function fakeWindow(id: number) {
   const w = { id, destroyed: false, sent: [] as Array<[string, unknown]> }
@@ -62,6 +65,7 @@ function fakeRemote(id: string) {
 beforeEach(() => {
   windows.length = 0
   remotes.length = 0
+  muted.clear()
 })
 
 describe('broadcastToOtherClients', () => {
@@ -160,5 +164,43 @@ describe('broadcastToWindows', () => {
     broadcastToWindows('chat:stream', { token: 'a' }, { extra: true })
 
     expect(phone.sent).toEqual([['chat:stream', { token: 'a' }]])
+  })
+})
+
+describe('broadcastLiveToken', () => {
+  it('skips a phone that asked not to receive tokens', () => {
+    // A turn is thousands of frames. On a metered connection that is somebody's data
+    // allowance spent on a screen they may not be looking at.
+    const desktop = fakeWindow(1)
+    const phone = fakeRemote('remote:pixel')
+    muted.add('remote:pixel')
+
+    broadcastLiveToken('chat:stream', { conversationId: 'c_1', token: 'hi' })
+
+    expect(phone.sent).toEqual([])
+    // The computer's own window is never skipped: the preference is about a
+    // connection paid for by the megabyte, which a renderer in-process is not.
+    expect(desktop.sent).toHaveLength(1)
+  })
+
+  it('sends to a phone that has said nothing', () => {
+    // The default, and the behaviour this had before the preference existed. A
+    // client that has not asked for less has not asked for less.
+    const phone = fakeRemote('remote:pixel')
+
+    broadcastLiveToken('chat:stream', { token: 'hi' })
+
+    expect(phone.sent).toHaveLength(1)
+  })
+
+  it('mutes one client without muting another', () => {
+    const quiet = fakeRemote('remote:on-a-train')
+    const loud = fakeRemote('remote:at-home')
+    muted.add('remote:on-a-train')
+
+    broadcastLiveToken('chat:stream', { token: 'hi' })
+
+    expect(quiet.sent).toEqual([])
+    expect(loud.sent).toHaveLength(1)
   })
 })
