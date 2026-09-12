@@ -1,6 +1,12 @@
 # Handoff — Anodex Mobile (native Android companion app)
 
-**Status:** design only. No code has been written. Nothing in `src/` has been changed for this.
+**Status: shipped.** This was the plan, and it was followed. Anodex Mobile lives at
+[`Anodex/anodex-mobile`](https://github.com/Anodex/anodex-mobile) and is past its sixtieth release;
+every phase described below exists. Kept because a dozen source files cite it for _why_ something is
+shaped as it is, and because the reasoning is still the reasoning.
+
+Read the phases as a record rather than a queue. Where this document and the code disagree, the code
+is right — it has had months of contact with a real phone that this document has not.
 **Written:** 2026-09-05. **Revised:** 2026-09-05 — direction changed from a thin remote-control web
 client to a **full native app in its own repository**; see §0 for what changed and why.
 **Reviewed:** 2026-09-05 at `36098ef` — every count in §3 and §12 re-verified and still exact; six

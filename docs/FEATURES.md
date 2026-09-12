@@ -726,6 +726,40 @@ Why it is good:
 - Anodex is a local desktop tool, so users need visibility into what is happening on
   their machine and control over when updates or diagnostics are handled.
 
+## Anodex Mobile
+
+A native Android companion, in its own repository at
+[`Anodex/anodex-mobile`](https://github.com/Anodex/anodex-mobile). Paired over a QR code from
+**Settings → Remote**.
+
+The promise is the same one the desktop makes, and the phone keeps it by doing almost nothing: it
+renders, asks and answers. It never runs a model, holds a workspace, executes a tool, or touches a
+file. Models, projects, keys and history stay on the computer.
+
+Key capabilities:
+
+- Chat, Workspace, Agents, Email and Scheduler, as they are on the computer.
+- Watch a turn the computer is running, live, from wherever the conversation is open.
+- Start an agent run from away and see what it changed before it lands.
+- Approve or refuse a tool call, on the device that asked.
+- Read what the assistant is remembering, and forget a line.
+- Profile, Archive and Diagnostics: usage over time, somewhere to delete things for good, and the
+  last crash with a way to report it.
+
+Deliberately not on the phone:
+
+- **Writing settings.** That prefix carries the permission mode, the MCP servers and the model
+  directory; a device able to change it could dismantle the protections that let it connect. The
+  profile is a separate, read-only channel.
+- **Creating a memory.** Forgetting one narrows what the model is told. Adding one steers every
+  later conversation, from a device that might be in somebody else's hand.
+- **Restoring a checkpoint.** The reads are what make trusting a run from away possible; putting
+  files back on the strength of a filename and a count is not.
+
+The honest cost: with the desktop asleep, closed or unreachable, the app says so and does nothing.
+There is no offline mode and no fallback model — and the computer now says _which_ of those it is
+before the connection goes.
+
 ## Appearance And Personalization
 
 Anodex can be customized for comfort and long work sessions.
