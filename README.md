@@ -25,7 +25,7 @@
   &nbsp;&middot;&nbsp;
   <a href="#take-it-with-you">On your phone</a>
   &nbsp;&middot;&nbsp;
-  <a href="ROADMAP.md">View roadmap</a>
+  <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
 ## The assistant that works where you do
@@ -145,6 +145,25 @@ it compiles the self-contained, bounded desktop-control helper before packaging.
 Electron, React, TypeScript, Zustand, CSS Modules, and `node-llama-cpp` / llama.cpp.
 Anodex uses a typed Electron boundary, sandboxed workspace tools, and local
 persistence to keep the desktop experience fast, private, and accountable.
+
+## Source available, not open source
+
+Anodex's source is published so you can read it, audit it, learn from it, and check that
+the software does what it says — which matters more than usual for something that runs
+models and edits files on your machine. It is not an open-source licence: redistribution,
+republished builds, and derivative products are not granted by default, and Anodex remains
+copyright © 2026 Anodex. See [LICENSE.md](LICENSE.md).
+
+That limit is about ownership and distribution. It is not about keeping people out.
+
+**Bug reports, reproduction cases, UX criticism, performance findings and feature ideas
+are all welcome**, and they are the most useful thing you can send — the project is
+maintained centrally, so the usual shape is that you describe the problem and the fix gets
+written here. [CONTRIBUTING.md](CONTRIBUTING.md) explains how that works, and the terms
+that apply if you do send code.
+
+Security findings are welcome too, and have their own private channel:
+[SECURITY.md](SECURITY.md).
 
 ## Project status
 

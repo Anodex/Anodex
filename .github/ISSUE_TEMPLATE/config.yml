@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Anodex/Anodex/security/advisories/new
+    about: Report privately. Please do not open a public issue for anything exploitable.
+  - name: Question, or an idea you want to talk through
+    url: https://github.com/Anodex/Anodex/discussions
+    about: Discussions is the place for "how do I", "what about", and ideas that are not yet a concrete request. Issues is for defects.
+  - name: How contributing works here
+    url: https://github.com/Anodex/Anodex/blob/main/CONTRIBUTING.md
+    about: Anodex is source available and maintained centrally. Reports and ideas are welcome; pull requests are not the usual path.
