@@ -228,7 +228,8 @@ const api: AnodexApi = {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Memory.list, projectId),
     create: (request) => ipcRenderer.invoke(IpcChannel.Memory.create, request),
     update: (scope, id, patch) => ipcRenderer.invoke(IpcChannel.Memory.update, scope, id, patch),
-    delete: (scope, id) => ipcRenderer.invoke(IpcChannel.Memory.delete, scope, id)
+    delete: (scope, id) => ipcRenderer.invoke(IpcChannel.Memory.delete, scope, id),
+    onChanged: (listener) => subscribe<string>(IpcChannel.Memory.changed, listener)
   },
   terminal: {
     create: () => ipcRenderer.invoke(IpcChannel.Terminal.create),

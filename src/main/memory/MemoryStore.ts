@@ -10,6 +10,8 @@ import type {
   UpdateMemoryRequest
 } from '@shared/memory.types'
 import { jaccardSimilarity } from '@shared/textSimilarity'
+import { IpcChannel } from '@shared/ipc'
+import { broadcastToWindows } from '../broadcast'
 import { createLogger } from '../utils/logger'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 
@@ -194,6 +196,17 @@ class MemoryStore {
       throw error
     }
     this.cache.set(key, entries)
+
+    // Announced here rather than at the call sites, because most memory is not
+    // written by a person: the model remembers something during a turn and this
+    // is the only line every one of those paths passes through. Wiring the
+    // handlers alone would have covered the two writes somebody makes by hand and
+    // missed the ones that actually accumulate.
+    //
+    // Every client hears it, the author included. A memory list is small and
+    // re-read whole, so an echo costs a refresh rather than the mid-edit fight
+    // that makes conversations exclude their author.
+    broadcastToWindows(IpcChannel.Memory.changed, key)
   }
 
   private filePath(key: string): string {
