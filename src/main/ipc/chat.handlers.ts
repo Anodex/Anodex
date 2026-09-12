@@ -17,6 +17,7 @@ import {
   registerGeneration,
   releaseGeneration
 } from '../chat/inflightGenerations'
+import { broadcastToWindows } from '../broadcast'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
 import { isRemoteCall, resolveClientChannel } from '../clients/clientRegistry'
@@ -50,9 +51,19 @@ export function registerChatHandlers(): void {
     registerGeneration(request.conversationId, controller)
 
     // Resolved once per generation rather than reaching for `event.sender` at every
-    // callback. The stream belongs to whoever started the turn, and that is no longer
-    // necessarily a window: a remote call carries its client on the event instead,
-    // and has no `sender` at all.
+    // callback. A remote call carries its client on the event instead of a `sender`,
+    // and has none at all.
+    //
+    // This is the client that *asked*, which is not the same as the audience. A turn
+    // is watched from wherever the conversation is open: start one on the computer
+    // and a paired phone holding the same chat should see it arrive, because both
+    // are windows onto one machine doing one piece of work. Display events are
+    // therefore broadcast and each client keeps what matches a conversation it is
+    // showing — every payload below carries `conversationId` for exactly that.
+    //
+    // A confirmation is the exception, and stays with the asker. It is a question,
+    // not a view: putting the same approval on two devices means either answering it
+    // twice or racing to answer it once.
     const client = resolveClientChannel(event)
 
     try {
@@ -64,21 +75,21 @@ export function registerChatHandlers(): void {
         surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
-          client.send(IpcChannel.Chat.stream, {
+          broadcastToWindows(IpcChannel.Chat.stream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
           })
         },
         onThinkingToken: (token) => {
-          client.send(IpcChannel.Chat.thinkingStream, {
+          broadcastToWindows(IpcChannel.Chat.thinkingStream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
           })
         },
         onActivity: (call) => {
-          client.send(IpcChannel.Tools.activity, {
+          broadcastToWindows(IpcChannel.Tools.activity, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             call
