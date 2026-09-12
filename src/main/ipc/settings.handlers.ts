@@ -11,6 +11,11 @@ const log = createLogger('ipc:settings')
 export function registerSettingsHandlers(): void {
   ipcMain.handle(IpcChannel.Settings.get, () => settingsStore.get())
 
+  // Read-only, and deliberately not a slice of `settings:get`: this is the one
+  // part of settings a phone is allowed to see, so it is its own channel rather
+  // than a filter somebody could widen later without noticing what it guards.
+  ipcMain.handle(IpcChannel.Settings.getProfile, () => settingsStore.get().profile)
+
   ipcMain.handle(IpcChannel.Settings.update, (_event, patch: SettingsPatch) => {
     try {
       return settingsStore.update(patch)

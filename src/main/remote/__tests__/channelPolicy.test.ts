@@ -106,6 +106,28 @@ describe('memory from a phone', () => {
  * back to an earlier state, and the phone has no diff view to justify that with —
  * it would be undoing work on the strength of a filename and a count.
  */
+describe('the profile from a phone', () => {
+  it('can read whose profile it is', () => {
+    // A name and an avatar, so the phone's Profile screen has something to be
+    // about. Before this it said "set it at your computer" and showed nothing.
+    expect(decideRemoteChannel('settings:get-profile').allowed).toBe(true)
+  })
+
+  it('still cannot read or write settings', () => {
+    // The point of the narrowing. `settings:get` carries the permission mode, the
+    // MCP servers and the model directory; a phone that can read that is one step
+    // from a phone that can change it, and changing it can switch off the
+    // protections that let the phone connect at all.
+    //
+    // Written as a separate assertion from the one above because the tempting
+    // future edit is to widen the exception to the prefix, and that would leave
+    // the first test passing.
+    expect(decideRemoteChannel('settings:get').allowed).toBe(false)
+    expect(decideRemoteChannel('settings:update').allowed).toBe(false)
+    expect(decideRemoteChannel('settings:reset').allowed).toBe(false)
+  })
+})
+
 describe('checkpoints from a phone', () => {
   it('can see what changed', () => {
     expect(decideRemoteChannel('checkpoints:list').allowed).toBe(true)

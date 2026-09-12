@@ -6793,6 +6793,15 @@
       }
     },
     {
+      "channel": "settings:get-profile",
+      "kind": "invoke",
+      "api": "settings.getProfile",
+      "args": [],
+      "result": {
+        "$ref": "ProfileSettings"
+      }
+    },
+    {
       "channel": "settings:open-models-dir",
       "kind": "invoke",
       "api": "settings.openModelsDir",
