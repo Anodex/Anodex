@@ -5007,6 +5007,15 @@
       }
     },
     {
+      "channel": "memory:changed",
+      "kind": "event",
+      "api": "memory.onChanged",
+      "args": [],
+      "payload": {
+        "kind": "string"
+      }
+    },
+    {
       "channel": "memory:create",
       "kind": "invoke",
       "api": "memory.create",
