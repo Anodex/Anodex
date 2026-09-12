@@ -360,23 +360,23 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## npm packages
 
-319 packages ship inside the application. The list is every package
+324 packages ship inside the application. The list is every package
 reachable from Anodex’s production dependencies, plus the dev dependencies whose code
 Vite bundles into the renderer (they are dev dependencies only in the sense that nothing
 resolves them at runtime — their code is in the product).
 
 | Licence | Packages |
 | ------- | -------- |
-| MIT | 262 |
+| MIT | 264 |
 | ISC | 27 |
 | BSD-3-Clause | 8 |
 | BlueOak-1.0.0 | 6 |
 | BSD-2-Clause | 6 |
 | Apache-2.0 | 3 |
+| MIT-0 | 3 |
+| (MIT OR EUPL-1.1+) | 2 |
 | 0BSD | 2 |
 | (BSD-2-Clause OR MIT OR Apache-2.0) | 1 |
-| (MIT OR EUPL-1.1+) | 1 |
-| MIT-0 | 1 |
 | Python-2.0 | 1 |
 | Unlicense | 1 |
 
@@ -478,6 +478,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Applies to:
 
 - `@zone-eu/mailsplit@5.4.14`
+- `@zone-eu/mailsplit@5.4.16`
 
 ```text
 EUROOPA LIIDU TARKVARA VABA KASUTUSE LITSENTS v. 1.2
@@ -1449,7 +1450,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Applies to:
 
-- `deepmerge-ts@7.1.5`
+- `deepmerge-ts@8.0.2`
 
 ```text
 BSD 3-Clause License
@@ -1525,7 +1526,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Applies to:
 
-- `fast-uri@3.1.5`
+- `fast-uri@3.1.7`
 
 ```text
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
@@ -1641,7 +1642,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Applies to:
 
-- `qs@6.15.3`
+- `qs@6.16.0`
 
 ```text
 BSD 3-Clause License
@@ -3600,6 +3601,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Applies to:
 
 - `encoding-japanese@2.2.0`
+- `encoding-japanese@2.3.0`
 
 ```text
 MIT License
@@ -4215,7 +4217,7 @@ SOFTWARE.
 
 Applies to:
 
-- `hono@4.13.2`
+- `hono@4.13.7`
 
 ```text
 MIT License
@@ -4245,7 +4247,7 @@ SOFTWARE.
 
 Applies to:
 
-- `html-to-text@10.0.0`
+- `html-to-text@10.0.1`
 
 ```text
 MIT License
@@ -4625,7 +4627,7 @@ THE SOFTWARE.
 
 Applies to:
 
-- `js-yaml@4.3.1`
+- `js-yaml@4.3.2`
 
 ```text
 (The MIT License)
@@ -4771,6 +4773,7 @@ THE SOFTWARE.
 Applies to:
 
 - `libmime@5.4.1`
+- `libmime@5.4.3`
 
 ```text
 Copyright (c) 2014-2016 Andris Reinman
@@ -5062,7 +5065,7 @@ SOFTWARE.
 
 Applies to:
 
-- `mailparser@3.9.14`
+- `mailparser@3.9.23`
 
 ```text
 Copyright (c) 2020 - 2025 Andris Reinman
@@ -6846,7 +6849,9 @@ SOFTWARE.
 
 Applies to:
 
+- `nodemailer@10.0.1`
 - `nodemailer@9.0.3`
+- `nodemailer@9.1.1`
 
 ```text
 Copyright (c) 2011-2023 Andris Reinman
