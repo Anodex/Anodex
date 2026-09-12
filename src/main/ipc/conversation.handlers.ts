@@ -44,7 +44,19 @@ export function registerConversationHandlers(): void {
     return isRemoteCall(event) ? forRemote(tail) : tail
   })
 
-  ipcMain.handle(IpcChannel.Conversations.listArchived, () => conversationStore.listArchived())
+  ipcMain.handle(IpcChannel.Conversations.listArchived, (event) => {
+    const archived = conversationStore.listArchived()
+
+    // A phone gets summaries, not transcripts.
+    //
+    // `listArchived` returns whole conversations, every message included. A window
+    // can hold that; a socket cannot — the bridge refuses anything over
+    // `MAX_RESPONSE_BYTES` with `response-too-large`, so on any real store the
+    // archive screen failed outright rather than rendering slowly. This is the same
+    // failure `forRemote` was written for on the tail read, and the same narrowing:
+    // the archive lists names and dates, and never opens what it lists.
+    return isRemoteCall(event) ? archived.map(toSummary) : archived
+  })
 
   ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {
     try {
