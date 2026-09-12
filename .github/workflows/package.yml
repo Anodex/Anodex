@@ -56,9 +56,37 @@ jobs:
           esac
           echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
 
+  # electron-builder finds-or-creates the release from inside each asset upload,
+  # and it runs those uploads concurrently. Two of them can therefore both look,
+  # both find nothing, and both create one — which is how v0.2.1 and v0.3.0 each
+  # shipped as *two* releases on a single tag. On v0.3.0 the Windows installer
+  # went to one and its blockmap to the other in the same second, and the macOS
+  # dmg and latest-mac.yml landed on the invisible one, so the published release
+  # was missing a platform while every job reported success.
+  #
+  # `max-parallel: 1` narrowed that to a single job's uploads racing each other.
+  # It did not close it, because the race was never between jobs.
+  #
+  # Creating the release once, here, before anything uploads, means every later
+  # find-or-create finds. It is the only step that can create one.
+  release:
+    name: Create the draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create it unless it is already there
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$GITHUB_REF_NAME already exists; leaving it alone."
+          else
+            gh release create "$GITHUB_REF_NAME"               --repo "$GITHUB_REPOSITORY"               --draft               --title "$GITHUB_REF_NAME"               --notes "Release notes are written by hand before this is published."
+          fi
+
   package:
     name: Package (${{ matrix.name }})
-    needs: targets
+    needs: [targets, release]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
