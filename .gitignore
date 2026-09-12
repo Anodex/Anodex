@@ -10,6 +10,10 @@ dist/
 /models/
 /resources/llama-server/*
 !/resources/llama-server/README.md
+# Exception: llama.cpp's MIT notice. The upstream release archives ship the
+# binaries without it, so Anodex supplies the text and prepare-llama-server.mjs
+# copies it in beside them. Ignoring it would quietly break compliance.
+!/resources/llama-server/LICENSE-llama.cpp.txt
 /resources/windows-control/*
 !/resources/windows-control/README.md
 /native/windows-control/bin/

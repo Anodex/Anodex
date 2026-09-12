@@ -111,6 +111,16 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      # Windows only, and not in `quality`, because the notice file is
+      # per-installer: npm installs only the optional binaries matching the
+      # host, so a Linux tree and a Windows tree legitimately produce different
+      # files. Windows is what ships today and what the committed file was
+      # generated for; the check refuses to compare across platforms rather than
+      # pass on a file it cannot verify.
+      - name: Third-party notices are up to date
+        if: matrix.os == 'windows-latest'
+        run: npm run notices:check
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
