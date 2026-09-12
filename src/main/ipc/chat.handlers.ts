@@ -17,10 +17,10 @@ import {
   registerGeneration,
   releaseGeneration
 } from '../chat/inflightGenerations'
-import { broadcastToWindows } from '../broadcast'
+import { broadcastLiveToken, broadcastToWindows } from '../broadcast'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
-import { isRemoteCall, resolveClientChannel } from '../clients/clientRegistry'
+import { isRemoteCall, resolveClientChannel, setLiveTokens } from '../clients/clientRegistry'
 import { rehydrateUploadedImage } from '../remote/uploadStore'
 import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
@@ -40,6 +40,13 @@ export function abortAllChatGenerations(): void {
 
 /** IPC handlers for streaming chat generation and stopping it. */
 export function registerChatHandlers(): void {
+  // A client describing itself, rather than asking for anything. Applies from the
+  // next token onward and is forgotten when the socket goes, which is right: a phone
+  // that reconnects on Wi-Fi should not still be muted from when it was on a train.
+  ipcMain.handle(IpcChannel.Chat.setLiveTokens, (event, wanted: boolean) => {
+    setLiveTokens(resolveClientChannel(event).id, wanted)
+  })
+
   ipcMain.handle(IpcChannel.Chat.send, async (event, rawRequest: ChatRequest) => {
     // A phone refers to an image it uploaded by the path it landed on, rather than
     // sending the bytes a second time as base64 in this request. Filled in here so
@@ -75,14 +82,14 @@ export function registerChatHandlers(): void {
         surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
-          broadcastToWindows(IpcChannel.Chat.stream, {
+          broadcastLiveToken(IpcChannel.Chat.stream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
           })
         },
         onThinkingToken: (token) => {
-          broadcastToWindows(IpcChannel.Chat.thinkingStream, {
+          broadcastLiveToken(IpcChannel.Chat.thinkingStream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
             token
