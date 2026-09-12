@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in Anodex does not work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A report that reproduces is the single most useful thing you can send.
+
+        **Before you paste anything:** no API keys, tokens, passwords, certificates, pairing codes or model credentials. No private email contents, and nothing from a workspace you would not publish. Redact rather than omit — `sk-…REDACTED` still tells me the shape of the thing.
+
+        Found a **security** problem? Do not open this. See [SECURITY.md](../blob/main/SECURITY.md) for the private channel.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what Anodex did instead.
+      placeholder: |
+        I expected …
+        Instead, …
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. If it only happens sometimes, say roughly how often.
+      placeholder: |
+        1. Open …
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Anodex version
+      description: Settings → About, or the installer filename.
+      placeholder: '0.4.0'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: os-detail
+    attributes:
+      label: OS version
+      placeholder: 'Windows 11 24H2 / macOS 15.2 / Ubuntu 24.04'
+
+  - type: textarea
+    id: model
+    attributes:
+      label: Model and provider
+      description: If the bug involves a reply, a tool call, or an agent run. The model name and whether it is local or a connected provider.
+      placeholder: 'Qwen3-30B, local (llama.cpp) — or: Claude, connected'
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, errors or screenshots
+      description: Paste any error text, or drag in a screenshot. Check it for credentials first.
+      render: text
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: Guesses about the cause are welcome — they are often right.
