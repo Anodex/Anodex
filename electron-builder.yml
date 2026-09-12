@@ -76,6 +76,23 @@ asarUnpack:
 # app itself (see EmbeddingService.ts), not downloaded at runtime. Lands at
 # `process.resourcesPath/embedding-model/` in a packaged build.
 extraResources:
+  # Anodex's own licence and the third-party notices, as plain readable files in
+  # `resources/` beside the components they cover. `LICENSE.md` promises that
+  # third-party notices travel with the installed application, and a notice
+  # nobody can open has not travelled anywhere.
+  #
+  # Deliberately NOT also listed under `files:` above, which would be the
+  # obvious way to make the packaged `package.json`'s "SEE LICENSE IN
+  # LICENSE.md" resolve inside the asar. It does not work: electron-builder
+  # excludes every `extraResources` source from the app package to avoid
+  # shipping the same bytes twice (app-builder-lib, platformPackager.ts —
+  # `extraResourceMatchers` are fed straight into `excludePatterns`). Adding
+  # both silently produces neither copy in the asar, which is how this was
+  # found. One location, and this is the useful one: a human can open it.
+  - from: LICENSE.md
+    to: LICENSE.md
+  - from: THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
   - from: resources/embedding-model
     to: embedding-model
   # Official llama.cpp runtime prepared by `npm run prepare:vision`. It stays
