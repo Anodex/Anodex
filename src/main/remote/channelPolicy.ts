@@ -137,6 +137,11 @@ export const DENIED_CHANNELS = [
 export const ALLOWED_CHANNELS = [
   /** Read-only. Feeds the phone's connection header — which model, how full (§8). */
   'models:get-state',
+
+  // The phone shows whose profile it is. A name and an avatar carry nothing that
+  // widens what a phone can do, and the alternative was a screen that said "set it
+  // at your computer" and showed nothing else at all.
+  'settings:get-profile',
   'models:state-changed',
 
   /**
