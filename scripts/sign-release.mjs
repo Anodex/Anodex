@@ -15,6 +15,7 @@
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 import { RELEASE_KEY_SOURCE, pem, shippedPublicKey } from './release-key-source.mjs'
 import { createReadStream, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { signableEntries } from './signable-entries.mjs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -104,8 +105,7 @@ async function fromManifest(dir) {
   }
 
   const resolved = []
-  for (const file of readdirSync(dir)) {
-    if (/\.(yml|sig|blockmap)$/.test(file)) continue
+  for (const file of signableEntries(readdirSync(dir, { withFileTypes: true }))) {
     const digest = (await sha512(join(dir, file))).toString('base64')
     const entry = declared.find((candidate) => candidate.sha512 === digest)
     if (entry) resolved.push({ path: join(dir, file), sigName: join(dir, `${entry.url}.sig`) })
