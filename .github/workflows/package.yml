@@ -87,6 +87,11 @@ jobs:
   package:
     name: Package (${{ matrix.name }})
     needs: [targets, release]
+    # A skipped dependency skips its dependents, and `release` is deliberately
+    # skipped on a manual run — which would otherwise mean `workflow_dispatch`
+    # silently packaged nothing at all. Skipped is a fine answer here; failed
+    # is not.
+    if: ${{ !cancelled() && needs.targets.result == 'success' && needs.release.result != 'failure' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
