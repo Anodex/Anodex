@@ -428,7 +428,16 @@ export const IpcChannel = {
     list: 'memory:list',
     create: 'memory:create',
     update: 'memory:update',
-    delete: 'memory:delete'
+    delete: 'memory:delete',
+    /**
+     * What the assistant is carrying forward has changed.
+     *
+     * Memory is mostly not written by a person — the model remembers something
+     * mid-turn and the store writes it. Nothing announced that, so every client
+     * held whatever the list looked like when it last asked, and a phone and a
+     * computer could disagree indefinitely about what was being remembered.
+     */
+    changed: 'memory:changed'
   },
   Terminal: {
     create: 'terminal:create',
@@ -921,6 +930,15 @@ export interface AnodexApi {
     create(request: CreateMemoryRequest): Promise<Result<MemoryEntry>>
     update(scope: MemoryScope, id: string, patch: UpdateMemoryRequest): Promise<Result<MemoryEntry>>
     delete(scope: MemoryScope, id: string): Promise<Result<void>>
+    /**
+     * Something was remembered, changed or forgotten. The payload is the scope
+     * that changed — `global`, or the project it belongs to.
+     *
+     * Fired for writes the model makes during a turn as much as for edits made by
+     * hand, which is the point: those are the ones that accumulate, and nothing
+     * used to announce them.
+     */
+    onChanged(listener: (scopeKey: string) => void): () => void
   }
   terminal: {
     /** Start a new shell session; returns the session ID. */
