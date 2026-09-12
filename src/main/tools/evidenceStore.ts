@@ -11,7 +11,7 @@
  * could not tell whether it had ever run the tool, and reran it blind.
  *
  * The measured consequence, in the conversation recorded in
- * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md`: one assistant message issued 157 tool
+ * `docs/CONTEXT_SYSTEM.md §1`: one assistant message issued 157 tool
  * calls, pushed ~51,000 tokens of file evidence through a 16,384-token window,
  * had 56% of its reads be exact duplicates, and completed **zero** writes.
  *
@@ -37,7 +37,7 @@
  * call and returns what is on disk *now*, while a recall cost a call and
  * permanently enlarged replayed history with a copy that was already stale.
  * One measured run spent 39% of 156 calls recalling and still had four edits
- * rejected for stale line numbers. See `docs/CONTEXT_SYSTEM_DESIGN.md` §3.2.
+ * rejected for stale line numbers. See `docs/CONTEXT_SYSTEM.md §3.`
  *
  * Lifetime is one bounded reply (`runBoundedChatGeneration`) or one agent run —
  * the same lifetime as `ReadCoverageTracker`, and for the same reason: both

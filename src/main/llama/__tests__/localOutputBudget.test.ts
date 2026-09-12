@@ -44,7 +44,7 @@ describe('bounded-write headroom', () => {
 
 describe('resolveLocalOutputBudget', () => {
   it('reserves a bounded fraction of measured headroom for a tool turn instead of a flat quarter of context', () => {
-    // The exact live failure recorded in CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md:
+    // The exact live failure recorded in `docs/CONTEXT_SYSTEM.md` §5:
     // the old quarter-of-context rule clamped this to 2,048 tokens and the
     // model spent nearly all of it on hidden reasoning before one tool call
     // finished. The reserve-of-measured-headroom rule keeps a real safety

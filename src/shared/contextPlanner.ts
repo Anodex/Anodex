@@ -13,7 +13,7 @@ import { APPROX_CHARS_PER_TOKEN } from './contextProjection'
  * (workspace orientation, remembered facts, past-chat recall) shares a single
  * measured allowance. Explicit user instructions, enabled tools, model choice
  * and the canonical transcript are outside this selector by design — see
- * `docs/CONTEXT_OS_HANDOFF.md`.
+ * `docs/CONTEXT_SYSTEM.md §6`.
  */
 export const CONTEXT_ASSEMBLY_STRATEGIES = ['current', 'adaptive-v1'] as const
 
@@ -191,7 +191,7 @@ export function charsPerToken(calibration?: PromptCalibration | null): number {
  * window whose fixed cost already fills it the result is zero, and the sources
  * report contributing nothing rather than quietly overcommitting a prompt the
  * reply then has no room in — the 4K failure recorded in
- * `docs/CONTEXT_OS_HANDOFF.md`.
+ * `docs/CONTEXT_SYSTEM.md §6`.
  */
 export function automaticReferenceAllowanceChars(input: {
   contextWindowTokens: number

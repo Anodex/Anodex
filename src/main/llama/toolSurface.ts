@@ -219,7 +219,7 @@ export function boundToolSurface(options: {
  * orient, read, locate, edit, run — rather than the ten most obvious tools. On
  * a small window only about that many keep a native schema, and a surface that
  * can read but not edit is what produced the 157-call, zero-write message in
- * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md`.
+ * `docs/CONTEXT_SYSTEM.md §1`.
  *
  * Two placements are deliberate and worth not "tidying" later:
  *

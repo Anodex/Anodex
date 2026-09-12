@@ -371,7 +371,7 @@ function beginToolCall(
  * hundred calls and no output.
  *
  * A repeated stable read is deliberately *not* refused; see
- * `TaskLedger.reviewCall` and `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` §1 for the
+ * `TaskLedger.reviewCall` and `docs/CONTEXT_SYSTEM.md §1` for the
  * livelock that refusing it produced.
  */
 /**

@@ -1,6 +1,6 @@
 /**
  * Bounded, non-sensitive counters explaining where one local generation's
- * output budget went — see `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`,
+ * output budget went — see `docs/CONTEXT_SYSTEM.md §5`,
  * P0-C. A live 8K project-chat turn hit the safe token ceiling with only 135
  * visible characters and 304 thought characters produced against 2,815
  * consumed tokens; without a separate function-parameter counter that gap is

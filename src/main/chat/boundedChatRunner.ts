@@ -237,7 +237,7 @@ function goalContinuePrompt(goal: string): string {
  * bounded progress across multiple provider turns instead of stopping dead
  * the moment one turn hits a soft ceiling (tool/token/time/context-shift
  * limit) — see "Phase 5: Shared bounded task continuation" in
- * `docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md`. A live 8K project-chat
+ * `docs/CONTEXT_SYSTEM.md §5`. A live 8K project-chat
  * audit made real progress (33 completed tool calls, partial report text)
  * before hitting exactly this kind of bounded stop with nothing to
  * automatically pick it back up; this is that missing seam.

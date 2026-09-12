@@ -506,7 +506,7 @@ class CriticalThinkingService {
    * Breadth-first: every not-yet-completed/limited step gets one research
    * round before any step gets a second, so a handful of early steps can no
    * longer exhaust the run's lifetime round/search/fetch budget before later
-   * approved steps are ever attempted (docs/CONTEXT_ADAPTIVE_RUNTIME_RECOVERY_HANDOFF.md, P0-D).
+   * approved steps are ever attempted (docs/CONTEXT_SYSTEM.md §5).
    * Round-robin naturally guarantees round N for every step before round N+1
    * for any step, without needing separate reservation bookkeeping.
    */

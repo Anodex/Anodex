@@ -372,7 +372,7 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
  * contract when the read is still in the model's context and a hopeless one
  * when it is not — and on a small window it very often is not, because the
  * transports evict older tool results to make room. In the incident recorded in
- * `docs/CONTEXT_SYSTEM_ROOT_CAUSE.md` a single assistant message made 157 tool
+ * `docs/CONTEXT_SYSTEM.md §1` a single assistant message made 157 tool
  * calls and zero successful writes, while producing eleven "the text to replace
  * was not found" errors: the model was reconstructing `oldText` from memory
  * because the read it came from had been deleted out from under it.
