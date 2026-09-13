@@ -50,7 +50,7 @@ export function searchTranscripts(
   query: string,
   options: SearchTranscriptsOptions = {}
 ): TranscriptRecallResult[] {
-  const queryWords = wordSet(query)
+  const queryWords = contentWords(wordSet(query))
   if (queryWords.size === 0) return []
   const queryPhrase = query.trim().toLowerCase()
   const maxExcerpts = options.maxExcerptsPerConversation ?? MAX_EXCERPTS_PER_CONVERSATION
@@ -101,6 +101,137 @@ export function searchTranscripts(
     })
     .slice(0, options.maxResults ?? MAX_RESULTS)
     .map((entry) => entry.result)
+}
+
+/**
+ * Function words, which a query matches on without saying anything.
+ *
+ * Asked "what color is red?", Anodex recalled a fluid-simulation chat and offered
+ * to explain how red renders in that project's scene. The query the search actually
+ * ran was `{what, color}`: "is" and "red" are below `MIN_WORD_LENGTH`, so the
+ * subject of the question was discarded and two of the commonest words in a coding
+ * transcript were left to stand for it. Four conversations matched, every one of
+ * them on exactly those two words, all tied at `MIN_SCORE` — and a tie is broken by
+ * recency, so what came back was simply the most recent long chat. This module's
+ * own contract is that there is no "show recent activity anyway" fallback; the
+ * tie-break reintroduced one whenever the query was generic enough.
+ *
+ * Dropping these from the *query* leaves `{color}`, which scores 1 and does not
+ * clear the floor, so the question recalls nothing — which is right, because
+ * nothing in the past chats had anything to do with it.
+ *
+ * Query side only. A document keeps its full word set: these words are no less
+ * present in it, they just cannot be what a match is made of. And deliberately
+ * only closed-class words — pronouns, determiners, auxiliaries, conjunctions,
+ * prepositions, interrogatives. "build", "error", "test" and the like are common
+ * too, and they are also exactly what somebody is asking about.
+ */
+const QUERY_STOP_WORDS = new Set([
+  'about',
+  'after',
+  'again',
+  'against',
+  'along',
+  'also',
+  'although',
+  'among',
+  'another',
+  'because',
+  'been',
+  'before',
+  'being',
+  'below',
+  'between',
+  'both',
+  'could',
+  'does',
+  'doing',
+  'done',
+  'down',
+  'during',
+  'each',
+  'either',
+  'else',
+  'ever',
+  'every',
+  'from',
+  'further',
+  'have',
+  'having',
+  'here',
+  'hers',
+  'herself',
+  'himself',
+  'into',
+  'itself',
+  'just',
+  'less',
+  'many',
+  'more',
+  'most',
+  'much',
+  'must',
+  'myself',
+  'neither',
+  'none',
+  'once',
+  'only',
+  'onto',
+  'other',
+  'others',
+  'ours',
+  'ourselves',
+  'over',
+  'same',
+  'shall',
+  'should',
+  'since',
+  'some',
+  'such',
+  'than',
+  'that',
+  'their',
+  'theirs',
+  'them',
+  'themselves',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'those',
+  'through',
+  'thus',
+  'under',
+  'until',
+  'upon',
+  'very',
+  'were',
+  'what',
+  'when',
+  'where',
+  'whether',
+  'which',
+  'while',
+  'whom',
+  'whose',
+  'will',
+  'with',
+  'within',
+  'without',
+  'would',
+  'your',
+  'yours',
+  'yourself'
+])
+
+/** The query's words that can carry a match — see [QUERY_STOP_WORDS]. */
+function contentWords(words: Set<string>): Set<string> {
+  const kept = new Set<string>()
+  for (const word of words) {
+    if (!QUERY_STOP_WORDS.has(word)) kept.add(word)
+  }
+  return kept
 }
 
 /** User/assistant prose only — excludes system messages, tool payloads (a separate field), and attachments. */
