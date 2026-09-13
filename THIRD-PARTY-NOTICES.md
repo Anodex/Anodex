@@ -358,6 +358,42 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
+## Trademarks
+
+Anodex connects to model providers, and shows each provider’s logo next to the
+connection it belongs to. Those logos ship inside the application:
+
+- Anthropic
+- OpenAI
+- Azure OpenAI
+- Google
+- DeepSeek
+- Groq
+- Kimi (Moonshot AI)
+- Mistral AI
+- OpenRouter
+- Qwen
+- xAI
+
+**These are trademarks, not licensed components.** Each mark belongs to the company it
+names. No licence to them is granted by this file, by Anodex’s own licence, or by the
+fact that the artwork is visible in this source.
+
+They are used to identify a real integration and nothing else — the OpenAI mark appears
+against the OpenAI connection because that is what it connects to. The artwork ships
+unmodified, is never restyled or recoloured, and is never used as decoration or to suggest
+that any of these companies endorses, sponsors or is affiliated with Anodex. None of them
+does.
+
+Provenance for every mark — the official brand page, asset pack or CC0 source it came
+from, and when — is recorded in `src/renderer/assets/providers/SOURCES.md`.
+
+If you own one of these marks and object to how it is used here, say so and it will be
+removed: <https://github.com/Anodex/Anodex/issues>, or the private channel in
+`SECURITY.md` if you would rather not do it in public.
+
+---
+
 ## npm packages
 
 323 packages ship inside the application. The list is every package
