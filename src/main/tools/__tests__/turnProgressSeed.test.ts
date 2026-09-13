@@ -21,6 +21,7 @@ describe('createTurnProgress seeding across a context epoch', () => {
   it('starts empty without a seed, exactly as an ordinary turn does', () => {
     expect(createTurnProgress()).toEqual({
       madeChange: false,
+      observed: false,
       completedCalls: 0,
       lastChangeAt: null,
       lastVisualInspectionAt: null
@@ -77,6 +78,7 @@ describe('progressFromSettledCalls', () => {
     ])
     expect(progress).toEqual({
       madeChange: true,
+      observed: true,
       completedCalls: 3,
       lastChangeAt: 2,
       lastVisualInspectionAt: 3
@@ -91,6 +93,7 @@ describe('progressFromSettledCalls', () => {
     ])
     expect(progress).toEqual({
       madeChange: false,
+      observed: false,
       completedCalls: 0,
       lastChangeAt: null,
       lastVisualInspectionAt: null
@@ -104,6 +107,7 @@ describe('progressFromSettledCalls', () => {
     ])
     expect(progress).toEqual({
       madeChange: false,
+      observed: false,
       completedCalls: 0,
       lastChangeAt: null,
       lastVisualInspectionAt: null
@@ -129,6 +133,7 @@ describe("priorTaskProgress across an agent run's turns", () => {
 
     expect(priorTaskProgress(history)).toEqual({
       madeChange: true,
+      observed: true,
       completedCalls: 0,
       lastChangeAt: null,
       lastVisualInspectionAt: null
@@ -144,12 +149,22 @@ describe("priorTaskProgress across an agent run's turns", () => {
     expect(seed?.lastVisualInspectionAt).toBeNull()
   })
 
-  it('says nothing when every earlier call only looked at things', () => {
+  it('carries that something was looked at, but never that work was done', () => {
+    // Changed deliberately. A look-only run's reads are the only evidence it can give
+    // `finish_goal`, and they have to survive the turn boundary — without them a run
+    // that listed folders on turn 2 was refused until its turn limit. Reading still
+    // does not count as work for a run that could have changed something.
     const history = [
       { toolCalls: [call({ name: 'read_file', kind: 'read' })] },
       { toolCalls: [call({ name: 'write_plan', kind: 'plan' })] },
       { toolCalls: [call({ name: 'update_plan_step', kind: 'plan' })] }
     ]
+
+    expect(priorTaskProgress(history)).toMatchObject({ madeChange: false, observed: true })
+  })
+
+  it('says nothing when the only earlier calls were plan edits', () => {
+    const history = [{ toolCalls: [call({ name: 'write_plan', kind: 'plan' })] }]
 
     expect(priorTaskProgress(history)).toBeUndefined()
   })

@@ -99,3 +99,17 @@ export const STATUS_LABEL: Record<AgentRunStatus, string> = {
   stopped: 'Stopped',
   error: 'Error'
 }
+
+/**
+ * What a run's result box says: why it stopped when it stopped for a reason, and
+ * its summary otherwise.
+ *
+ * It was always the summary when there was one. A run that stopped at its turn limit
+ * still has a summary — its last reply — so the card was drawn in the warning colour
+ * around text reading "all 2 steps complete", and the reason it stopped was only
+ * visible after opening it.
+ */
+export function runOutcomeText(run: Pick<AgentRun, 'status' | 'summary' | 'lastError'>): string {
+  const reasonFirst = (run.status === 'error' || run.status === 'stopped') && run.lastError
+  return (reasonFirst ? run.lastError : (run.summary ?? run.lastError)) ?? ''
+}
