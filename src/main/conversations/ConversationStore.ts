@@ -49,6 +49,12 @@ function mergeRemoteSave(stored: Conversation, incoming: Conversation): Conversa
     ...stored,
     ...incoming,
     createdAt: stored.createdAt,
+    // Where a conversation is filed is not the phone's to change. The phone has no
+    // feature that moves a chat between projects, so a save carrying a different one
+    // is a guess — and phone builds before 0.71.1 made exactly that guess, filing
+    // every plain chat they opened into whichever project the computer had open,
+    // after which its turns ran against that project's files.
+    projectId: stored.projectId,
     // A turn both sides wrote keeps what is on disk, and gains only fields disk does
     // not have. The computer now records a phone's turn itself when it finishes, so
     // the phone's own save usually lands second — and only the phone knows which

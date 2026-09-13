@@ -132,9 +132,11 @@ describe('ConversationStore remote saves', () => {
     expect(conversationStore.get('chat-1')?.messages.map((m) => m.id)).toEqual(['a', 'b', 'new'])
   })
 
-  it('takes the title and project a remote client sends', () => {
-    // Merging is about turns only. Everything else the phone says is current.
-    conversationStore.save(conversation({ messages: [turn('a')], title: 'Old' }))
+  it('takes the title a remote client sends, but not a different project', () => {
+    // A rename from the phone is real. A project is not: the phone cannot move a chat,
+    // and builds before 0.71.1 sent the computer's open project for every plain chat
+    // they opened — which refiled the chat and put its turns in that project's files.
+    conversationStore.save(conversation({ messages: [turn('a')], title: 'Old', projectId: null }))
     conversationStore.save(
       conversation({ messages: [turn('a')], title: 'New', projectId: 'proj1' }),
       { fromRemote: true }
@@ -142,7 +144,16 @@ describe('ConversationStore remote saves', () => {
 
     const stored = conversationStore.get('chat-1')
     expect(stored?.title).toBe('New')
-    expect(stored?.projectId).toBe('proj1')
+    expect(stored?.projectId).toBeNull()
+  })
+
+  it('still files a conversation it has never seen where the phone says', () => {
+    // A chat started from the phone's Workspace screen is created in that project.
+    conversationStore.save(conversation({ messages: [turn('a')], projectId: 'proj1' }), {
+      fromRemote: true
+    })
+
+    expect(conversationStore.get('chat-1')?.projectId).toBe('proj1')
   })
 
   it('keeps the stored copy of a turn both sides wrote, filling only what it lacked', () => {
