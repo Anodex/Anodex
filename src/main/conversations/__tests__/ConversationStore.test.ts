@@ -145,6 +145,32 @@ describe('ConversationStore remote saves', () => {
     expect(stored?.projectId).toBe('proj1')
   })
 
+  it('keeps the stored copy of a turn both sides wrote, filling only what it lacked', () => {
+    // The computer records a phone's turn when it finishes, and the phone's own save
+    // lands after it. Only the phone knows who answered; the stored reply text wins.
+    conversationStore.save(
+      conversation({
+        messages: [{ ...turn('m1:reply', 'from the computer'), role: 'assistant' }]
+      })
+    )
+    conversationStore.save(
+      conversation({
+        messages: [
+          {
+            ...turn('m1:reply', 'from the phone'),
+            role: 'assistant',
+            persona: { id: 'builtin:direct', name: 'Vale', tint: 'accent' }
+          }
+        ]
+      }),
+      { fromRemote: true }
+    )
+
+    const [reply] = conversationStore.get('chat-1')?.messages ?? []
+    expect(reply.content).toBe('from the computer')
+    expect(reply.persona?.name).toBe('Vale')
+  })
+
   it('keeps the original createdAt, which a partial client cannot know', () => {
     conversationStore.save(conversation({ messages: [turn('a')], createdAt: 100 }))
     conversationStore.save(conversation({ messages: [turn('a')], createdAt: 999 }), {
