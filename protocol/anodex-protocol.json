@@ -10468,6 +10468,23 @@
             ]
           }
         },
+        "temporary": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              },
+              {
+                "kind": "boolean"
+              }
+            ]
+          }
+        },
         "options": {
           "optional": true,
           "type": {

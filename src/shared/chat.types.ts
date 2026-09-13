@@ -306,6 +306,14 @@ export interface ChatRequest {
    * into the chat themselves, and nothing else on disk.
    */
   userFiles?: ChatUserFile[]
+  /**
+   * A temporary chat: nothing about this turn is kept on the computer.
+   *
+   * Set by a phone's temporary chat. The turn is not recorded into a conversation,
+   * and the model cannot write to memory during it. What Anodex already remembers is
+   * still recalled; this chat just adds nothing to it.
+   */
+  temporary?: boolean
   options?: GenerationOptions
   /** The conversation's current plan, if any, so plan tools can continue it across turns. */
   plan?: Plan | null

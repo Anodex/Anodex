@@ -122,7 +122,8 @@ export function registerChatHandlers(): void {
           requestToolConfirmation(client, confirmRequest, controller.signal)
       })
 
-      if (remote) recordRemoteTurn(request, result)
+      // A temporary chat is the phone asking for exactly this not to happen.
+      if (remote && !request.temporary) recordRemoteTurn(request, result)
 
       return ok({
         conversationId: request.conversationId,
