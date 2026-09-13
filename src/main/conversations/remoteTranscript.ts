@@ -35,6 +35,18 @@ export interface RemoteMessage {
   role: ChatMessage['role']
   content: string
   persona?: MessagePersona
+  /**
+   * What was attached, without the file: a name, a kind and a size, in order. A
+   * picture's position here is how `conversations:attachment-preview` is asked for
+   * it. Paths stay on the computer.
+   */
+  attachments?: RemoteAttachment[]
+}
+
+export interface RemoteAttachment {
+  name: string
+  kind: 'text' | 'image'
+  sizeBytes: number
 }
 
 /** A conversation, as much of it as will fit. */
@@ -124,7 +136,8 @@ function trim(
         id: message.id,
         role: message.role,
         content: full,
-        ...(message.persona ? { persona: message.persona } : {})
+        ...(message.persona ? { persona: message.persona } : {}),
+        ...attachmentsOf(message)
       },
       wasCut: false
     }
@@ -146,10 +159,24 @@ function trim(
       id: message.id,
       role: message.role,
       content: `${head}\n\n… ${trimmedKb}KB more. Open this conversation on the computer to read the rest.`,
-      ...(message.persona ? { persona: message.persona } : {})
+      ...(message.persona ? { persona: message.persona } : {}),
+      ...attachmentsOf(message)
     },
     wasCut: true
   }
 }
 
 const byteLength = (text: string): number => Buffer.byteLength(text, 'utf8')
+
+/** A message's attachments as a phone may see them, or nothing when it has none. */
+function attachmentsOf(message: ChatMessage): { attachments?: RemoteAttachment[] } {
+  if (!message.attachments?.length) return {}
+  return {
+    attachments: message.attachments.map((attachment) => ({
+      name: attachment.name,
+      // Saved before images were supported means text: that is what it was then.
+      kind: attachment.kind === 'image' ? 'image' : 'text',
+      sizeBytes: attachment.sizeBytes
+    }))
+  }
+}
