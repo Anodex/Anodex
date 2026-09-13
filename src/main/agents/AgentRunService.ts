@@ -42,7 +42,7 @@ import {
 import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
-import { firstPlainLine } from '@shared/titleText'
+import { firstPlainLine, plainSummary } from '@shared/titleText'
 
 const log = createLogger('agent-run-service')
 
@@ -964,7 +964,8 @@ class AgentRunService {
     notifyUser(
       {
         title: run?.goal ? truncateTitle(run.goal) : 'Agent run',
-        body: summary ?? lastError ?? 'Finished.',
+        // Plain: a notification is text on a lock screen, and the summary is markdown.
+        body: plainSummary(summary ?? lastError ?? '') || 'Finished.',
         conversationId
       },
       // A failed run deserves a different notification channel on the phone than a

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { firstPlainLine, plainTitleLine } from '../titleText'
+import { firstPlainLine, plainSummary, plainTitleLine } from '../titleText'
 
 describe('plainTitleLine', () => {
   it('drops emphasis and code marks but keeps the words', () => {
@@ -36,5 +36,20 @@ describe('firstPlainLine', () => {
 
   it('is empty when nothing is left', () => {
     expect(firstPlainLine('  \n---\n')).toBe('')
+  })
+})
+
+describe('plainSummary', () => {
+  it('reads a run summary as text, without the outcome heading', () => {
+    // As the agent card and the finished-run notification showed it.
+    const summary =
+      'Done looking.\n\n---\n**What this reply did**\n\n- **Changed** nothing — this reply only looked.'
+    expect(plainSummary(summary)).toBe('Done looking. Changed nothing — this reply only looked.')
+  })
+
+  it('leaves an ordinary error message alone', () => {
+    expect(plainSummary('Run stopped: the model provider failed.')).toBe(
+      'Run stopped: the model provider failed.'
+    )
   })
 })

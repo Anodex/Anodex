@@ -36,3 +36,25 @@ export function firstPlainLine(text: string): string {
   }
   return ''
 }
+
+/** The heading `turnSummary` puts above its account of a turn. */
+const OUTCOME_HEADING = /^\s*\*\*What this reply did\*\*\s*$/
+
+/**
+ * A run's summary as one line of plain text, for somewhere that cannot render markdown.
+ *
+ * An agent run's summary is its last reply, which ends with Anodex's own account of the
+ * turn under a `**What this reply did**` heading after a `---` rule. The run card and
+ * the finished-run notification printed that verbatim, so both read
+ * "--- **What this reply did** - **Changed** nothing…". The heading is dropped — the
+ * card and the notification already are the answer to that question — along with
+ * rules, list bullets and emphasis marks. The words stay.
+ */
+export function plainSummary(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !OUTCOME_HEADING.test(line))
+    .map(plainTitleLine)
+    .filter(Boolean)
+    .join(' ')
+}
