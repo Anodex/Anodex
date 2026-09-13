@@ -1,10 +1,16 @@
-import { ipcMain } from 'electron'
+import { ipcMain, nativeImage } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { allChatPersonalities } from '@shared/chatPersonality'
-import type { RemotePersonalityState } from '@shared/personality.types'
+import type { RemotePersonalityImage, RemotePersonalityState } from '@shared/personality.types'
 import { broadcastToWindows } from '../broadcast'
 import { isRemoteCall } from '../clients/clientRegistry'
 import { settingsStore } from '../settings/SettingsStore'
+import { personalityImagesDir } from '../settings/personalityImages'
+import {
+  REMOTE_PERSONALITY_PICTURE_EDGE,
+  isStoredPersonalityPicture,
+  personalityPictureKey
+} from '../settings/personalityPictureAccess'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:personality')
@@ -53,6 +59,43 @@ export function registerPersonalityHandlers(): void {
       throw new Error('Could not change the personality.')
     }
   })
+
+  ipcMain.handle(IpcChannel.Personality.image, (_event, id: string) => pictureOf(id))
+}
+
+/**
+ * A user personality's picture, as a thumbnail a phone can draw.
+ *
+ * The phone showed initials for every personality somebody had given a face,
+ * because all it had was `image` — a path on this machine's disk. The picture is
+ * fetched per personality and only when the phone lacks it, rather than inlined in
+ * `personality:list`, which is read on every connect.
+ *
+ * Null for anything that is not a picture this app copied in: no picture, an
+ * unknown id, a file that has since gone, or a path outside the store.
+ */
+function pictureOf(id: string): RemotePersonalityImage | null {
+  const personality = allChatPersonalities(settingsStore.get().assistantStyle.personalities).find(
+    (candidate) => candidate.id === id
+  )
+  const path = personality?.image
+  if (!path || !isStoredPersonalityPicture(path, personalityImagesDir())) return null
+
+  const picture = nativeImage.createFromPath(path)
+  if (picture.isEmpty()) return null
+
+  const { width, height } = picture.getSize()
+  const scale = Math.min(1, REMOTE_PERSONALITY_PICTURE_EDGE / Math.max(width, height))
+  const thumbnail =
+    scale < 1
+      ? picture.resize({
+          width: Math.round(width * scale),
+          height: Math.round(height * scale),
+          quality: 'good'
+        })
+      : picture
+
+  return { mimeType: 'image/png', base64: thumbnail.toPNG().toString('base64') }
 }
 
 /**
@@ -77,7 +120,8 @@ function stateOf(): RemotePersonalityState {
       role: personality.role ?? '',
       // Resolved here rather than on the phone: the desktop treats an absent tint
       // as the accent, and two places deciding that is two places to get it wrong.
-      tint: personality.tint ?? 'accent'
+      tint: personality.tint ?? 'accent',
+      image: personalityPictureKey(personality.image)
     }))
   }
 }

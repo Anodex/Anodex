@@ -25,7 +25,8 @@ const ALLOWED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
  */
 export const MAX_PERSONALITY_IMAGE_BYTES = 8 * 1024 * 1024
 
-function imagesDir(): string {
+/** Where copied-in pictures live. Nothing outside it is ever served to a phone. */
+export function personalityImagesDir(): string {
   return join(app.getPath('userData'), 'personality-images')
 }
 
@@ -51,7 +52,7 @@ export async function pickPersonalityImage(): Promise<string | null> {
     throw new Error('That image is larger than 8 MB. Pick a smaller one.')
   }
 
-  const dir = imagesDir()
+  const dir = personalityImagesDir()
   await mkdir(dir, { recursive: true })
   const destination = join(dir, `${randomUUID()}${extension}`)
   await copyFile(source, destination)
@@ -68,7 +69,7 @@ export async function pickPersonalityImage(): Promise<string | null> {
  * nothing of ours to clean up.
  */
 export async function forgetPersonalityImage(path: string): Promise<void> {
-  const dir = imagesDir()
+  const dir = personalityImagesDir()
   if (!path.startsWith(dir + '\\') && !path.startsWith(dir + '/')) return
   await rm(path, { force: true })
 }

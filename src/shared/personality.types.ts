@@ -22,6 +22,22 @@ export interface RemotePersonality {
    * one. The default is resolved once, here, rather than in the UI.
    */
   tint: PersonalityTint
+  /**
+   * A key for this personality's own picture, or null when it has none.
+   *
+   * Not the path, which is the desktop's disk layout and meaningless on a phone —
+   * the stored file's name, which changes exactly when the picture does. Fetch the
+   * bytes with `personality:image`. Null for the shipped personalities too: their
+   * art ships inside each app.
+   */
+  image: string | null
+}
+
+/** A personality's picture, shrunk to thumbnail size for a phone. */
+export interface RemotePersonalityImage {
+  /** Always `image/png`: whatever was picked, it is re-encoded on the way out. */
+  mimeType: string
+  base64: string
 }
 
 export interface RemotePersonalityState {
