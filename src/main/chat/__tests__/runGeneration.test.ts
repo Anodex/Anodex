@@ -156,12 +156,13 @@ function outcome(overrides: Partial<GenerateOutcome> = {}): GenerateOutcome {
   }
 }
 
-function request(): ChatRequest {
+function request(projectId: string | null = 'p1'): ChatRequest {
   return {
     conversationId: 'c1',
     messageId: 'm1',
     history: [],
-    prompt: 'Add a dark mode toggle.'
+    prompt: 'Add a dark mode toggle.',
+    projectId
   }
 }
 
@@ -206,10 +207,27 @@ describe('runGeneration — project memory', () => {
   })
 
   it('records nothing for a general chat with no project', async () => {
-    mocks.activeProjectId = null
     mocks.writeDuringTurn = true
 
-    await runGeneration(request(), io)
+    await runGeneration(request(null), io)
+
+    expect(mocks.recordedEvents).toHaveLength(0)
+  })
+
+  it('runs in no project when the request leaves the field out', async () => {
+    // The field used to fall back to whichever project was open at the computer,
+    // so a plain chat sent by a client that omitted it — the phone — ran inside
+    // that project: reading its files, answering in its terms, and recording its
+    // activity against it, all while filing itself under general chats.
+    //
+    // Absent and null have to mean the same thing here, because a client that
+    // says nothing about a project does not have one.
+    mocks.activeProjectId = 'p1'
+    mocks.writeDuringTurn = true
+    const { projectId, ...withoutProject } = request()
+    void projectId
+
+    await runGeneration(withoutProject, io)
 
     expect(mocks.recordedEvents).toHaveLength(0)
   })

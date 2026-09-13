@@ -443,12 +443,17 @@ export async function runGeneration(
     )
   let execution: GenerationBudget | null = null
   const projects = projectStore.getState()
-  // The renderer can briefly lag while switching chats, and general chats
-  // intentionally clear the active project; deriving the root from
-  // `request.projectId` (always present for a scheduled run) keeps project
-  // chats writable and plain chats safe.
-  const requestProjectId =
-    'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
+  // The request says which project it runs in, and silence means none.
+  //
+  // This used to fall back to whichever project was active when the field was
+  // absent, on the theory that the renderer could lag while switching chats. The
+  // renderer has one send site and it always sets the field, so the fallback could
+  // never fire there — it fired only for clients that left the key out, which is
+  // where it did real damage: a plain chat started on the phone ran inside whatever
+  // project the desk happened to be sitting in, reading its files and answering in
+  // its terms, while filing itself under general chats as though nothing had
+  // happened. Every internal caller passes the field, scheduled runs included.
+  const requestProjectId = request.projectId ?? null
   const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
   const workspaceRoot = activeProject?.folderPath ?? null
   let hadToolActivity = false
