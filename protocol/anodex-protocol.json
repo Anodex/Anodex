@@ -2415,6 +2415,65 @@
       }
     },
     {
+      "channel": "devices:list",
+      "kind": "invoke",
+      "api": "devices.list",
+      "args": [],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "RemoteDeviceSummary"
+        }
+      }
+    },
+    {
+      "channel": "devices:rename",
+      "kind": "invoke",
+      "api": "devices.rename",
+      "args": [
+        {
+          "name": "deviceId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "name",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "RemoteDeviceSummary"
+        }
+      }
+    },
+    {
+      "channel": "devices:unpair",
+      "kind": "invoke",
+      "api": "devices.unpair",
+      "args": [
+        {
+          "name": "deviceId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "RemoteDeviceSummary"
+        }
+      }
+    },
+    {
       "channel": "diagnostics:entry",
       "kind": "event",
       "api": "diagnostics.onEntry",
@@ -21023,6 +21082,41 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        }
+      }
+    },
+    "RemoteDeviceSummary": {
+      "kind": "object",
+      "properties": {
+        "deviceId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "pairedAtEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "lastSeenEpochMs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "isThisDevice": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
           }
         }
       }

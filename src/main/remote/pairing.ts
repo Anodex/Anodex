@@ -303,6 +303,19 @@ export class PairingService {
     return { ok: true, device: seen }
   }
 
+  /** Give a paired device a new name. False when there is no such device. */
+  rename(deviceId: string, name: string): boolean {
+    const devices = this.store.read()
+    if (!devices.some((device) => device.deviceId === deviceId)) return false
+    const cleaned = sanitizeDeviceName(name)
+    this.store.write(
+      devices.map((device) =>
+        device.deviceId === deviceId ? { ...device, name: cleaned } : device
+      )
+    )
+    return true
+  }
+
   /**
    * Forget a paired device, or every one of them. Its stored key stops working
    * immediately; the others are untouched.
