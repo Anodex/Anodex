@@ -132,6 +132,36 @@ const BUNDLED_COMPONENTS = [
  */
 const TEST_DIRECTORIES = new Set(['__tests__', '__mocks__', 'test-utils', 'node_modules'])
 
+/**
+ * The provider marks that ship inside the renderer bundle.
+ *
+ * Trademarks are not licensed components and have no licence text to reproduce,
+ * which is exactly why they go missing from a notices file: nothing in the
+ * dependency tree points at them and no scanner reports them. They are in the
+ * installer all the same, so the position Anodex takes on them belongs here
+ * rather than nowhere.
+ *
+ * Names only. The artwork's provenance — official brand page, asset pack or
+ * simple-icons, with retrieval dates — is recorded beside the files themselves
+ * in `src/renderer/assets/providers/SOURCES.md`, which is where somebody
+ * changing one will be looking.
+ */
+const PROVIDER_MARKS = {
+  'anthropic.svg': 'Anthropic',
+  'openai.svg': 'OpenAI',
+  'azure-openai.svg': 'Azure OpenAI',
+  'google.svg': 'Google',
+  'deepseek.svg': 'DeepSeek',
+  'groq.svg': 'Groq',
+  'kimi.svg': 'Kimi (Moonshot AI)',
+  'mistral.svg': 'Mistral AI',
+  'openrouter.svg': 'OpenRouter',
+  'qwen.svg': 'Qwen',
+  'xai.svg': 'xAI'
+}
+
+const PROVIDER_MARKS_DIR = join(ROOT, 'src', 'renderer', 'assets', 'providers')
+
 /** Files a package might carry its licence text in. */
 const LICENSE_FILE = /^(licen[cs]e|copying|notice)([.-][\w.-]*)?$/i
 
@@ -139,6 +169,7 @@ const mode = process.argv.includes('--check') ? 'check' : 'write'
 
 const manifest = await readJson(join(ROOT, 'package.json'))
 await assertNoUnlistedDevDependencyShips(manifest)
+await assertEveryProviderMarkIsDeclared()
 
 const shipped = await collectShippedPackages(manifest)
 const rendered = await render(shipped)
@@ -369,6 +400,41 @@ async function render(packages) {
   }
 
   lines.push('---', '')
+  lines.push('## Trademarks')
+  lines.push('')
+  lines.push(
+    'Anodex connects to model providers, and shows each provider\u2019s logo next to the',
+    'connection it belongs to. Those logos ship inside the application:',
+    ''
+  )
+  for (const mark of Object.values(PROVIDER_MARKS)) lines.push(`- ${mark}`)
+  lines.push('')
+  lines.push(
+    '**These are trademarks, not licensed components.** Each mark belongs to the company it',
+    'names. No licence to them is granted by this file, by Anodex\u2019s own licence, or by the',
+    'fact that the artwork is visible in this source.',
+    ''
+  )
+  lines.push(
+    'They are used to identify a real integration and nothing else \u2014 the OpenAI mark appears',
+    'against the OpenAI connection because that is what it connects to. The artwork ships',
+    'unmodified, is never restyled or recoloured, and is never used as decoration or to suggest',
+    'that any of these companies endorses, sponsors or is affiliated with Anodex. None of them',
+    'does.',
+    ''
+  )
+  lines.push(
+    'Provenance for every mark \u2014 the official brand page, asset pack or CC0 source it came',
+    'from, and when \u2014 is recorded in `src/renderer/assets/providers/SOURCES.md`.',
+    ''
+  )
+  lines.push(
+    'If you own one of these marks and object to how it is used here, say so and it will be',
+    'removed: <https://github.com/Anodex/Anodex/issues>, or the private channel in',
+    '`SECURITY.md` if you would rather not do it in public.',
+    ''
+  )
+  lines.push('---', '')
   lines.push('## npm packages')
   lines.push('')
   lines.push(
@@ -466,6 +532,37 @@ async function assertNoUnlistedDevDependencyShips(manifest) {
         `DEV_DEPENDENCIES_HANDLED_ELSEWHERE (with a comment saying where).`
     )
   }
+}
+
+/**
+ * A mark that ships without being declared is the failure this prevents.
+ *
+ * Nothing in the dependency tree points at these files, so adding a twelfth
+ * provider logo would put a twelfth trademark in the installer and leave this
+ * file still listing eleven — silently, and in the one document whose job is to
+ * declare what ships. `docs/THIRD_PARTY_AUDIT.md` already managed to say
+ * "twelve" while listing eleven, which is the same mistake made by hand.
+ */
+async function assertEveryProviderMarkIsDeclared() {
+  const files = (await readdir(PROVIDER_MARKS_DIR)).filter((name) => name.endsWith('.svg')).sort()
+  const declared = Object.keys(PROVIDER_MARKS).sort()
+
+  const undeclared = files.filter((name) => !declared.includes(name))
+  const missing = declared.filter((name) => !files.includes(name))
+  if (undeclared.length === 0 && missing.length === 0) return
+
+  const problems = []
+  if (undeclared.length > 0) {
+    problems.push(`ship but are not declared: ${undeclared.join(', ')}`)
+  }
+  if (missing.length > 0) {
+    problems.push(`are declared but no longer exist: ${missing.join(', ')}`)
+  }
+  throw new Error(
+    `Provider marks in src/renderer/assets/providers/ ${problems.join('; ')}. ` +
+      'Update PROVIDER_MARKS in scripts/generate-third-party-notices.mjs, and the ' +
+      'provenance table in that directory\u2019s SOURCES.md.'
+  )
 }
 
 /** Bare package specifiers imported by non-test source files. */
