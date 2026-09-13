@@ -13,7 +13,14 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
  * See `docs/HANDOFF_REMOTE_MOBILE.md` §7.
  */
 
-/** One paired phone at a time (§7.2). Pairing a new one revokes the old. */
+/**
+ * A device paired with this computer.
+ *
+ * Several may be paired at once — a phone, a tablet, a test device — each with its
+ * own key, and each unpaired on its own. This used to be one at a time (§7.2), which
+ * meant pairing a second device silently locked the first out: a user who set up a
+ * test phone came back to find their own phone offline, with nothing to say why.
+ */
 export interface PairedDevice {
   /** Opaque id for this device, safe to log. */
   readonly deviceId: string
@@ -39,9 +46,18 @@ export interface PairedDevice {
 
 /** Persistence, injected so the rules can be tested without touching disk. */
 export interface PairedDeviceStore {
-  read(): PairedDevice | null
-  write(device: PairedDevice | null): void
+  read(): PairedDevice[]
+  write(devices: PairedDevice[]): void
 }
+
+/**
+ * How many devices may be paired at once.
+ *
+ * A bound rather than a list that only grows: every paired device is a key that
+ * opens this machine, and one nobody has used in months is one nobody would notice
+ * being used. Pairing past the limit forgets the device seen least recently.
+ */
+export const MAX_PAIRED_DEVICES = 10
 
 export interface PairingSession {
   /** The one-time secret, base64url. Carried in the QR and never reused. */
@@ -126,9 +142,9 @@ export class PairingService {
     private readonly servedFingerprint: () => string | undefined = () => undefined
   ) {}
 
-  /** The paired device, if any. */
-  paired(): PairedDevice | null {
-    return this.store.read()
+  /** Every paired device, the most recently seen first. */
+  paired(): PairedDevice[] {
+    return [...this.store.read()].sort((a, b) => b.lastSeenEpochMs - a.lastSeenEpochMs)
   }
 
   /**
@@ -222,8 +238,10 @@ export class PairingService {
       certFingerprint: this.servedFingerprint()
     }
 
-    // Overwrites any existing device: pairing a new phone revokes the old one (§7.2).
-    this.store.write(device)
+    // Added beside the devices already paired, which keep working. At the limit, the
+    // one seen least recently makes room.
+    const kept = this.paired().slice(0, MAX_PAIRED_DEVICES - 1)
+    this.store.write([...kept, device])
     this.authAttempts = 0
     this.authLockedUntil = 0
 
@@ -253,15 +271,23 @@ export class PairingService {
       }
     }
 
-    const device = this.store.read()
-    if (!device) {
+    const devices = this.store.read()
+    if (devices.length === 0) {
       return {
         ok: false,
         failure: { reason: 'no-session', message: 'No phone is paired with this computer.' }
       }
     }
 
-    if (!constantTimeEquals(hashKey(offeredKey), device.keyHash)) {
+    // Every stored hash is compared, with no early exit, so how long this takes says
+    // nothing about which device — or how many — the offered key came close to.
+    const offeredHash = hashKey(offeredKey)
+    let device: PairedDevice | null = null
+    for (const candidate of devices) {
+      if (constantTimeEquals(offeredHash, candidate.keyHash) && !device) device = candidate
+    }
+
+    if (!device) {
       this.authAttempts += 1
       if (this.authAttempts >= MAX_AUTH_ATTEMPTS) {
         this.authLockedUntil = now + AUTH_LOCKOUT_MS
@@ -272,13 +298,21 @@ export class PairingService {
 
     this.authAttempts = 0
     const seen: PairedDevice = { ...device, lastSeenEpochMs: now }
-    this.store.write(seen)
+    const matched = device
+    this.store.write(devices.map((candidate) => (candidate === matched ? seen : candidate)))
     return { ok: true, device: seen }
   }
 
-  /** Forget the paired device. The phone's stored key becomes useless immediately. */
-  revoke(): void {
-    this.store.write(null)
+  /**
+   * Forget a paired device, or every one of them. Its stored key stops working
+   * immediately; the others are untouched.
+   */
+  revoke(deviceId?: string): void {
+    if (deviceId !== undefined) {
+      this.store.write(this.store.read().filter((device) => device.deviceId !== deviceId))
+      return
+    }
+    this.store.write([])
     this.session = null
     this.authAttempts = 0
     this.authLockedUntil = 0

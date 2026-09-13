@@ -25,7 +25,7 @@ produced it. Every architectural claim about the desktop tree was verified at co
 
 **The product:** a real Android app that pairs with a user's desktop Anodex over QR code and gives
 them **Chat, Agent, Workspace, Email and Critical Thinking on the phone, as they have them on the
-computer**. One paired phone at a time. All work still executes on the desktop — the phone is a
+computer**. Several devices may be paired at once. All work still executes on the desktop — the phone is a
 full client, not a second engine.
 
 An earlier draft of this document proposed something narrower: the existing React renderer with a
@@ -466,9 +466,11 @@ user's PC for anyone who reaches it. These are requirements, not preferences.
 5. **QR code, scanned at the desktop**, carrying host, port, and a one-time pairing secret with a
    short expiry.
 6. **A fingerprint shown on both screens** that the user confirms matches before accepting.
-7. **One paired device at a time.** Pairing a new phone revokes the old one, and says so on both
-   screens. This is a deliberate simplification: it makes revocation trivial and means there is only
-   ever one remote identity to reason about.
+7. **Each device paired separately, and unpaired separately.** Pairing adds a device with its own
+   key; it no longer revokes the one already paired. (It used to, as a simplification — and pairing a
+   test phone silently locked the user's own phone out.) Settings lists every device with when it
+   was last seen, unpairing one disconnects it and leaves the rest, and at most
+   `MAX_PAIRED_DEVICES` (10) are kept: pairing past that forgets the one seen least recently.
 8. **The key is bound to that phone**, stored via `safeStorage` following
    `src/main/email/EmailAuthStore.ts` — never in `settings.json`. Listed in Settings with a last-seen
    time and a Revoke button.
