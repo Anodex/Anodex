@@ -19,7 +19,14 @@
  * that made an entire session's runs execute at a window I did not intend.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -113,7 +120,7 @@ for (const entry of selected) {
   console.log(`\n=== ${entry.key} @ ${entry.ctx} ===`)
 
   const started = Date.now()
-  const finished = await runOnce(logPath)
+  const finished = await runOnce(logPath, freshMemoryDir(outDir, entry.key))
   const seconds = Math.round((Date.now() - started) / 1000)
 
   const graded = grade(logPath)
@@ -208,12 +215,40 @@ function applySettings(modelPath, contextSize) {
   writeFileSync(SETTINGS, JSON.stringify(settings, null, 2))
 }
 
+/**
+ * A memory store this run owns, so anything the script asks the model to
+ * remember is new to it.
+ *
+ * Without this, memory capture cannot be measured at all: the criterion asks
+ * whether chat called `remember_fact` for a fact the script states, and once any
+ * earlier run has stored that fact the model correctly answers "already on
+ * file" and calls nothing. A correct refusal and a total failure look identical
+ * in the log. The stimulus is spent on first use, so no rewrite of the script
+ * buys back more than one run per machine.
+ *
+ * Off unless `--fresh-memory` is passed, because most rows measure behaviour
+ * that has nothing to do with memory and an empty store is not the state a user
+ * is ever in. The real store is never read, written or cleared either way —
+ * clearing somebody's actual memory to make a test pass is not a fix.
+ */
+function freshMemoryDir(outDir, key) {
+  if (!process.argv.includes('--fresh-memory')) return null
+  const dir = join(outDir, `${key}.memory`)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 /** Start the app with the harness armed, wait for its completion line, kill it. */
-function runOnce(logPath) {
+function runOnce(logPath, memoryDir) {
   return new Promise((resolve) => {
     const log = createWriteStream(logPath, { flags: 'w' })
     const child = spawn('npm', ['run', 'dev'], {
-      env: { ...process.env, ANODEX_CHAT_AUTORUN: SCRIPT },
+      env: {
+        ...process.env,
+        ANODEX_CHAT_AUTORUN: SCRIPT,
+        ...(memoryDir ? { ANODEX_MEMORY_DIR: memoryDir } : {})
+      },
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe']
     })

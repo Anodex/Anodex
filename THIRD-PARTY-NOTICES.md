@@ -360,7 +360,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## npm packages
 
-324 packages ship inside the application. The list is every package
+323 packages ship inside the application. The list is every package
 reachable from Anodex’s production dependencies, plus the dev dependencies whose code
 Vite bundles into the renderer (they are dev dependencies only in the sense that nothing
 resolves them at runtime — their code is in the product).
@@ -373,9 +373,9 @@ resolves them at runtime — their code is in the product).
 | BlueOak-1.0.0 | 6 |
 | BSD-2-Clause | 6 |
 | Apache-2.0 | 3 |
-| MIT-0 | 3 |
 | (MIT OR EUPL-1.1+) | 2 |
 | 0BSD | 2 |
+| MIT-0 | 2 |
 | (BSD-2-Clause OR MIT OR Apache-2.0) | 1 |
 | Python-2.0 | 1 |
 | Unlicense | 1 |
@@ -6850,7 +6850,6 @@ SOFTWARE.
 Applies to:
 
 - `nodemailer@10.0.1`
-- `nodemailer@9.0.3`
 - `nodemailer@9.1.1`
 
 ```text
