@@ -17,6 +17,7 @@ import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
 import styles from './ChatRow.module.css'
+import { plainTitleLine } from '@shared/titleText'
 
 interface ChatRowProps {
   conversation: Conversation
@@ -139,7 +140,12 @@ export function ChatRow({
           <Icon name="terminal" size={12} className={styles.scheduledIcon} />
         )}
         <span className={styles.titleWrap}>
-          <span className={styles.title}>{conversation.title}</span>
+          {/* Shown without markdown marks. Titles saved before 0.5.0 were cut from a
+              pasted prompt with its bold still in it; the stored title is untouched,
+              so renaming still starts from exactly what is saved. */}
+          <span className={styles.title}>
+            {plainTitleLine(conversation.title) || conversation.title}
+          </span>
           {excerpt && <span className={styles.excerpt}>{excerpt}</span>}
           {running && (
             <span className={styles.runTrack} aria-hidden="true">
