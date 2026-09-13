@@ -33,8 +33,18 @@ export function PersonalityPicker({
   onCreate: () => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  // Whether the list has options scrolled out of sight below. The list is capped
+  // in height, and a cap that fell between two rows hid everything past Rook with
+  // nothing to say so — Pip and every personality of your own looked deleted.
+  const [moreBelow, setMoreBelow] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  function measureOverflow(): void {
+    const list = listRef.current
+    if (!list) return
+    setMoreBelow(list.scrollTop + list.clientHeight < list.scrollHeight - 1)
+  }
 
   const active = [...builtIns, ...saved].find((item) => item.id === activeId) ?? builtIns[0]
 
@@ -45,6 +55,16 @@ export function PersonalityPicker({
     }
     document.addEventListener('mousedown', onPointerDown)
     return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  // On opening, bring the chosen one into view — it may be one of your own, far
+  // below the built-ins — and work out whether anything is hidden beneath.
+  useEffect(() => {
+    if (!open) return
+    listRef.current
+      ?.querySelector<HTMLButtonElement>('[aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' })
+    measureOverflow()
   }, [open])
 
   /** Arrow keys move between options and wrap; Escape closes and returns focus. */
@@ -111,10 +131,11 @@ export function PersonalityPicker({
       {open && (
         <div className={styles.popover}>
           <div
-            className={styles.listbox}
+            className={moreBelow ? `${styles.listbox} ${styles.listboxMore}` : styles.listbox}
             role="listbox"
             aria-label="Choose a personality"
             ref={listRef}
+            onScroll={measureOverflow}
           >
             {renderGroup('Built in', builtIns)}
             {renderGroup('Yours', saved)}
