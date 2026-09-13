@@ -264,7 +264,8 @@ const api: AnodexApi = {
     delete: (id) => ipcRenderer.invoke(IpcChannel.Agent.delete, id),
     approvePlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.approvePlan, id),
     rejectPlan: (id) => ipcRenderer.invoke(IpcChannel.Agent.rejectPlan, id),
-    onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener)
+    onRunsChanged: (listener) => subscribe<AgentRun[]>(IpcChannel.Agent.runsChanged, listener),
+    turns: (runId) => ipcRenderer.invoke(IpcChannel.Agent.turns, runId)
   },
   criticalThinking: {
     list: () => ipcRenderer.invoke(IpcChannel.CriticalThinking.list),

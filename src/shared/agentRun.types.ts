@@ -1,6 +1,7 @@
 import type { Plan } from './plan.types'
 import type { AgentRunProviderId } from './agentRunProviders'
 import type { ChatAttachment } from './chat.types'
+import type { ToolCallStatus } from './tools.types'
 import { allocateContextBudget } from './contextBudget'
 
 /** Files a run can be handed at creation — the same cap a chat message has. */
@@ -271,4 +272,25 @@ export function activeElapsedMs(
 ): number {
   const banked = run.activeMs ?? 0
   return run.activeSinceAt ? banked + Math.max(0, now - run.activeSinceAt) : banked
+}
+
+/**
+ * One turn of an agent run, as a phone follows it — see `runTurnsForRemote`.
+ *
+ * The reply is capped and each tool is reduced to its name, title and outcome.
+ * Arguments, results and diffs stay on the computer.
+ */
+export interface RemoteRunTurn {
+  /** 1-based, in the order the run took them. */
+  number: number
+  messageId: string
+  text: string
+  tools: { name: string; title: string; status: ToolCallStatus }[]
+  /** Tool calls beyond the ones listed. */
+  moreTools: number
+  tokens: number | null
+  durationMs: number | null
+  /** The same colour the desktop run page gives this turn. */
+  health: 'ok' | 'warn' | 'error'
+  error: string | null
 }
