@@ -47,6 +47,22 @@ describe('plainSummary', () => {
     expect(plainSummary(summary)).toBe('Done looking. Changed nothing — this reply only looked.')
   })
 
+  it('separates the lines of the account so they do not run together', () => {
+    // As a phone notification showed it: "...only looked. Looked at 1 search Plan all
+    // 2 steps complete".
+    const summary = [
+      '---',
+      '**What this reply did**',
+      '',
+      '- **Changed** nothing — this reply only looked.',
+      '- **Looked at** 1 search',
+      '- **Plan** all 2 steps complete'
+    ].join('\n')
+    expect(plainSummary(summary)).toBe(
+      'Changed nothing — this reply only looked. Looked at 1 search. Plan all 2 steps complete'
+    )
+  })
+
   it('leaves an ordinary error message alone', () => {
     expect(plainSummary('Run stopped: the model provider failed.')).toBe(
       'Run stopped: the model provider failed.'

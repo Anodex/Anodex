@@ -51,10 +51,19 @@ const OUTCOME_HEADING = /^\s*\*\*What this reply did\*\*\s*$/
  * rules, list bullets and emphasis marks. The words stay.
  */
 export function plainSummary(text: string): string {
-  return text
-    .split('\n')
-    .filter((line) => !OUTCOME_HEADING.test(line))
-    .map(plainTitleLine)
-    .filter(Boolean)
-    .join(' ')
+  return (
+    text
+      .split('\n')
+      .filter((line) => !OUTCOME_HEADING.test(line))
+      .map(plainTitleLine)
+      .filter(Boolean)
+      // Each line was a bullet or a paragraph, and they were separated by layout that a
+      // single line does not have. Joined bare they ran together — "only looked. Looked
+      // at 1 search Plan all 2 steps complete" on a phone's lock screen — so a line
+      // that does not already end in punctuation gets a full stop before the next.
+      .map((line, index, lines) =>
+        index < lines.length - 1 && !/[.!?:;…]$/.test(line) ? `${line}.` : line
+      )
+      .join(' ')
+  )
 }
