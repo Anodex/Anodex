@@ -1,7 +1,11 @@
 import type { Plan } from '@shared/plan.types'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
-import { hasStaleVisualEvidence } from './turnProgress'
+import { TOOL_CATALOG } from '@shared/tools.types'
+import { canOnlyLook, hasStaleVisualEvidence } from './turnProgress'
+
+const KIND_BY_TOOL = new Map(TOOL_CATALOG.map((entry) => [entry.name, entry.kind]))
+const kindOfTool = (name: string) => KIND_BY_TOOL.get(name)
 
 /**
  * Room a run's closing summary gets.
@@ -62,7 +66,18 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
           // `ToolRuntimeContext.progress`'s doc comment. A model that never
           // took any real action this turn gets a corrective message instead
           // of a silently-accepted, possibly fabricated "done".
-          if (!ctx.progress.madeChange) {
+          // A run that can only look is held to what it can do: something read.
+          // Holding it to a change it has no tool to make only ever produced a
+          // run that finished its goal and then spun to its turn limit.
+          const lookOnly = canOnlyLook(ctx.enabledTools, kindOfTool)
+          if (lookOnly && !ctx.progress.observed) {
+            throw new Error(
+              'Nothing has been read yet, so this cannot be accepted as the goal being ' +
+                'complete. This run can only look, so look: read or list what the goal asks ' +
+                'about, then call finish_goal with what you found.'
+            )
+          }
+          if (!lookOnly && !ctx.progress.madeChange) {
             throw new Error(
               'Nothing has been done yet this turn, so this cannot be accepted as the goal ' +
                 'being complete — a claim of completion needs real action behind it. Reading ' +

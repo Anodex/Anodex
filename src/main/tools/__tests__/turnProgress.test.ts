@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import type { ToolKind } from '@shared/tools.types'
 import {
+  canOnlyLook,
   createTurnProgress,
   hasPostChangeVisualEvidence,
   recordCompletedCall
@@ -106,5 +108,33 @@ describe('hasPostChangeVisualEvidence', () => {
     recordCompletedCall(progress, { name: 'fetch_url', kind: 'web' })
 
     expect(hasPostChangeVisualEvidence(progress)).toBe(true)
+  })
+})
+
+describe('canOnlyLook', () => {
+  const kinds: Record<string, ToolKind> = {
+    read_file: 'read',
+    list_directory: 'read',
+    web_search: 'web',
+    write_file: 'write',
+    run_command: 'command'
+  }
+  const kindOf = (name: string): ToolKind | undefined => kinds[name]
+
+  it('is true for reads and web lookups, ignoring the run bookkeeping tools', () => {
+    expect(
+      canOnlyLook(new Set(['read_file', 'web_search', 'finish_goal', 'update_plan_step']), kindOf)
+    ).toBe(true)
+  })
+
+  it('is false the moment anything could change something', () => {
+    expect(canOnlyLook(new Set(['read_file', 'write_file']), kindOf)).toBe(false)
+    expect(canOnlyLook(new Set(['read_file', 'run_command']), kindOf)).toBe(false)
+  })
+
+  it('treats an unknown tool, or no restriction at all, as able to change things', () => {
+    expect(canOnlyLook(new Set(['read_file', 'some_mcp_tool']), kindOf)).toBe(false)
+    expect(canOnlyLook(null, kindOf)).toBe(false)
+    expect(canOnlyLook(new Set(['finish_goal']), kindOf)).toBe(false)
   })
 })
