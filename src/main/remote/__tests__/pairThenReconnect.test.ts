@@ -18,15 +18,15 @@ import type { ServerFrame } from '../protocol'
  */
 describe('pairing then immediately reconnecting', () => {
   let certificate: RemoteCertificate
-  let stored: PairedDevice | null
+  let stored: PairedDevice[]
   let pairing: PairingService
   let bridge: RemoteBridge
   let port: number
 
   const store: PairedDeviceStore = {
     read: () => stored,
-    write: (device) => {
-      stored = device
+    write: (devices) => {
+      stored = devices
     }
   }
 
@@ -35,7 +35,7 @@ describe('pairing then immediately reconnecting', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    stored = null
+    stored = []
     detachAllRemoteClients()
     pairing = new PairingService(store)
     bridge = new RemoteBridge(pairing, certificate)

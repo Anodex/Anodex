@@ -1121,7 +1121,8 @@ export interface AnodexApi {
     /** Null when the listener is off — there is nothing for a phone to connect to. */
     beginPairing(): Promise<RemotePairingCode | null>
     cancelPairing(): Promise<void>
-    revoke(): Promise<RemoteStatus>
+    /** Unpair one device by id, or every device when none is given. */
+    revoke(deviceId?: string): Promise<RemoteStatus>
     setInternetAccess(enabled: boolean): Promise<Result<RemoteStatus>>
     /** Pass nulls to forget the address and fall back to asking the router. */
     setManualAddress(address: string | null, port: number | null): Promise<Result<RemoteStatus>>

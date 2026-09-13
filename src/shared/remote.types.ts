@@ -71,6 +71,8 @@ export interface RemoteInternetAccess {
 }
 
 export interface RemotePairedDevice {
+  /** Which device, for unpairing just this one. */
+  deviceId: string
   name: string
   pairedAtEpochMs: number
   lastSeenEpochMs: number
@@ -105,7 +107,10 @@ export interface RemoteStatus {
   /** SHA-256 of the certificate the phone pins, lowercase hex. */
   certificateSha256: string
   protocolVersion: string
+  /** The most recently seen paired device. Kept for callers that show only one. */
   pairedDevice: RemotePairedDevice | null
+  /** Every paired device, the most recently seen first. */
+  pairedDevices: RemotePairedDevice[]
   internet: RemoteInternetAccess
 }
 

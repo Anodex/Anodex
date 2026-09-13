@@ -17,15 +17,15 @@ import type { ServerFrame } from '../protocol'
  */
 describe('telling the phone where to find this machine', () => {
   let certificate: RemoteCertificate
-  let stored: PairedDevice | null
+  let stored: PairedDevice[]
   let pairing: PairingService
   let bridge: RemoteBridge | null = null
   let external: string | null
 
   const store: PairedDeviceStore = {
     read: () => stored,
-    write: (device) => {
-      stored = device
+    write: (devices) => {
+      stored = devices
     }
   }
 
@@ -34,7 +34,7 @@ describe('telling the phone where to find this machine', () => {
   }, 30_000)
 
   beforeEach(() => {
-    stored = null
+    stored = []
     external = null
     detachAllRemoteClients()
     pairing = new PairingService(store)
@@ -158,7 +158,7 @@ describe('telling the phone where to find this machine', () => {
     await bridge?.stop()
     external = first
     const secondPort = await start()
-    stored = null
+    stored = []
     const paired = await pair(secondPort)
 
     expect(paired.addresses.filter((address) => address === first)).toHaveLength(1)

@@ -24,15 +24,15 @@ import type { ServerFrame } from '../protocol'
  */
 describe('a reply too large to send', () => {
   let certificate: RemoteCertificate
-  let stored: PairedDevice | null
+  let stored: PairedDevice[]
   let pairing: PairingService
   let bridge: RemoteBridge
   let port: number
 
   const store: PairedDeviceStore = {
     read: () => stored,
-    write: (device) => {
-      stored = device
+    write: (devices) => {
+      stored = devices
     }
   }
 
@@ -41,7 +41,7 @@ describe('a reply too large to send', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    stored = null
+    stored = []
     detachAllRemoteClients()
     pairing = new PairingService(store)
 

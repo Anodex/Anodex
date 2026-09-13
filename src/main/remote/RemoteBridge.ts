@@ -70,6 +70,8 @@ const FAREWELL_GRACE_MS = 250
 export class RemoteBridge {
   private server: HttpsServer | null = null
   private sockets: WebSocketServer | null = null
+  /** Which paired device each authenticated socket belongs to. */
+  private readonly socketDevice = new WeakMap<WebSocket, string>()
   private sequence = 0
 
   constructor(
@@ -327,7 +329,29 @@ export class RemoteBridge {
     return external && !local.includes(external) ? [...local, external] : local
   }
 
+  /**
+   * Close the connections of a device that was just unpaired, or of every device.
+   *
+   * With the key gone it could not reconnect anyway, but a socket already
+   * authenticated would otherwise keep working until it dropped on its own. It is
+   * told why, so the phone says it was unpaired rather than that the computer is
+   * offline.
+   */
+  disconnectDevice(deviceId?: string): void {
+    for (const socket of this.sockets?.clients ?? []) {
+      const owner = this.socketDevice.get(socket)
+      if (owner === undefined) continue
+      if (deviceId !== undefined && owner !== deviceId) continue
+      try {
+        socket.close(farewellCode('unpaired'), 'unpaired')
+      } catch {
+        socket.terminate()
+      }
+    }
+  }
+
   private attach(socket: WebSocket, deviceId: string, peerAddress?: string): ClientChannel {
+    this.socketDevice.set(socket, deviceId)
     // Reported only for a socket that authenticated. An unauthenticated stranger
     // arriving from the internet is a port scanner, not proof the user's own phone
     // can get in — and reporting it would claim the setup works when it may not.
