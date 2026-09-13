@@ -46,6 +46,11 @@
       "prettier --write"
     ]
   },
+  "overrides": {
+    "imapflow": {
+      "nodemailer": "^9.1.1"
+    }
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
