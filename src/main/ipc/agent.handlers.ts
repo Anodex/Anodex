@@ -4,6 +4,8 @@ import type { CreateAgentRunRequest } from '@shared/agentRun.types'
 import { buildRunToolNames } from '@shared/tools.types'
 import { agentRunStore } from '../agents/AgentRunStore'
 import { agentRunService } from '../agents/AgentRunService'
+import { runTurnsForRemote } from '../agents/runTurnsForRemote'
+import { conversationStore } from '../conversations/ConversationStore'
 import { discardRunAttachments } from '../agents/agentRunAttachments'
 import { isRemoteCall } from '../clients/clientRegistry'
 import { createLogger } from '../utils/logger'
@@ -59,6 +61,15 @@ function startedFromAway(request: CreateAgentRunRequest): CreateAgentRunRequest 
 /** IPC handlers for agent run management. */
 export function registerAgentHandlers(): void {
   ipcMain.handle(IpcChannel.Agent.list, () => agentRunStore.list())
+
+  // Read-only. An unknown run, or one whose conversation is gone, has no turns rather
+  // than an error: a phone following a run that was just deleted should empty out,
+  // not fail.
+  ipcMain.handle(IpcChannel.Agent.turns, (_event, runId: string) => {
+    const run = agentRunStore.get(runId)
+    const conversation = run?.conversationId ? conversationStore.get(run.conversationId) : undefined
+    return runTurnsForRemote(conversation?.messages ?? [])
+  })
 
   ipcMain.handle(IpcChannel.Agent.create, async (event, request: CreateAgentRunRequest) => {
     try {

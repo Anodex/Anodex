@@ -113,6 +113,26 @@
       }
     },
     {
+      "channel": "agent:turns",
+      "kind": "invoke",
+      "api": "agent.turns",
+      "args": [
+        {
+          "name": "runId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "RemoteRunTurn"
+        }
+      }
+    },
+    {
       "channel": "attachments:abort-upload",
       "kind": "invoke",
       "servedBy": "ipcMain.handle",
@@ -17021,11 +17041,11 @@
             "of": [
               {
                 "kind": "literal",
-                "value": "failed"
+                "value": "ok"
               },
               {
                 "kind": "literal",
-                "value": "ok"
+                "value": "failed"
               },
               {
                 "kind": "literal",
@@ -21291,6 +21311,144 @@
             "of": {
               "$ref": "RemotePersonality"
             }
+          }
+        }
+      }
+    },
+    "RemoteRunTurn": {
+      "kind": "object",
+      "properties": {
+        "number": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "messageId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "text": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "tools": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "kind": "object",
+              "properties": {
+                "name": {
+                  "optional": false,
+                  "type": {
+                    "kind": "string"
+                  }
+                },
+                "title": {
+                  "optional": false,
+                  "type": {
+                    "kind": "string"
+                  }
+                },
+                "status": {
+                  "optional": false,
+                  "type": {
+                    "kind": "union",
+                    "of": [
+                      {
+                        "kind": "literal",
+                        "value": "error"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "running"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "success"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "denied"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "moreTools": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "tokens": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "durationMs": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "health": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "error"
+              },
+              {
+                "kind": "literal",
+                "value": "ok"
+              },
+              {
+                "kind": "literal",
+                "value": "warn"
+              }
+            ]
+          }
+        },
+        "error": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
           }
         }
       }
