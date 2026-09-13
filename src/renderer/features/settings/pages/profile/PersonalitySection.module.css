@@ -345,10 +345,18 @@
   box-shadow: var(--shadow-lg);
 }
 
+/* As tall as seven built-ins and a few of your own, when the window has room. */
 .listbox {
-  max-height: 280px;
+  max-height: min(460px, 55vh);
   padding: var(--space-1);
   overflow-y: auto;
+}
+
+/* More below: the last visible row fades out, so the list reads as continuing
+   rather than ending at whichever row the height happened to stop on. */
+.listboxMore {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
 }
 
 .listGroup {
