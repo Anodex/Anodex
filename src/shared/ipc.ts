@@ -77,7 +77,7 @@ import type {
   ScheduledTask,
   UpdateScheduledTaskRequest
 } from './scheduledTask.types'
-import type { AgentRun, CreateAgentRunRequest } from './agentRun.types'
+import type { AgentRun, CreateAgentRunRequest, RemoteRunTurn } from './agentRun.types'
 import type {
   ApproveCriticalThinkingRequest,
   CreateCriticalThinkingRequest,
@@ -524,6 +524,8 @@ export const IpcChannel = {
     delete: 'agent:delete',
     approvePlan: 'agent:approve-plan',
     rejectPlan: 'agent:reject-plan',
+    /** One run's turns, compact, for a phone following it. See `runTurnsForRemote`. */
+    turns: 'agent:turns',
     /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
     runsChanged: 'agent:runs-changed'
   },
@@ -1028,6 +1030,7 @@ export interface AnodexApi {
     approvePlan(id: string): Promise<void>
     rejectPlan(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
+    turns(runId: string): Promise<RemoteRunTurn[]>
   }
   criticalThinking: {
     list(): Promise<CriticalThinkingRun[]>
