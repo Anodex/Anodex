@@ -7,6 +7,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { notifyError } from '../../stores/uiStore'
 import { isChatReady } from '../../lib/chatReadiness'
+import { canProviderSeeImages } from '../../lib/visionAvailability'
 import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon } from '../../components/Icon'
@@ -70,10 +71,9 @@ export function ChatComposer(): JSX.Element {
   const permissionMode = settings?.general.permissionMode ?? 'ask'
   const ready = isChatReady(settings, engine.status)
   const localReady = engine.status === 'ready'
-  const localVision = settings?.provider.active === 'local' && Boolean(engine.vision)
-  const cloudVision =
-    settings?.provider.active === 'anthropic' || settings?.provider.active === 'openai'
-  const visionAvailable = localVision || cloudVision
+  const visionAvailable = settings
+    ? canProviderSeeImages(settings.provider.active, Boolean(engine.vision))
+    : false
   const generating = activeConversation?.messages.some((message) => message.streaming) ?? false
 
   const autoGrow = (): void => {

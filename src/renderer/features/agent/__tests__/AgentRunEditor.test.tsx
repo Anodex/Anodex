@@ -28,8 +28,17 @@ vi.mock('../../../stores/settingsStore', () => ({
   useSettingsStore: (select: (state: unknown) => unknown) => select({ settings })
 }))
 vi.mock('../../../stores/uiStore', () => ({ notifyError: vi.fn() }))
+const readFile = vi.fn<(path: string) => Promise<unknown>>()
+const engine = { vision: false }
+vi.mock('../../../stores/modelStore', () => ({
+  useModelStore: (select: (state: unknown) => unknown) => select({ engine })
+}))
 vi.mock('../../../lib/anodex', () => ({
-  anodex: { tools: { pickFolder: vi.fn() }, projects: { create: vi.fn() } }
+  anodex: {
+    tools: { pickFolder: vi.fn() },
+    projects: { create: vi.fn() },
+    attachments: { readFile: (path: string) => readFile(path), pickFiles: vi.fn() }
+  }
 }))
 
 const { AgentRunEditor } = await import('../AgentRunEditor')
@@ -48,6 +57,23 @@ beforeEach(() => {
   settings.provider.openai.apiKey = ''
   settings.provider.active = 'local'
   create.mockResolvedValue({ id: 'run-1' })
+  engine.vision = false
+  readFile.mockImplementation((path: string) =>
+    Promise.resolve(
+      path.endsWith('.png')
+        ? {
+            ok: true,
+            value: {
+              kind: 'image',
+              dataUrl: 'data:image/png;base64,AA==',
+              mimeType: 'image/png',
+              sizeBytes: 4,
+              truncated: false
+            }
+          }
+        : { ok: true, value: { kind: 'text', content: 'spec', sizeBytes: 4, truncated: false } }
+    )
+  )
 })
 
 describe('starting a run', () => {
@@ -192,5 +218,35 @@ describe('why Start is unavailable', () => {
       expect(Number((slider as HTMLInputElement).value)).toBeGreaterThanOrEqual(1)
     }
     expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', false)
+  })
+})
+
+describe('attachments', () => {
+  const seed: AgentRunEditorSeed = {
+    goal: 'Build the nebula',
+    attachments: [
+      { path: 'C:/runs/run_1/1-ref.png', name: 'ref.png' },
+      { path: 'C:/runs/run_1/2-spec.md', name: 'spec.md' }
+    ]
+  }
+
+  it('brings a retried run its files, and sends them with the new run', async () => {
+    engine.vision = true
+    open(seed)
+
+    await waitFor(() => expect(screen.getByText('spec.md')).toBeTruthy())
+    fireEvent.click(screen.getByText('Start run'))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0][0]).toMatchObject({ attachments: seed.attachments })
+  })
+
+  it('will not start with images the selected model cannot see', async () => {
+    engine.vision = false
+    open(seed)
+
+    await waitFor(() => expect(screen.getByText('ref.png')).toBeTruthy())
+    expect(screen.getByText(/can.t see images/)).toBeTruthy()
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', true)
   })
 })
