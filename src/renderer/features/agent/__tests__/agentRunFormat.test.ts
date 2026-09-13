@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun } from '@shared/agentRun.types'
-import { providerLabel } from '../agentRunFormat'
+import { goalHeadline, isLongGoal, providerLabel } from '../agentRunFormat'
 
 /**
  * `providerLabel` used to test for `local`, then `anthropic`, then fall through
@@ -54,5 +54,40 @@ describe('providerLabel', () => {
     expect(providerLabel(run({ provider: 'azure', model: 'my-deployment' }))).toBe(
       'Azure OpenAI · my-deployment'
     )
+  })
+})
+
+/**
+ * Goals are written, not typed into a one-line field. A long one squashed into
+ * a header put a thousand lines of specification in the page title, with its
+ * `**` markers showing.
+ */
+describe('goalHeadline', () => {
+  it('names a goal by its first line, without markdown markers', () => {
+    const goal = [
+      'Yes. Here is the **single combined master prompt**, with images.',
+      '',
+      '```text',
+      'PROJECT: NEBULA',
+      '```'
+    ].join('\n')
+    expect(goalHeadline(goal)).toBe('Yes. Here is the single combined master prompt, with images.')
+  })
+
+  it('skips fences, rules and blank lines to find the first words', () => {
+    const goal = ['', '```text', '=====', '## Build the engine', 'more'].join('\n')
+    expect(goalHeadline(goal)).toBe('Build the engine')
+  })
+
+  it('keeps a one-line goal as it is', () => {
+    expect(goalHeadline('Summarize the changelog')).toBe('Summarize the changelog')
+  })
+})
+
+describe('isLongGoal', () => {
+  it('folds a goal that is long in characters or in lines', () => {
+    expect(isLongGoal('Summarize the changelog')).toBe(false)
+    expect(isLongGoal('x'.repeat(2000))).toBe(true)
+    expect(isLongGoal(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n'))).toBe(true)
   })
 })

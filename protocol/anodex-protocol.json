@@ -8830,6 +8830,23 @@
             ]
           }
         },
+        "attachments": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "$ref": "ChatAttachment"
+                }
+              }
+            ]
+          }
+        },
         "createdAt": {
           "optional": false,
           "type": {
@@ -8840,6 +8857,23 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        }
+      }
+    },
+    "AgentRunAttachmentRequest": {
+      "kind": "object",
+      "properties": {
+        "path": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }
@@ -13454,6 +13488,23 @@
               },
               {
                 "kind": "boolean"
+              }
+            ]
+          }
+        },
+        "attachments": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "$ref": "AgentRunAttachmentRequest"
+                }
               }
             ]
           }

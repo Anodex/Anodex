@@ -46,6 +46,44 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`
 }
 
+/** Markdown punctuation that reads as noise once a goal is squeezed onto one line. */
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/^\s{0,3}(#{1,6}\s+|[-*+]\s+|>\s*)/, '')
+    .replace(/(\*\*|__|`)/g, '')
+    .trim()
+}
+
+/**
+ * A goal as one line — for a header or a list card, where the goal has to be
+ * named rather than read.
+ *
+ * Goals are written, not typed into a single-line field: a long one arrives as
+ * paragraphs, headings and fenced blocks. Squashing all of that into one run of
+ * text put a thousand lines of specification into a page title, with its
+ * markdown markers showing. The first line that says something is the name.
+ */
+export function goalHeadline(goal: string): string {
+  for (const raw of goal.split(/\r?\n/)) {
+    // Fences and rules are structure, not words.
+    if (/^\s*(`{3,}|~{3,}|[=\-_*]{3,}\s*$)/.test(raw)) continue
+    const line = stripInlineMarkdown(raw)
+    if (line.length > 0) return line
+  }
+  return goal.trim()
+}
+
+/**
+ * Past this, the goal on a run's page starts folded. A goal is shown above the
+ * run's turns, and a specification-length one pushed every turn off screen.
+ */
+export const LONG_GOAL_CHARS = 900
+export const LONG_GOAL_LINES = 14
+
+export function isLongGoal(goal: string): boolean {
+  return goal.length > LONG_GOAL_CHARS || goal.split(/\r?\n/).length > LONG_GOAL_LINES
+}
+
 export const STATUS_ICON: Record<AgentRunStatus, IconName> = {
   running: 'activity',
   'needs-review': 'eye',
