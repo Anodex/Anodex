@@ -64,6 +64,20 @@ was based on. That is ordinary descriptive use and nobody needs permission for i
 What you may not do is imply endorsement, or present an unofficial build as an official
 Anodex release. Official releases come from this repository and nowhere else.
 
+### Other people’s marks
+
+The same thing in reverse. Anodex shows the logos of the model providers it connects to —
+OpenAI, Anthropic, Google, Mistral and the rest — and **those marks belong to those
+companies.** Nothing here licenses them to you, and seeing the artwork in this source
+grants you nothing.
+
+They are used to identify a real integration and nothing else: a provider’s mark appears
+beside the connection that talks to that provider, unmodified. **None of those companies
+endorses, sponsors or is affiliated with Anodex.** Every mark, and where its artwork came
+from, is listed in `THIRD-PARTY-NOTICES.md`.
+
+If you own one of them and object, say so and it will be removed.
+
 ## Third-party components
 
 Anodex is built on software written by other people. **None of the terms above apply to

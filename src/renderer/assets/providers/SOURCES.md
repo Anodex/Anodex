@@ -29,3 +29,12 @@ Most marks sit on the shared light chip (`.providerLogoOfficial`), but several a
 - **Mistral** — the multicolour M on black, as Mistral presents it; its amber top bars (`#ffaf01`) are close to illegible on a light chip.
 - **Groq** — `groq.svg` is a complete tile (full-bleed orange field plus a white bolt), not a bare glyph, so it fills the chip edge to edge instead of being inset on another background.
 - **Local model** — Anodex's own `app-icon.png`, which already ships its own dark rounded-square badge, so it also fills the chip edge to edge.
+
+## Adding one
+
+Two things have to change with the file, and a build failure will tell you if you miss the second:
+
+1. A row in the table above — the official source it came from, and the date.
+2. `PROVIDER_MARKS` in `scripts/generate-third-party-notices.mjs`, which declares the mark in the shipped `THIRD-PARTY-NOTICES.md`. The generator reads this directory and **fails** if an `.svg` here is not declared there, because a trademark that ships undeclared is invisible to every scanner and would otherwise be noticed by nobody.
+
+Keep the artwork unmodified. These are used nominatively — to identify the provider a connection talks to — and that is the basis on which they are used at all. Anodex's position on them is stated in `LICENSE.md` and reproduced in the notices.
