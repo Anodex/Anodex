@@ -27,6 +27,7 @@ import type {
   ChatResult,
   ChatStreamChunk,
   ChatThinkingStreamChunk,
+  ChatWorkingEvent,
   ChatTitleRequest,
   HistoryCompactionEvent
 } from './chat.types'
@@ -177,6 +178,11 @@ export const IpcChannel = {
     stream: 'chat:stream',
     /** main → renderer streamed chain-of-thought tokens, separate from the visible reply. */
     thinkingStream: 'chat:thinking-stream',
+    /**
+     * main → clients: a turn is still alive but quiet — queued behind the model, or
+     * working without visible output. See `startWorkingHeartbeat`.
+     */
+    working: 'chat:working',
     /** A short local-model summary of a finished reply, for a desktop toast's title. */
     summarize: 'chat:summarize',
     /** A short generated title for a conversation's first user/assistant turn. */
@@ -709,6 +715,8 @@ export interface AnodexApi {
     compact(request: ChatCompactRequest): Promise<Result<ChatCompactResult | null>>
     onStream(listener: (chunk: ChatStreamChunk) => void): () => void
     onThinkingStream(listener: (chunk: ChatThinkingStreamChunk) => void): () => void
+    /** A quiet turn saying it is still alive, and whether it is waiting for the model. */
+    onWorking(listener: (event: ChatWorkingEvent) => void): () => void
     /** Best-effort local summary of `text` in `maxWords` words or fewer; `null` if it failed. */
     summarize(text: string, maxWords: number): Promise<string | null>
     /** Best-effort local title for a finished first turn; `null` if it failed. */

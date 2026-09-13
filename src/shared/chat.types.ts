@@ -466,6 +466,20 @@ export interface ChatStreamChunk {
   token: string
 }
 
+/**
+ * A turn that is still going but has nothing to show, said every half minute.
+ *
+ * `waiting-for-model` while it is queued behind other work on the local model — an
+ * agent run's turn, typically — and `working` once it has begun. `since` is when the
+ * turn arrived, so a client can say how long it has been waiting.
+ */
+export interface ChatWorkingEvent {
+  conversationId: string
+  messageId: string
+  phase: 'waiting-for-model' | 'working'
+  since: number
+}
+
 /** Live chain-of-thought tokens, streamed separately from `ChatStreamChunk`'s visible-reply tokens. */
 export interface ChatThinkingStreamChunk {
   conversationId: string
