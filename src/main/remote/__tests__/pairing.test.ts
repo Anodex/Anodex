@@ -162,6 +162,17 @@ describe('remote pairing', () => {
     expect(service.paired().map((device) => device.name)).toEqual(['Phone'])
   })
 
+  it('renames one device, cleaned like a name from pairing, and nothing else', () => {
+    pair('Phone')
+    pair('Tablet')
+    const tablet = service.paired().find((device) => device.name === 'Tablet')!
+
+    expect(service.rename(tablet.deviceId, '  Kitchen	tablet  ')).toBe(true)
+    expect(service.rename('no-such-device', 'x')).toBe(false)
+
+    expect(service.paired().map((device) => device.name).sort()).toEqual(['Kitchentablet', 'Phone'])
+  })
+
   it('past the limit, the device seen least recently is forgotten', () => {
     const keys: string[] = []
     for (let i = 0; i < MAX_PAIRED_DEVICES; i++) {

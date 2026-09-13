@@ -67,6 +67,15 @@ describe('remote channel policy', () => {
     }
   })
 
+  it('lets a phone manage the paired devices, but never who may pair', () => {
+    for (const channel of ['devices:list', 'devices:rename', 'devices:unpair']) {
+      expect(decideRemoteChannel(channel).allowed).toBe(true)
+    }
+    for (const channel of ['remote:begin-pairing', 'remote:set-enabled', 'remote:revoke']) {
+      expect(decideRemoteChannel(channel).allowed).toBe(false)
+    }
+  })
+
   it('names every refusal', () => {
     // A silent refusal leaves the phone waiting on a reply that is not coming.
     const decision = decideRemoteChannel('terminal:write')

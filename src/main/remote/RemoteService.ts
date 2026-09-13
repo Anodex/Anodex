@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { collectHostAddresses, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
 import type {
+  RemoteDeviceSummary,
   RemoteInternetAccess,
   RemotePairedDevice,
   RemotePairingCode,
@@ -535,6 +536,26 @@ export class RemoteService {
 
   cancelPairing(): void {
     this.pairing.cancelPairing()
+  }
+
+  /** Every paired device, marked with which one is [askingDeviceId]. */
+  deviceSummaries(askingDeviceId: string | null): RemoteDeviceSummary[] {
+    return this.pairing.paired().map((device) => ({
+      deviceId: device.deviceId,
+      name: device.name,
+      pairedAtEpochMs: device.pairedAtEpochMs,
+      lastSeenEpochMs: device.lastSeenEpochMs,
+      isThisDevice: device.deviceId === askingDeviceId
+    }))
+  }
+
+  renameDevice(deviceId: string, name: string): RemoteStatus {
+    this.pairing.rename(deviceId, name)
+    // A rename does not change which devices are paired, so the store does not
+    // announce it; Settings still wants the new name.
+    const status = this.status()
+    this.onStatusChanged?.(status)
+    return status
   }
 
   /**
