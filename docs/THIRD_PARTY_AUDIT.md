@@ -93,12 +93,30 @@ requirements and a 700M-MAU clause; Qwen and Gemma have their own terms.
 
 ### Trademarked assets
 
-Twelve provider logos in `src/renderer/assets/providers/`: Anthropic, OpenAI, Google, Azure,
-DeepSeek, Groq, Kimi, Mistral, OpenRouter, Qwen, xAI.
+~~Twelve~~ **Eleven** provider logos in `src/renderer/assets/providers/`: Anthropic, OpenAI,
+Google, Azure, DeepSeek, Groq, Kimi, Mistral, OpenRouter, Qwen, xAI. The count above said
+twelve and then listed eleven; there are eleven files. Corrected 2026-09-13, and the
+generator now fails if a logo ships undeclared rather than letting the number drift again.
 
 These are **trademarks, not licensed assets**. Using a logo to identify a real integration is
 normally acceptable, but most of these companies publish brand guidelines with specific rules,
 and a paid product attracts more scrutiny than a free one. Worth a review before charging.
+
+> **Reviewed 2026-09-13.** The provenance half was already done and better than this entry
+> implies: `src/renderer/assets/providers/SOURCES.md` records an official brand page, asset
+> pack or CC0 source for every mark, with retrieval dates, and the rule to keep the artwork
+> unmodified and use it only to identify that provider.
+>
+> The real gap was that Anodex’s **position** was written down nowhere. `LICENSE.md`
+> reserved Anodex’s own branding and said nothing about anyone else’s, and the only
+> "trademark" text in the notices was quoted Apache boilerplate. Both now state it: the marks
+> belong to their owners, no licence is granted, they identify a real integration and imply no
+> endorsement, and there is a named route to ask for removal.
+>
+> **Still not done, and deliberately:** no per-provider audit against each company’s brand
+> guidelines. That is worth doing if Anodex is ever sold, which is the condition this entry
+> already sets. Nominative use of an unmodified mark to name a real integration is the
+> ordinary case, and it is what the app does.
 
 ### Icons
 
@@ -124,8 +142,10 @@ None bundled. System fonts only. Clean.
 4. ~~**`package.json` says `"license": "UNLICENSED"`, `"private": true`.**~~ **Closed** — the
    field is now `"SEE LICENSE IN LICENSE.md"`, and that file exists. `"private": true` stays,
    correctly: Anodex is not published to npm.
-5. **Still open: the provider logos.** Trademarks, not licensed assets — see above. Nothing
-   has been done about this, and nothing in the licensing work changes it.
+5. ~~**Still open: the provider logos.**~~ **Reviewed 2026-09-13** — see above. The position
+   is now stated in `LICENSE.md` and in the generated `THIRD-PARTY-NOTICES.md`, and the
+   generator fails if a mark ships undeclared. A per-provider brand-guideline audit remains
+   open, and remains conditional on selling.
 
 ---
 
