@@ -1,5 +1,5 @@
 import { nativeImage } from 'electron'
-import { isAbsolute } from 'node:path'
+import { posix, win32 } from 'node:path'
 import type { RemoteAttachmentPreview } from '@shared/conversation.types'
 import { readAttachmentFile } from '../ipc/attachments.handlers'
 import { settingsStore } from '../settings/SettingsStore'
@@ -98,7 +98,10 @@ function encodeWithin(
 /** An attachment path as stored: absolute from a drop, or relative to the workspace. */
 function resolveAttachmentPath(path: string): string | null {
   if (!path) return null
-  if (isAbsolute(path)) return path
+  // Either platform's absolute form, as the renderer's `isAbsoluteAttachmentPath`
+  // does: a conversation written on Windows keeps its drive-letter paths wherever
+  // the store is read.
+  if (win32.isAbsolute(path) || posix.isAbsolute(path)) return path
   const root = settingsStore.get().workspace.root
   if (!root) return null
   try {
