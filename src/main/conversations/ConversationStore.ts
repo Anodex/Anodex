@@ -41,6 +41,7 @@ export interface SaveOptions {
  * one time it guesses wrong the conversation sorts to the wrong end of the list.
  */
 function mergeRemoteSave(stored: Conversation, incoming: Conversation): Conversation {
+  const incomingById = new Map(incoming.messages.map((message) => [message.id, message]))
   const known = new Set(stored.messages.map((message) => message.id))
   const added = incoming.messages.filter((message) => !known.has(message.id))
 
@@ -48,8 +49,26 @@ function mergeRemoteSave(stored: Conversation, incoming: Conversation): Conversa
     ...stored,
     ...incoming,
     createdAt: stored.createdAt,
-    messages: [...stored.messages, ...added]
+    // A turn both sides wrote keeps what is on disk, and gains only fields disk does
+    // not have. The computer now records a phone's turn itself when it finishes, so
+    // the phone's own save usually lands second — and only the phone knows which
+    // personality answered and what it attached. The stored copy winning outright
+    // would have dropped both without a trace.
+    messages: [
+      ...stored.messages.map((message) => {
+        const theirs = incomingById.get(message.id)
+        return theirs ? { ...theirs, ...definedFields(message) } : message
+      }),
+      ...added
+    ]
   }
+}
+
+/** The fields a message actually carries, so an `undefined` never overwrites a value. */
+function definedFields<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, field]) => field !== undefined)
+  ) as Partial<T>
 }
 
 /** A cached conversation together with the file that backs it. */

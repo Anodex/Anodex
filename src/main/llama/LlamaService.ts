@@ -719,6 +719,17 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * Whether anything is queued for the model behind whatever holds it now.
+   *
+   * A turn that arrives while an agent run's turn holds the lock waits there with
+   * nothing to show for it. This is how a caller can tell that apart from a turn
+   * that is simply thinking, and say so.
+   */
+  hasQueuedModelWork(): boolean {
+    return this.modelLock.waiting() > 0
+  }
+
+  /**
    * Generate an assistant reply, streaming decoded tokens via `onToken`.
    * Holds the single-model lock for the whole turn so no auxiliary call can
    * race the underlying runtime (see {@link modelLock}).

@@ -1163,6 +1163,15 @@
       }
     },
     {
+      "channel": "chat:working",
+      "kind": "event",
+      "api": "chat.onWorking",
+      "args": [],
+      "payload": {
+        "$ref": "ChatWorkingEvent"
+      }
+    },
+    {
       "channel": "checkpoints:inspect",
       "kind": "invoke",
       "api": "checkpoints.inspect",
@@ -10918,6 +10927,45 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        }
+      }
+    },
+    "ChatWorkingEvent": {
+      "kind": "object",
+      "properties": {
+        "conversationId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "messageId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "phase": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "waiting-for-model"
+              },
+              {
+                "kind": "literal",
+                "value": "working"
+              }
+            ]
+          }
+        },
+        "since": {
+          "optional": false,
+          "type": {
+            "kind": "number"
           }
         }
       }
