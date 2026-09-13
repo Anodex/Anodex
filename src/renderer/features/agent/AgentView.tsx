@@ -14,6 +14,7 @@ import {
   STATUS_ICON,
   STATUS_LABEL,
   formatCompactTokens,
+  goalHeadline,
   isTerminalStatus,
   providerIcon,
   providerLabel
@@ -247,7 +248,7 @@ function RunCard({
                 hover. Inside a run it is always visible -- see CopyableId. */}
             <span className={styles.runId}>{shortenId(run.id)}</span>
           </div>
-          <p className={styles.runGoal}>{run.goal}</p>
+          <p className={styles.runGoal}>{goalHeadline(run.goal)}</p>
           <div className={styles.runMeta}>
             <span>{formatRelativeTime(run.updatedAt)}</span>
             <span className={styles.runProvider}>
@@ -398,7 +399,8 @@ export function AgentView(): JSX.Element {
       maxDurationMinutes: run.maxDurationMinutes,
       limitsEnabled: run.limitsEnabled,
       requirePlan: run.requirePlan,
-      enabledTools: run.enabledTools
+      enabledTools: run.enabledTools,
+      attachments: run.attachments?.map(({ path, name }) => ({ path, name }))
     })
   }
 
@@ -419,7 +421,8 @@ export function AgentView(): JSX.Element {
       })
       return
     }
-    const shortGoal = run.goal.length > 48 ? `${run.goal.slice(0, 48)}…` : run.goal
+    const headline = goalHeadline(run.goal)
+    const shortGoal = headline.length > 48 ? `${headline.slice(0, 48)}…` : headline
     const forkedId = forkConversation(run.conversationId, `${shortGoal} (continued)`)
     if (!forkedId) {
       notify({

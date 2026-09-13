@@ -16,6 +16,8 @@ interface ComposerAttachmentsController {
   attachments: ComposerAttachment[]
   dragActive: boolean
   clearAttachments: () => void
+  /** Read and admit files by path — for callers that already know which files, like a retry. */
+  attachFiles: (candidates: { path: string; name: string }[]) => Promise<void>
   removeAttachment: (path: string) => void
   handleAttachClick: () => Promise<void>
   handleDragEnter: (event: DragEvent<HTMLDivElement>) => void
@@ -111,6 +113,7 @@ export function useComposerAttachments({
     attachments,
     dragActive,
     clearAttachments: () => setAttachmentList(() => []),
+    attachFiles,
     removeAttachment,
     handleAttachClick,
     handleDragEnter,

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
+import type { ChatAttachment } from '@shared/chat.types'
 import {
   defaultMaxTurnsFor,
   maxTurnsCeilingFor,
@@ -74,10 +75,17 @@ class AgentRunStore {
     return this.ensureCache().find((run) => run.id === id)
   }
 
-  create(request: CreateAgentRunRequest): AgentRun {
+  /**
+   * Record a new run. `prepared` carries what had to exist before the record
+   * could: the id its attachments were copied under, and those copies.
+   */
+  create(
+    request: CreateAgentRunRequest,
+    prepared: { id?: string; attachments?: ChatAttachment[] } = {}
+  ): AgentRun {
     const now = Date.now()
     const run: AgentRun = {
-      id: generateId(),
+      id: prepared.id ?? generateAgentRunId(),
       goal: request.goal.trim(),
       status: 'running',
       projectId: request.projectId,
@@ -113,6 +121,7 @@ class AgentRunStore {
       lastError: null,
       requirePlan: request.requirePlan ?? true,
       plan: null,
+      ...(prepared.attachments?.length ? { attachments: prepared.attachments } : {}),
       createdAt: now,
       updatedAt: now
     }
@@ -178,7 +187,7 @@ class AgentRunStore {
   }
 }
 
-function generateId(): string {
+export function generateAgentRunId(): string {
   return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
 }
 

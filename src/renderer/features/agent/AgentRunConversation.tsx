@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { activeElapsedMs, type AgentRun } from '@shared/agentRun.types'
-import type { ChatMessage } from '@shared/chat.types'
+import type { ChatAttachment, ChatMessage } from '@shared/chat.types'
 import type { Plan } from '@shared/plan.types'
 import { Icon } from '../../components/Icon'
+import { FileTypeIcon } from '../../components/FileTypeIcon'
+import { ExpandableImage } from '../../components/ui/ExpandableImage'
+import { formatBytes } from '../../lib/format'
+import { loadAttachmentImage } from '../chat/loadAttachmentImage'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
 import { useChatStore } from '../../stores/chatStore'
@@ -13,6 +17,8 @@ import {
   STATUS_LABEL,
   formatCompactTokens,
   formatDuration,
+  goalHeadline,
+  isLongGoal,
   providerIcon,
   providerLabel
 } from './agentRunFormat'
@@ -169,6 +175,98 @@ function BudgetBlock({ run }: { run: AgentRun }): JSX.Element {
   )
 }
 
+/** One image the run was given, read from the run's own copy. */
+function GoalImage({ attachment }: { attachment: ChatAttachment }): JSX.Element {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+  const [missing, setMissing] = useState(false)
+  const path = attachment.path
+  useEffect(() => {
+    let cancelled = false
+    void loadAttachmentImage(path).then((result) => {
+      if (cancelled) return
+      setDataUrl(result)
+      setMissing(result === null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [path])
+
+  if (missing) {
+    return (
+      <span className={styles.goalImageMissing} title={`${attachment.name} is no longer on disk`}>
+        Unavailable
+      </span>
+    )
+  }
+  if (!dataUrl) return <span className={styles.goalImageMissing}>…</span>
+  return (
+    <ExpandableImage
+      src={dataUrl}
+      alt={attachment.name}
+      title={attachment.name}
+      imageClassName={styles.goalImage}
+    />
+  )
+}
+
+/**
+ * The goal as the user wrote it, with the files they gave it.
+ *
+ * Rendered as markdown by the same component a chat message uses, because a
+ * goal is written like one: paragraphs, lists, fenced blocks. It used to be a
+ * single paragraph, which collapsed every line break, so a structured
+ * specification arrived as one unbroken wall of text.
+ *
+ * A long goal starts folded. It sits above the run's turns, and a
+ * specification-length one would otherwise be all the page showed.
+ */
+function GoalBlock({ run }: { run: AgentRun }): JSX.Element {
+  const long = isLongGoal(run.goal)
+  const [expanded, setExpanded] = useState(false)
+  const folded = long && !expanded
+  const attachments = run.attachments ?? []
+  const images = attachments.filter((attachment) => attachment.kind === 'image')
+  const files = attachments.filter((attachment) => attachment.kind !== 'image')
+
+  return (
+    <section className={styles.goal} aria-label="Goal">
+      <span className={styles.goalLabel}>
+        <Icon name="zap" size={12} />
+        Goal
+      </span>
+      <div className={`${styles.goalText} ${folded ? styles.goalFolded : ''}`}>
+        <MessageContent content={run.goal} />
+      </div>
+      {long && (
+        <button
+          type="button"
+          className={styles.goalToggle}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={12} />
+          {expanded ? 'Show less' : 'Show the full goal'}
+        </button>
+      )}
+      {attachments.length > 0 && (
+        <div className={styles.goalAttachments}>
+          {images.map((attachment) => (
+            <GoalImage key={attachment.path} attachment={attachment} />
+          ))}
+          {files.map((attachment) => (
+            <span key={attachment.path} className={styles.goalFile} title={attachment.name}>
+              <FileTypeIcon fileName={attachment.name} size={13} />
+              <span className={styles.goalFileName}>{attachment.name}</span>
+              <span className={styles.goalFileSize}>{formatBytes(attachment.sizeBytes)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function TurnView({
   message,
   number,
@@ -281,7 +379,9 @@ export function AgentRunConversation({
           All runs
         </button>
         <div className={styles.headerText}>
-          <h2 className={styles.title}>{run.goal}</h2>
+          <h2 className={styles.title} title={goalHeadline(run.goal)}>
+            {goalHeadline(run.goal)}
+          </h2>
           <p className={styles.subtitle}>
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon
@@ -351,10 +451,7 @@ export function AgentRunConversation({
           </div>
         )}
 
-        <p className={styles.goal}>
-          <Icon name="zap" size={12} />
-          {run.goal}
-        </p>
+        <GoalBlock run={run} />
 
         {(run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
           run.lastError && (
