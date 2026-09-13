@@ -52,6 +52,7 @@ import { conversationUserFiles } from '../features/chat/conversationUserFiles'
 import { suggestionFromPlan } from '../lib/replaySuggestions'
 import type { ChatStreamEvent } from '../features/chat/streamEvents'
 import { resolveActiveStyle } from '@shared/chatPersonality'
+import { firstPlainLine } from '@shared/titleText'
 
 export type { Conversation }
 
@@ -1584,7 +1585,9 @@ function editedFilesForAssistantMessage(conversation: Conversation, messageId: s
 }
 
 function deriveTitle(text: string): string {
-  const firstLine = text.split('\n')[0].trim()
+  // Without markdown marks: a pasted prompt otherwise became a sidebar title like
+  // "Yes. Here is the **single combined master pr…", cut through its own bold.
+  const firstLine = firstPlainLine(text)
   return firstLine.length > 44 ? `${firstLine.slice(0, 44)}…` : firstLine || DEFAULT_TITLE
 }
 

@@ -37,6 +37,7 @@ import {
 import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import { headlessConfirm } from '../tools/headlessConfirm'
+import { firstPlainLine } from '@shared/titleText'
 
 const log = createLogger('agent-run-service')
 
@@ -1037,7 +1038,9 @@ function generateId(prefix: string): string {
 }
 
 function truncateTitle(text: string): string {
-  const firstLine = text.trim().split('\n')[0] ?? ''
+  // The goal is often a pasted prompt, and this is what the run's conversation, its
+  // notifications and the phone's lock screen show — none of which render markdown.
+  const firstLine = firstPlainLine(text)
   return firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine || 'Agent run'
 }
 
