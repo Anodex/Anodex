@@ -170,7 +170,12 @@ describe('remote pairing', () => {
     expect(service.rename(tablet.deviceId, '  Kitchen	tablet  ')).toBe(true)
     expect(service.rename('no-such-device', 'x')).toBe(false)
 
-    expect(service.paired().map((device) => device.name).sort()).toEqual(['Kitchentablet', 'Phone'])
+    expect(
+      service
+        .paired()
+        .map((device) => device.name)
+        .sort()
+    ).toEqual(['Kitchentablet', 'Phone'])
   })
 
   it('past the limit, the device seen least recently is forgotten', () => {
