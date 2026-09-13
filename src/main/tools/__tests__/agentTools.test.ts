@@ -586,3 +586,61 @@ describe('finish_goal called more than once in a turn', () => {
     expect(second.toLowerCase()).toContain('already finishing')
   })
 })
+
+describe('finish_goal on a run that can only look', () => {
+  // Found on a real run started from the phone with "Look only": it listed the
+  // folders it was asked to on turn 2, was refused three times for "taking no
+  // action", and was stopped at its 8-turn limit.
+  const lookOnlyTools = new Set(['list_directory', 'read_file', 'web_search', 'finish_goal'])
+
+  function lookOnlyRun(): ToolRuntimeContext {
+    return { ...context(), enabledTools: lookOnlyTools }
+  }
+
+  it('finishes once something has been read', async () => {
+    const ctx = lookOnlyRun()
+    recordCompletedCall(ctx.progress, { name: 'list_directory', kind: 'read' })
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    expect(await tool.handler({ summary: 'The top-level folders are src/ and dist/.' })).toContain(
+      'Run finished.'
+    )
+  })
+
+  it('finishes on reads from an earlier turn of the same run', async () => {
+    const seed = priorTaskProgress([
+      { toolCalls: [{ status: 'success', kind: 'read', name: 'list_directory' } as ToolCall] }
+    ])
+    const ctx = { ...lookOnlyRun(), progress: createTurnProgress(seed) }
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    expect(await tool.handler({ summary: 'Listed them on the previous turn.' })).toContain(
+      'Run finished.'
+    )
+  })
+
+  it('still refuses a claim with nothing read behind it', async () => {
+    const ctx = lookOnlyRun()
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    const result = await tool.handler({ summary: 'The folders are src and dist.' })
+    expect(result).toContain('Error')
+    expect(result).toContain('Nothing has been read yet')
+  })
+
+  it('does not relax the rule for a run that could have changed something', async () => {
+    const ctx = { ...context(), enabledTools: new Set(['read_file', 'write_file', 'finish_goal']) }
+    recordCompletedCall(ctx.progress, { name: 'read_file', kind: 'read' })
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+
+    expect(await tool.handler({ summary: 'Fixed the bug.' })).toContain('cannot be accepted')
+  })
+})

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun } from '@shared/agentRun.types'
-import { goalHeadline, isLongGoal, providerLabel } from '../agentRunFormat'
+import { goalHeadline, isLongGoal, providerLabel, runOutcomeText } from '../agentRunFormat'
 
 /**
  * `providerLabel` used to test for `local`, then `anthropic`, then fall through
@@ -89,5 +89,32 @@ describe('isLongGoal', () => {
     expect(isLongGoal('Summarize the changelog')).toBe(false)
     expect(isLongGoal('x'.repeat(2000))).toBe(true)
     expect(isLongGoal(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n'))).toBe(true)
+  })
+})
+
+describe('runOutcomeText', () => {
+  it('says why a run stopped rather than what its last reply said', () => {
+    // Seen on this machine: a run stopped at its turn limit showed "all 2 steps
+    // complete" in the warning colour, hiding the reason.
+    expect(
+      runOutcomeText({
+        status: 'stopped',
+        summary: 'all 2 steps complete',
+        lastError: 'Stopped after 8 turns without finishing.'
+      })
+    ).toBe('Stopped after 8 turns without finishing.')
+  })
+
+  it('shows the summary for a run that finished', () => {
+    expect(
+      runOutcomeText({ status: 'done', summary: 'Listed the folders.', lastError: null })
+    ).toBe('Listed the folders.')
+  })
+
+  it('falls back to whichever exists', () => {
+    expect(runOutcomeText({ status: 'stopped', summary: 'Partial.', lastError: null })).toBe(
+      'Partial.'
+    )
+    expect(runOutcomeText({ status: 'done', summary: null, lastError: null })).toBe('')
   })
 })
