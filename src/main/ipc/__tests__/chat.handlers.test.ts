@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IpcChannel } from '@shared/ipc'
 import type { ChatRequest } from '@shared/chat.types'
 import { registerChatHandlers } from '../chat.handlers'
+import { REMOTE_CLIENT } from '../../clients/clientRegistry'
 
 type IpcTestHandler = (event: unknown, request: unknown) => unknown
 
@@ -9,7 +10,15 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, IpcTestHandler>(),
   generate: vi.fn(),
   recordSummary: vi.fn(),
-  recordGeneration: vi.fn()
+  recordGeneration: vi.fn(),
+  saveConversation: vi.fn<(...args: unknown[]) => void>()
+}))
+
+vi.mock('../../conversations/ConversationStore', () => ({
+  conversationStore: {
+    get: () => undefined,
+    save: (...args: unknown[]) => mocks.saveConversation(...args)
+  }
 }))
 
 vi.mock('electron', () => ({
@@ -184,6 +193,37 @@ describe('chat IPC handlers', () => {
       stopped: true
     })
     await secondSend
+  })
+
+  /** A phone's turn is recorded on the computer, unless the phone's chat is temporary. */
+  describe('a turn sent from a phone', () => {
+    const phone = { [REMOTE_CLIENT]: { send: vi.fn(), isDestroyed: () => false } }
+    const turn = (temporary?: boolean): ChatRequest => ({
+      conversationId: 'c-phone',
+      messageId: 'm1',
+      projectId: null,
+      history: [],
+      prompt: 'hi',
+      plan: null,
+      ...(temporary === undefined ? {} : { temporary })
+    })
+
+    beforeEach(() => mocks.saveConversation.mockReset())
+
+    it('is recorded into a conversation', async () => {
+      registerChatHandlers()
+      await mocks.handlers.get(IpcChannel.Chat.send)?.(phone, turn())
+
+      expect(mocks.saveConversation).toHaveBeenCalledTimes(1)
+    })
+
+    it('is not recorded when the chat is temporary', async () => {
+      registerChatHandlers()
+      const result = await mocks.handlers.get(IpcChannel.Chat.send)?.(phone, turn(true))
+
+      expect(result).toMatchObject({ ok: true })
+      expect(mocks.saveConversation).not.toHaveBeenCalled()
+    })
   })
 
   it('translates node-llama-cpp\'s raw "Object is disposed" error into an ask-to-retry message', async () => {
