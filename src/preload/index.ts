@@ -71,7 +71,8 @@ const api: AnodexApi = {
   },
   personality: {
     list: () => ipcRenderer.invoke(IpcChannel.Personality.list),
-    setActive: (id) => ipcRenderer.invoke(IpcChannel.Personality.setActive, id)
+    setActive: (id) => ipcRenderer.invoke(IpcChannel.Personality.setActive, id),
+    image: (id) => ipcRenderer.invoke(IpcChannel.Personality.image, id)
   },
   settings: {
     onChanged: (listener) => subscribe<AppSettings>(IpcChannel.Settings.changed, listener),
