@@ -44,7 +44,7 @@ import type {
   UpdateProjectRequest
 } from './project.types'
 import type { Conversation, ConversationState, ConversationSummary } from './conversation.types'
-import type { RemotePersonalityState } from './personality.types'
+import type { RemotePersonalityImage, RemotePersonalityState } from './personality.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
 import type { SupportBundleExportResult, SupportBundlePreview } from './supportBundle.types'
@@ -231,7 +231,9 @@ export const IpcChannel = {
     /** Every personality and which is in force. Read-only, safe to expose. */
     list: 'personality:list',
     /** Set the active one. Null selects the free-text style instead. */
-    setActive: 'personality:set-active'
+    setActive: 'personality:set-active',
+    /** One user personality's picture as a thumbnail, or null. For a phone. */
+    image: 'personality:image'
   },
   Settings: {
     get: 'settings:get',
@@ -732,6 +734,7 @@ export interface AnodexApi {
   personality: {
     list(): Promise<RemotePersonalityState>
     setActive(id: string | null): Promise<RemotePersonalityState>
+    image(id: string): Promise<RemotePersonalityImage | null>
   }
   settings: {
     /** main → renderer: settings were changed by a paired phone. */
