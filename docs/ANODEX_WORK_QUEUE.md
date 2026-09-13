@@ -9,6 +9,29 @@ result was — a "done" with no outcome is how a queue turns into a wish list.
 
 ## Now
 
+- [ ] **Measure the 4096 vision fix against a live 27B — the fix is unverified.**
+      `18c21bb` gave `LlamaVisionService.boundTools` the `hardLimitTokens` it
+      never had, so the ten-tool floor can no longer force 2,086 tokens of
+      schemas into a 3,584-token input limit. Seven tests pin the arithmetic,
+      including that the ceiling does **not** bind at 8192, but **no live run
+      has been done**: another session held the dev server and port, and a run
+      that loses the single-instance lock reports "produced nothing" for reasons
+      that have nothing to do with the fix — which is precisely how this would
+      be wrongly called fixed. Reproduce with
+      `node scripts/chat-matrix.mjs <out> qwen27b-4k --script scripts/chat-script-hard.json --criteria scripts/chat-hard-criteria.mjs`
+      (about two minutes, and the grader says plainly when a run produced
+      nothing). Check the port is free first. Expect a 4096 *chat* surface to
+      answer where it previously returned nothing on twelve of twelve turns; a
+      4096 *project* run should reach the gateway rather than dying, and may
+      still not complete — that is the ultra-compact prompt tier below, not a
+      regression. Close the `PARTLY FIXED` entry in `ANODEX_DEFERRED_BUGS.md`
+      only once this has actually been run.
+- [ ] **An ultra-compact prompt tier below the 24K threshold.** The other half
+      of the same problem, and the reason a 4096 project run is still doubtful:
+      the compact chat prompt alone is roughly 1,802 tokens, about 44% of a 4096
+      window, and with the 1,280-token bounded-write floor that is 3,082 of the
+      3,584 input limit spoken for before a single tool schema. Worth its own
+      measurement rather than being folded into a tuning change.
 - [x] **Mid-size context windows — done.** 16,384 tested on both a small and a
       capable model. The 4B passes single-file work there, having failed it
       three times at 8,192; the 27B loses one turn on the hardest task. The
