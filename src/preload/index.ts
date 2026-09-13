@@ -138,6 +138,7 @@ const api: AnodexApi = {
   conversations: {
     list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
     listSummaries: () => ipcRenderer.invoke(IpcChannel.Conversations.listSummaries),
+    search: (query) => ipcRenderer.invoke(IpcChannel.Conversations.search, query),
     get: (conversationId, limit) =>
       ipcRenderer.invoke(IpcChannel.Conversations.get, conversationId, limit),
     listArchived: () => ipcRenderer.invoke(IpcChannel.Conversations.listArchived),
