@@ -1564,6 +1564,7 @@ describe('runBoundedChatGeneration', () => {
     // epoch is not told to mutate again to prove it happened.
     expect(handoff?.progress).toEqual({
       madeChange: true,
+      observed: true,
       completedCalls: 2,
       lastChangeAt: 2,
       lastVisualInspectionAt: null
