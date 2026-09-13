@@ -45,3 +45,38 @@ export const PLAN_APPROVED_PROMPT =
 export const PLAN_RETRY_PROMPT =
   "You didn't call write_plan. Call it now with a short ordered list of concrete steps toward the " +
   'goal stated above — no other action yet.'
+
+/** A text file handed to a run, as read for the turn that carries it. */
+export interface RunAttachmentText {
+  name: string
+  content: string
+  truncated: boolean
+  sizeBytes: number
+}
+
+/**
+ * Append a run's attachments to a turn's prompt: a list naming every file, then
+ * each text file's content in the same delimited form a chat attachment uses.
+ *
+ * Images are named but not described. They travel as real image parts beside
+ * this message, and a model that can see them needs only to know they are
+ * material supplied for the goal.
+ */
+export function withRunAttachments(
+  prompt: string,
+  imageNames: readonly string[],
+  texts: readonly RunAttachmentText[]
+): string {
+  if (imageNames.length === 0 && texts.length === 0) return prompt
+  const listed = [
+    ...imageNames.map((name) => `- ${name} (image, attached to this message)`),
+    ...texts.map((text) => `- ${text.name} (text, included below)`)
+  ].join('\n')
+  const blocks = texts.map((text) => {
+    const note = text.truncated
+      ? ` (truncated, showing first ${text.content.length} of ${text.sizeBytes} bytes)`
+      : ''
+    return `--- Attached file: ${text.name}${note} ---\n${text.content}`
+  })
+  return [prompt, `Files supplied with this goal:\n${listed}`, ...blocks].join('\n\n')
+}

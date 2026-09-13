@@ -423,7 +423,11 @@ turns.
 
 Key capabilities:
 
-- Create agent runs with a goal.
+- Create agent runs with a goal, shown on the run page as it was written
+  (markdown, line breaks and code blocks intact; long goals start folded).
+- Attach reference images and text files to a run. They are copied into the run,
+  images stay visible to a vision model on every turn, and text files are
+  included with the goal.
 - Choose a project or run without a project.
 - Choose local, OpenAI, or Anthropic provider when configured.
 - Select a model.

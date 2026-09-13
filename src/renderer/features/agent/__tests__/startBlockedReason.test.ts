@@ -58,3 +58,25 @@ describe('startBlockedReason', () => {
     expect(reason?.toLowerCase()).toContain('turn')
   })
 })
+
+/**
+ * Images sent to a model that cannot take them fail on the provider mid-run,
+ * when nobody is watching. Refused here instead, where somebody is.
+ */
+describe('images the selected model cannot see', () => {
+  it('blocks the start and says what to do', () => {
+    const reason = startBlockedReason({ ...ready, unseeableImages: 2 })
+    expect(reason).toMatch(/can.t see images/)
+    expect(reason).toContain('2 images')
+  })
+
+  it('does not block when there are none', () => {
+    expect(startBlockedReason({ ...ready, unseeableImages: 0 })).toBeNull()
+  })
+
+  it('reports alongside anything missing', () => {
+    const reason = startBlockedReason({ ...ready, goal: '', unseeableImages: 1 })
+    expect(reason).toContain('a goal')
+    expect(reason).toContain('the image')
+  })
+})

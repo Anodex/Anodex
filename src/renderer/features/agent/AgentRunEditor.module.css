@@ -146,6 +146,30 @@
   text-decoration: underline;
 }
 
+/* ---- goal + attachments ---- */
+
+.goalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.goalHeader .linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: inherit;
+}
+
+/* The whole goal field is the drop target; a soft wash says it will take the file. */
+.dropActive {
+  margin: calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+
 .toolGroups {
   display: flex;
   flex-direction: column;
