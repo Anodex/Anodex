@@ -94,27 +94,30 @@ export function registerConversationHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannel.Conversations.delete, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Conversations.delete, (event, id: string) => {
     try {
       conversationStore.delete(id)
+      announceChange(event, id)
     } catch (error) {
       log.error('Failed to delete conversation:', id, error)
       throw new Error('Could not delete conversation.')
     }
   })
 
-  ipcMain.handle(IpcChannel.Conversations.restore, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Conversations.restore, (event, id: string) => {
     try {
       conversationStore.restore(id)
+      announceChange(event, id)
     } catch (error) {
       log.error('Failed to restore conversation:', id, error)
       throw new Error('Could not restore conversation.')
     }
   })
 
-  ipcMain.handle(IpcChannel.Conversations.deletePermanent, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Conversations.deletePermanent, (event, id: string) => {
     try {
       conversationStore.deletePermanent(id)
+      announceChange(event, id)
     } catch (error) {
       log.error('Failed to permanently delete conversation:', id, error)
       throw new Error('Could not permanently delete conversation.')
@@ -191,6 +194,22 @@ export function registerConversationHandlers(): void {
       )
     }
   })
+}
+
+/**
+ * Tell every other client that a conversation changed — archived, restored or removed.
+ *
+ * Saves were already announced; these were not. So a chat archived from the phone
+ * stayed in the desktop's sidebar until Anodex restarted, and one archived at the desk
+ * stayed in the phone's list. The author is left out for the same reason as on save:
+ * it has already updated itself.
+ */
+function announceChange(event: unknown, conversationId: string): void {
+  broadcastToOtherClients(
+    resolveClientChannel(event),
+    IpcChannel.Conversations.changed,
+    conversationId
+  )
 }
 
 /**
