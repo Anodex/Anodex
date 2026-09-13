@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   recordSummary: vi.fn(),
   recordGeneration: vi.fn(),
-  saveConversation: vi.fn()
+  saveConversation: vi.fn<(...args: unknown[]) => void>()
 }))
 
 vi.mock('../../conversations/ConversationStore', () => ({
