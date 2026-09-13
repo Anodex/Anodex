@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { RemotePairingCode, RemoteStatus } from '@shared/remote.types'
+import type { RemotePairedDevice, RemotePairingCode, RemoteStatus } from '@shared/remote.types'
 import { anodex } from '../../../../lib/anodex'
 import { useUiStore } from '../../../../stores/uiStore'
 import { Button } from '../../../../components/ui/Button'
@@ -27,7 +27,8 @@ export function RemoteSettings(): JSX.Element {
   const [manualPort, setManualPort] = useState<string | null>(null)
   const [listenPort, setListenPort] = useState<string | null>(null)
   const [qrEnlarged, setQrEnlarged] = useState(false)
-  const [confirmingUnpair, setConfirmingUnpair] = useState(false)
+  // The device an Unpair button was pressed for, while its confirmation is open.
+  const [confirmingUnpair, setConfirmingUnpair] = useState<RemotePairedDevice | null>(null)
 
   const refresh = useCallback(() => {
     void anodex.remote.status().then(setStatus)
@@ -160,13 +161,13 @@ export function RemoteSettings(): JSX.Element {
     })
   }
 
-  const revoke = async (): Promise<void> => {
-    setConfirmingUnpair(false)
-    setStatus(await anodex.remote.revoke())
+  const revoke = async (device: RemotePairedDevice): Promise<void> => {
+    setConfirmingUnpair(null)
+    setStatus(await anodex.remote.revoke(device.deviceId))
     notify({
       kind: 'success',
-      title: 'Phone unpaired',
-      message: 'Its saved key stops working immediately.'
+      title: `${device.name} unpaired`,
+      message: 'Its saved key stops working immediately. Other devices stay paired.'
     })
   }
 
@@ -395,46 +396,44 @@ export function RemoteSettings(): JSX.Element {
       {listening && (
         <>
           <SettingRow
-            label="Paired phone"
+            label="Paired devices"
             description={
-              status?.pairedDevice
-                ? status.pairedDevice.trustsThisIdentity === false
+              status?.pairedDevices.length
+                ? 'Each device keeps its own key. Unpairing one leaves the others connected.'
+                : 'No phone is paired yet.'
+            }
+            control={
+              // Pairing adds a device beside the ones already paired, so this is also
+              // the way back for a device that can no longer connect: show it a new
+              // code, and it replaces nothing else.
+              <Button onClick={() => void showCode()} disabled={busy}>
+                {status?.pairedDevices.length ? 'Pair another device' : 'Pair a phone'}
+              </Button>
+            }
+          />
+
+          {status?.pairedDevices.map((device) => (
+            <SettingRow
+              key={device.deviceId}
+              label={device.name}
+              description={
+                device.trustsThisIdentity === false
                   ? // Said plainly, because the pairing is already dead and the
                     // "last seen" line reads as healthy through exactly that. The
                     // phone pins the certificate, so an identity that has changed
                     // underneath it is indistinguishable from an impostor and every
                     // connection is refused.
-                    `${status.pairedDevice.name} · paired to an older identity of this computer, ` +
-                    'so it can no longer connect. Show it a new code.'
-                  : `${status.pairedDevice.name} · last seen ${formatSeen(status.pairedDevice.lastSeenEpochMs)}`
-                : 'No phone is paired yet.'
-            }
-            control={
-              status?.pairedDevice ? (
-                <div className={styles.pairedActions}>
-                  {/*
-                    Renewing without unpairing first.
-                    
-                    `PairingService` already replaces the device on a successful
-                    pairing, so this was only ever missing from the UI — and its
-                    absence meant the single route back for a phone that could not
-                    connect was the destructive one, which also throws away the key
-                    while you are standing there with nothing to replace it yet.
-                  */}
-                  <Button onClick={() => void showCode()} disabled={busy}>
-                    Show a new code
-                  </Button>
-                  <Button variant="danger" onClick={() => setConfirmingUnpair(true)}>
-                    Unpair
-                  </Button>
-                </div>
-              ) : (
-                <Button onClick={() => void showCode()} disabled={busy}>
-                  Pair a phone
+                    'Paired to an older identity of this computer, so it can no longer connect. ' +
+                    'Pair it again.'
+                  : `Last seen ${formatSeen(device.lastSeenEpochMs)}`
+              }
+              control={
+                <Button variant="danger" onClick={() => setConfirmingUnpair(device)}>
+                  Unpair
                 </Button>
-              )
-            }
-          />
+              }
+            />
+          ))}
 
           {pairing && (
             <div className={styles.pairing}>
@@ -492,15 +491,15 @@ export function RemoteSettings(): JSX.Element {
           has to come back to this screen and show a new code. The dialog already
           existed for exactly this ("so callers don't fall back to window.confirm");
           this button simply never used it. */}
-      {confirmingUnpair && status?.pairedDevice && (
+      {confirmingUnpair && (
         <ConfirmDialog
-          title="Unpair this phone?"
-          message="Its saved key stops working immediately. To connect again you'll need to show it a new pairing code from this screen."
-          detail={status.pairedDevice.name}
+          title="Unpair this device?"
+          message="Its saved key stops working immediately and it is disconnected. Other paired devices are not affected. To connect it again, pair it from this screen."
+          detail={confirmingUnpair.name}
           confirmLabel="Unpair"
           icon="smartphone"
-          onCancel={() => setConfirmingUnpair(false)}
-          onConfirm={() => void revoke()}
+          onCancel={() => setConfirmingUnpair(null)}
+          onConfirm={() => void revoke(confirmingUnpair)}
         />
       )}
     </div>

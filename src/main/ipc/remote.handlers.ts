@@ -42,8 +42,8 @@ export function registerRemoteHandlers(): void {
     remoteService.cancelPairing()
   })
 
-  ipcMain.handle(IpcChannel.Remote.revoke, () => {
-    const status = remoteService.revoke()
+  ipcMain.handle(IpcChannel.Remote.revoke, (_event, deviceId?: string) => {
+    const status = remoteService.revoke(typeof deviceId === 'string' ? deviceId : undefined)
     broadcastToWindows(IpcChannel.Remote.statusChanged, status)
     return status
   })

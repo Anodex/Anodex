@@ -21,7 +21,7 @@ import type { ServerFrame } from '../protocol'
  */
 describe('RemoteBridge', () => {
   let certificate: RemoteCertificate
-  let stored: PairedDevice | null
+  let stored: PairedDevice[]
   let pairing: PairingService
   let bridge: RemoteBridge
   let port: number
@@ -29,8 +29,8 @@ describe('RemoteBridge', () => {
 
   const store: PairedDeviceStore = {
     read: () => stored,
-    write: (device) => {
-      stored = device
+    write: (devices) => {
+      stored = devices
     }
   }
 
@@ -39,7 +39,7 @@ describe('RemoteBridge', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    stored = null
+    stored = []
     handled = []
     detachAllRemoteClients()
     pairing = new PairingService(store)
@@ -96,6 +96,26 @@ describe('RemoteBridge', () => {
     return frame.deviceKey
   }
 
+  it('unpairing one device closes its connection, and only its connection', async () => {
+    const phone = await connect()
+    await pairPhone(phone)
+    const phoneId = pairing.paired()[0].deviceId
+    const tablet = await connect()
+    await pairPhone(tablet)
+    const tabletId = pairing.paired().find((device) => device.deviceId !== phoneId)!.deviceId
+
+    const phoneClosed = new Promise<number>((resolve) =>
+      phone.once('close', (code) => resolve(code))
+    )
+    pairing.revoke(phoneId)
+    bridge.disconnectDevice(phoneId)
+
+    expect(await phoneClosed).toBe(4005)
+    expect(tablet.readyState).toBe(WebSocket.OPEN)
+    expect(pairing.paired().map((device) => device.deviceId)).toEqual([tabletId])
+    tablet.close()
+  })
+
   it('serves the certificate the phone is told to pin', async () => {
     // If these disagree the pin can never match, and every connection is refused
     // for a reason that looks nothing like its cause.
@@ -110,7 +130,7 @@ describe('RemoteBridge', () => {
   it('pairs, then authenticates a reconnect with the issued key', async () => {
     const first = await connect()
     const deviceKey = await pairPhone(first)
-    expect(pairing.paired()?.name).toBe('Pixel')
+    expect(pairing.paired()[0]?.name).toBe('Pixel')
     first.close()
 
     const second = await connect()

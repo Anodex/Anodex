@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { collectHostAddresses, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
-import type { RemoteInternetAccess, RemotePairingCode, RemoteStatus } from '@shared/remote.types'
+import type {
+  RemoteInternetAccess,
+  RemotePairedDevice,
+  RemotePairingCode,
+  RemoteStatus
+} from '@shared/remote.types'
 import {
   MAPPING_LIFETIME_SECONDS,
   explainUnusableExternalAddress,
@@ -86,6 +91,14 @@ interface PersistedState {
   certPem?: string
   /** safeStorage-encrypted, base64. Never written in the clear. */
   encryptedKeyPem?: string
+  /** Every paired device. */
+  devices?: PairedDevice[]
+  /**
+   * The single paired device, from before several could be paired.
+   *
+   * Read as a one-device list and replaced by [devices] on the next write, so an
+   * upgrade keeps the phone that was already paired.
+   */
   device?: PairedDevice
 }
 
@@ -121,10 +134,19 @@ export class RemoteService {
     this.filePath = join(app.getPath('userData'), 'remote.json')
 
     const store: PairedDeviceStore = {
-      read: () => this.state.device ?? null,
-      write: (device) => {
-        const changed = device?.deviceId !== this.state.device?.deviceId
-        this.state.device = device ?? undefined
+      read: () => this.pairedDevices(),
+      write: (devices) => {
+        const before = this.pairedDevices()
+          .map((device) => device.deviceId)
+          .sort()
+          .join()
+        const after = devices
+          .map((device) => device.deviceId)
+          .sort()
+          .join()
+        const changed = before !== after
+        this.state.devices = devices
+        delete this.state.device
         this.persist()
 
         // A phone pairing is something the user is watching for on this screen, so
@@ -169,8 +191,29 @@ export class RemoteService {
     if (this.state.internetEnabled) await this.acquireInternetRoute()
   }
 
+  /** The stored devices, reading a single pre-multi-device pairing as a list of one. */
+  private pairedDevices(): PairedDevice[] {
+    return this.state.devices ?? (this.state.device ? [this.state.device] : [])
+  }
+
+  private describeDevice(device: PairedDevice): RemotePairedDevice {
+    return {
+      deviceId: device.deviceId,
+      name: device.name,
+      pairedAtEpochMs: device.pairedAtEpochMs,
+      lastSeenEpochMs: device.lastSeenEpochMs,
+      // Only claimed when both halves are known. A phone paired before the
+      // fingerprint was recorded gets `undefined` — not known, rather than
+      // known to be wrong.
+      trustsThisIdentity:
+        device.certFingerprint && this.certificate
+          ? device.certFingerprint === this.certificate.sha256
+          : undefined
+    }
+  }
+
   status(): RemoteStatus {
-    const device = this.pairing.paired()
+    const devices = this.pairing.paired()
     return {
       listening: this.bridge?.listening ?? false,
       port: this.bridge?.port ?? null,
@@ -179,20 +222,8 @@ export class RemoteService {
       hostName: hostname(),
       certificateSha256: this.certificate?.sha256 ?? '',
       protocolVersion: PROTOCOL_VERSION,
-      pairedDevice: device
-        ? {
-            name: device.name,
-            pairedAtEpochMs: device.pairedAtEpochMs,
-            lastSeenEpochMs: device.lastSeenEpochMs,
-            // Only claimed when both halves are known. A phone paired before the
-            // fingerprint was recorded gets `undefined` — not known, rather than
-            // known to be wrong.
-            trustsThisIdentity:
-              device.certFingerprint && this.certificate
-                ? device.certFingerprint === this.certificate.sha256
-                : undefined
-          }
-        : null,
+      pairedDevice: devices[0] ? this.describeDevice(devices[0]) : null,
+      pairedDevices: devices.map((device) => this.describeDevice(device)),
       internet: this.internet
     }
   }
@@ -506,9 +537,13 @@ export class RemoteService {
     this.pairing.cancelPairing()
   }
 
-  /** Revoke the paired phone. Its stored key stops working immediately. */
-  revoke(): RemoteStatus {
-    this.pairing.revoke()
+  /**
+   * Unpair one device, or all of them. The key stops working immediately, and a
+   * device connected right now is told it was unpaired and disconnected.
+   */
+  revoke(deviceId?: string): RemoteStatus {
+    this.pairing.revoke(deviceId)
+    this.bridge?.disconnectDevice(deviceId)
     return this.status()
   }
 
@@ -590,7 +625,10 @@ export class RemoteService {
       current: identityOf(this.state.certPem, this.state.encryptedKeyPem),
       archived: this.archivedIdentities(),
       decrypt: (encrypted: string) => this.decrypt(encrypted),
-      pairedFingerprint: this.state.device?.certFingerprint
+      // The identity the most recently seen device pinned: the one a phone in use
+      // right now would accept.
+      pairedFingerprint: this.pairing.paired().find((device) => device.certFingerprint)
+        ?.certFingerprint
     })
 
     if (choice.serve) {
@@ -620,7 +658,7 @@ export class RemoteService {
       return this.certificate
     }
 
-    if (this.state.device) {
+    if (this.pairedDevices().length > 0) {
       log.warn(
         'no stored remote identity could be read, so the paired phone will refuse this ' +
           'computer until it is paired again'
