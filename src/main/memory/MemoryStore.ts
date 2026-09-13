@@ -57,13 +57,43 @@ interface ScopeFile {
  * chronological trail, while this one only ever contains what was explicitly
  * asked to be remembered, and is meant to be browsed/edited/pinned by the user.
  */
+/**
+ * Where the memory files live — `userData/memory/`, unless a run asked for its
+ * own store.
+ *
+ * `ANODEX_MEMORY_DIR` exists because memory capture could not be measured. A
+ * hard-rubric criterion asked whether chat called `remember_fact` for a fact the
+ * script states; the model answered "already on file" and was *right*, because
+ * an earlier run had stored it and the Memory section is injected into every
+ * prompt. From the log, a model correctly declining to re-store what it knows is
+ * indistinguishable from one that stored nothing. Rewriting the script does not
+ * help: whatever fact it states, the first run stores it and every run after is
+ * back in the same position, so the stimulus is spent on first use.
+ *
+ * Narrow on purpose. The obvious fix is a scratch `userData` for the run, and it
+ * does not work here: `SettingsStore` resolves `modelsDirectory` as
+ * `userData/models`, so moving `userData` hides every model and the run has
+ * nothing to load. Only the store that actually bleeds between runs moves.
+ *
+ * Ignored unless set, so a normal launch is unchanged, and never a reason to
+ * clear the real store — the point is to leave the user's memory alone.
+ */
+export function resolveMemoryDir(): string {
+  const override = process.env.ANODEX_MEMORY_DIR?.trim()
+  if (override) {
+    log.info('Using ANODEX_MEMORY_DIR; the real memory store is untouched.')
+    return override
+  }
+  return join(app.getPath('userData'), 'memory')
+}
+
 class MemoryStore {
   private dir = ''
   private cache = new Map<string, MemoryEntry[]>()
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
-    this.dir = join(app.getPath('userData'), 'memory')
+    this.dir = resolveMemoryDir()
     log.info('Initialised at', this.dir)
   }
 

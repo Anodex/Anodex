@@ -15,7 +15,19 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
-### 2026-09-04: the confirmation card says "Apply file change?" for things that are not files
+### FIXED 2026-09-04: the confirmation card says "Apply file change?" for things that are not files
+
+**Fixed in `e240374`, and this entry simply never moved.** It was filed in
+`ce4eceb` on 2026-09-03, in the commit that added the delete tool, and fixed the
+same day. `confirmCardPresentation.ts` now keys on `request.diff` — present only
+for a real file change — and falls back to the request’s own title otherwise,
+which is what the "where to start" note below suggested. Six tests cover it,
+including the exact reported call: `delete_scheduled_task` titled
+`Delete scheduled task "Interval test"`.
+
+Keyed on the diff rather than on a list of file-tool names on purpose, so the
+next `kind: 'write'` tool does not inherit the file wording by default — which
+is precisely how this happened.
 
 **Seen:** approving a `delete_scheduled_task` call in the GUI. The card is
 correct in every other respect -- it is badged DESTRUCTIVE and shows the task it
@@ -85,7 +97,22 @@ tuning change.
 --criteria scripts/chat-hard-criteria.mjs` reproduces it in about two minutes,
 and the grader states plainly when a run produced nothing.
 
-### 2026-09-03: memory capture cannot be measured against the live store
+### FIXED 2026-09-03: memory capture cannot be measured against the live store
+
+**Fixed by giving a run its own memory store.** `ANODEX_MEMORY_DIR` overrides
+`userData/memory`, and `chat-matrix.mjs --fresh-memory` points each row at an
+empty directory beside its log, so a fact the script states is genuinely new to
+the model and calling `remember_fact` is once again distinguishable from not
+calling it. The real store is never read, written or cleared — clearing
+somebody’s actual memory to make a test pass was the thing worth refusing.
+
+**Narrower than the scratch `userData` this entry proposed, because that does
+not work.** `SettingsStore` resolves `modelsDirectory` as `userData/models`, so
+moving `userData` hides every model and the run has nothing to load. Only the
+store that actually bleeds between runs moves.
+
+Off unless asked for: most rows measure behaviour that has nothing to do with
+memory, and an empty store is not a state a real user is ever in.
 
 **Seen:** a hard-rubric criterion asked whether chat called `remember_fact` for
 each of two facts the user states in one sentence ("I'm Merlin, and I strongly
