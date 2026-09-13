@@ -483,9 +483,11 @@ export async function runGeneration(
         // the on-demand gateway, while their normal approval rules remain the
         // authority for side effects.
         email: settings.email,
+        // Gates `remember_fact`. Off for a temporary chat, which is promised to
+        // leave nothing behind — a remembered fact would outlive it.
         memory: {
-          crossChatEnabled: settings.memory.crossChatEnabled,
-          personalEnabled: settings.memory.personalEnabled,
+          crossChatEnabled: settings.memory.crossChatEnabled && !request.temporary,
+          personalEnabled: settings.memory.personalEnabled && !request.temporary,
           confirmBeforeSaving: settings.memory.confirmBeforeSaving
         },
         plan: request.plan ?? null,
