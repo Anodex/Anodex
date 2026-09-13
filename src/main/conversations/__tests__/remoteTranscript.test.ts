@@ -33,8 +33,9 @@ describe('forRemote', () => {
 
   it('sends only the fields the phone reads', () => {
     // A ChatMessage carries tool calls, render blocks, context assemblies,
-    // generation stats and attachments. The phone parses four fields and renders
-    // none of the rest, and on an agent transcript the rest is most of the bytes.
+    // generation stats and attachments. The phone renders none of the heavy ones,
+    // and on an agent transcript they are most of the bytes. Attachments go as a
+    // name, kind and size, so a picture can be asked for and shown.
     const sent = forRemote(
       conversation([
         message('a', {
@@ -49,7 +50,27 @@ describe('forRemote', () => {
       ])
     )
 
-    expect(Object.keys(sent.messages[0]).sort()).toEqual(['content', 'id', 'role'])
+    expect(Object.keys(sent.messages[0]).sort()).toEqual(['attachments', 'content', 'id', 'role'])
+  })
+
+  it('names what was attached, without the paths', () => {
+    const [sent] = forRemote(
+      conversation([
+        message('m1', {
+          role: 'user',
+          attachments: [
+            { path: 'C:/secret/shot.png', name: 'shot.png', sizeBytes: 12, kind: 'image' },
+            { path: 'notes.md', name: 'notes.md', sizeBytes: 3 }
+          ]
+        })
+      ])
+    ).messages
+
+    expect(sent.attachments).toEqual([
+      { name: 'shot.png', kind: 'image', sizeBytes: 12 },
+      { name: 'notes.md', kind: 'text', sizeBytes: 3 }
+    ])
+    expect(JSON.stringify(sent)).not.toContain('secret')
   })
 
   it('keeps a persona, which the phone does render', () => {
