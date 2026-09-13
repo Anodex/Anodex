@@ -10,6 +10,7 @@ import type {
 import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
 import { forRemote } from '../conversations/remoteTranscript'
+import { attachmentPreview } from '../conversations/attachmentPreview'
 import { searchConversationBodies } from '../conversations/conversationBodySearch'
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
@@ -51,6 +52,12 @@ export function registerConversationHandlers(): void {
     // phone does read, and as many turns of them as will fit.
     return isRemoteCall(event) ? forRemote(tail) : tail
   })
+
+  ipcMain.handle(
+    IpcChannel.Conversations.attachmentPreview,
+    (_event, conversationId: string, messageId: string, index: number) =>
+      attachmentPreview(conversationId, messageId, index)
+  )
 
   ipcMain.handle(IpcChannel.Conversations.listArchived, (event) => {
     const archived = conversationStore.listArchived()
