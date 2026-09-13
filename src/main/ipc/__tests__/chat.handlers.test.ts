@@ -64,7 +64,8 @@ vi.mock('../../llama/LlamaService', () => ({
     countPromptTokens: () => 0,
     compactConversationContext: vi.fn(),
     summarizeForToast: vi.fn(),
-    generateChatTitle: vi.fn()
+    generateChatTitle: vi.fn(),
+    hasQueuedModelWork: () => false
   }
 }))
 

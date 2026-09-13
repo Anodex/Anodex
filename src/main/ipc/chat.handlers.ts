@@ -25,6 +25,8 @@ import { rehydrateUploadedImage } from '../remote/uploadStore'
 import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
 import { settingsStore } from '../settings/SettingsStore'
+import { remoteTurnConversation } from '../conversations/remoteTurn'
+import { startWorkingHeartbeat } from '../chat/workingHeartbeat'
 
 const log = createLogger('ipc:chat')
 
@@ -72,6 +74,17 @@ export function registerChatHandlers(): void {
     // not a view: putting the same approval on two devices means either answering it
     // twice or racing to answer it once.
     const client = resolveClientChannel(event)
+    const remote = isRemoteCall(event)
+
+    // Only the local engine queues. A cloud turn never waits on the model lock, so it
+    // is never told it is waiting.
+    const heartbeat = startWorkingHeartbeat({
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      send: (working) => broadcastToWindows(IpcChannel.Chat.working, working),
+      waitingForModel: () =>
+        settingsStore.get().provider.active === 'local' && llamaService.hasQueuedModelWork()
+    })
 
     try {
       const result = await runBoundedChatGeneration(request, {
@@ -82,6 +95,7 @@ export function registerChatHandlers(): void {
         surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
+          heartbeat.touch()
           broadcastLiveToken(IpcChannel.Chat.stream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
@@ -89,6 +103,7 @@ export function registerChatHandlers(): void {
           })
         },
         onThinkingToken: (token) => {
+          heartbeat.touch()
           broadcastLiveToken(IpcChannel.Chat.thinkingStream, {
             conversationId: request.conversationId,
             messageId: request.messageId,
@@ -96,6 +111,7 @@ export function registerChatHandlers(): void {
           })
         },
         onActivity: (call) => {
+          heartbeat.touch()
           broadcastToWindows(IpcChannel.Tools.activity, {
             conversationId: request.conversationId,
             messageId: request.messageId,
@@ -105,6 +121,8 @@ export function registerChatHandlers(): void {
         confirm: (confirmRequest) =>
           requestToolConfirmation(client, confirmRequest, controller.signal)
       })
+
+      if (remote) recordRemoteTurn(request, result)
 
       return ok({
         conversationId: request.conversationId,
@@ -148,6 +166,7 @@ export function registerChatHandlers(): void {
       }
       return err('chat.generation-failed', message)
     } finally {
+      heartbeat.stop()
       releaseGeneration(request.conversationId, controller)
     }
   })
@@ -219,6 +238,32 @@ export function registerChatHandlers(): void {
   ipcMain.handle(IpcChannel.Chat.replaySuggestion, (_event, request: ChatReplaySuggestionRequest) =>
     llamaService.generateReplaySuggestion(request)
   )
+}
+
+/**
+ * Save a phone's finished turn on the computer, whether or not the phone is still
+ * waiting for it. See `remoteTurnConversation`.
+ *
+ * Never allowed to fail the turn: the reply is already generated and on its way back,
+ * and a save that cannot happen here is still attempted by the phone afterwards.
+ */
+function recordRemoteTurn(
+  request: ChatRequest,
+  result: Awaited<ReturnType<typeof runBoundedChatGeneration>>
+): void {
+  try {
+    const conversation = remoteTurnConversation(
+      conversationStore.get(request.conversationId),
+      request,
+      result,
+      Date.now()
+    )
+    if (!conversation) return
+    conversationStore.save(conversation, { fromRemote: true })
+    broadcastToWindows(IpcChannel.Conversations.changed, conversation.id)
+  } catch (error) {
+    log.warn('Could not record a remote turn on the computer:', request.conversationId, error)
+  }
 }
 
 /**

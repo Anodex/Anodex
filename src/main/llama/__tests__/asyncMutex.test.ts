@@ -74,4 +74,43 @@ describe('createAsyncMutex', () => {
     expect(acquired).toEqual(['a', 'b'])
     releaseB()
   })
+
+  it('counts who is waiting behind the holder, and not the holder itself', async () => {
+    // What tells a phone its question is queued behind an agent run, rather than
+    // letting a busy model look like a dead computer.
+    const mutex = createAsyncMutex()
+    expect(mutex.waiting()).toBe(0)
+
+    const first = await mutex.acquire()
+    expect(mutex.waiting()).toBe(0)
+
+    const second = mutex.acquire()
+    const third = mutex.acquire()
+    expect(mutex.waiting()).toBe(2)
+
+    first()
+    const releaseSecond = await second
+    expect(mutex.waiting()).toBe(1)
+
+    releaseSecond()
+    const releaseThird = await third
+    expect(mutex.waiting()).toBe(0)
+    releaseThird()
+  })
+
+  it('a release called twice does not free a lock somebody else now holds', async () => {
+    const mutex = createAsyncMutex()
+    const first = await mutex.acquire()
+    const second = mutex.acquire()
+
+    first()
+    const releaseSecond = await second
+    first()
+
+    const third = mutex.acquire()
+    expect(mutex.waiting()).toBe(1)
+
+    releaseSecond()
+    ;(await third)()
+  })
 })
