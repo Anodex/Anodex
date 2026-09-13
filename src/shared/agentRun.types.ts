@@ -1,6 +1,10 @@
 import type { Plan } from './plan.types'
 import type { AgentRunProviderId } from './agentRunProviders'
+import type { ChatAttachment } from './chat.types'
 import { allocateContextBudget } from './contextBudget'
+
+/** Files a run can be handed at creation — the same cap a chat message has. */
+export const MAX_RUN_ATTACHMENTS = 10
 
 /** How an agent run currently stands. */
 export type AgentRunStatus = 'running' | 'needs-review' | 'done' | 'stopped' | 'error'
@@ -202,8 +206,25 @@ export interface AgentRun {
    * the planning turn produces one.
    */
   plan: Plan | null
+  /**
+   * Files handed to the run with its goal — reference images, specs, notes.
+   *
+   * Paths point at the run's own copies under `userData/agent-runs/attachments`,
+   * never at the originals. A run works unattended and can be retried days
+   * later, so a file the user moved or deleted after pressing Start must not
+   * quietly vanish from a run that was told it had it.
+   *
+   * Absent on runs created before attachments existed, and on runs given none.
+   */
+  attachments?: ChatAttachment[]
   createdAt: number
   updatedAt: number
+}
+
+/** A file offered to a new run: where it is now, and what to call it. */
+export interface AgentRunAttachmentRequest {
+  path: string
+  name: string
 }
 
 /**
@@ -230,6 +251,8 @@ export interface CreateAgentRunRequest {
   limitsEnabled?: boolean
   /** Defaults to true — see `AgentRun.requirePlan`. */
   requirePlan?: boolean
+  /** Absolute paths the user chose; copied into the run on start. See `AgentRun.attachments`. */
+  attachments?: AgentRunAttachmentRequest[]
 }
 
 /**
