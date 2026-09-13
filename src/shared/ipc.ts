@@ -44,7 +44,12 @@ import type {
   ProjectsState,
   UpdateProjectRequest
 } from './project.types'
-import type { Conversation, ConversationState, ConversationSummary } from './conversation.types'
+import type {
+  Conversation,
+  ConversationSearchHit,
+  ConversationState,
+  ConversationSummary
+} from './conversation.types'
 import type { RemotePersonalityImage, RemotePersonalityState } from './personality.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
 import type { HardwareInfo, SystemInfo } from './system.types'
@@ -347,6 +352,14 @@ export const IpcChannel = {
      * that. Anything listing conversations should prefer this.
      */
     listSummaries: 'conversations:list-summaries',
+    /**
+     * Conversations whose messages match a query, best first, with one excerpt each.
+     *
+     * For the phone, which holds summaries but never whole transcripts and so cannot
+     * search what was said. The desktop's own sidebar runs the same search in the
+     * renderer over conversations it already has loaded.
+     */
+    search: 'conversations:search',
     /** One conversation, with the most recent `limit` messages. */
     get: 'conversations:get',
     /**
@@ -828,6 +841,8 @@ export interface AnodexApi {
   conversations: {
     list(): Promise<Conversation[]>
     listSummaries(): Promise<ConversationSummary[]>
+    /** Search what was said, not just titles. See `IpcChannel.Conversations.search`. */
+    search(query: string): Promise<ConversationSearchHit[]>
     /**
      * One conversation, trimmed to its most recent messages.
      *

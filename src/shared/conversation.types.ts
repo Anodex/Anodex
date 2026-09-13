@@ -138,3 +138,15 @@ export interface EmailThreadLink {
 export interface ConversationState {
   activeConversationId: string | null
 }
+
+/**
+ * One conversation that matched a search on what was said in it.
+ *
+ * Carries no messages and no title: a phone already holds the summaries, and the
+ * reason a row surfaced — one short excerpt — is all it needs to show.
+ */
+export interface ConversationSearchHit {
+  conversationId: string
+  /** The best-matching passage, already cut to a few hundred characters. */
+  excerpt: string
+}

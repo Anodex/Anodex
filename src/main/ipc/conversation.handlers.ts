@@ -10,6 +10,7 @@ import type {
 import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
 import { forRemote } from '../conversations/remoteTranscript'
+import { searchConversationBodies } from '../conversations/conversationBodySearch'
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
 
@@ -21,6 +22,13 @@ export function registerConversationHandlers(): void {
 
   ipcMain.handle(IpcChannel.Conversations.listSummaries, () =>
     conversationStore.list().map(toSummary)
+  )
+
+  ipcMain.handle(IpcChannel.Conversations.search, (_event, query: string) =>
+    searchConversationBodies(
+      conversationStore.list().filter((conversation) => !conversation.archived),
+      typeof query === 'string' ? query : ''
+    )
   )
 
   ipcMain.handle(IpcChannel.Conversations.get, (event, conversationId: string, limit?: number) => {
