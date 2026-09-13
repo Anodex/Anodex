@@ -48,7 +48,8 @@ import type {
   Conversation,
   ConversationSearchHit,
   ConversationState,
-  ConversationSummary
+  ConversationSummary,
+  RemoteAttachmentPreview
 } from './conversation.types'
 import type { RemotePersonalityImage, RemotePersonalityState } from './personality.types'
 import type { BackupResult, ConversationExportFormat } from './backup.types'
@@ -362,6 +363,8 @@ export const IpcChannel = {
     search: 'conversations:search',
     /** One conversation, with the most recent `limit` messages. */
     get: 'conversations:get',
+    /** A picture on a message, sized for a phone. By conversation, message and index, never by path. */
+    attachmentPreview: 'conversations:attachment-preview',
     /**
      * main → renderer: a conversation was saved by someone other than this window.
      *
@@ -852,6 +855,11 @@ export interface AnodexApi {
      * beginning of a long one is both large and rarely what was asked for.
      */
     get(conversationId: string, limit?: number): Promise<Conversation | null>
+    attachmentPreview(
+      conversationId: string,
+      messageId: string,
+      index: number
+    ): Promise<RemoteAttachmentPreview | null>
     listArchived(): Promise<Conversation[]>
     save(conversation: Conversation): Promise<void>
     delete(id: string): Promise<void>

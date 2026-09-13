@@ -1812,6 +1812,45 @@
       }
     },
     {
+      "channel": "conversations:attachment-preview",
+      "kind": "invoke",
+      "api": "conversations.attachmentPreview",
+      "args": [
+        {
+          "name": "conversationId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "messageId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "index",
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "RemoteAttachmentPreview"
+          }
+        ]
+      }
+    },
+    {
       "channel": "conversations:changed",
       "kind": "event",
       "api": "conversations.onChanged",
@@ -20938,6 +20977,36 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        }
+      }
+    },
+    "RemoteAttachmentPreview": {
+      "kind": "object",
+      "properties": {
+        "mimeType": {
+          "optional": false,
+          "type": {
+            "kind": "literal",
+            "value": "image/jpeg"
+          }
+        },
+        "base64": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "width": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "height": {
+          "optional": false,
+          "type": {
+            "kind": "number"
           }
         }
       }
