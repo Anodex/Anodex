@@ -113,7 +113,7 @@ async function driveRun(specPath: string): Promise<void> {
       )
     }
 
-    const run = agentRunService.start({
+    const run = await agentRunService.start({
       goal: spec.goal,
       projectId: resolveProjectId(spec.project, spec.projectPath),
       enabledTools: spec.enabledTools ?? buildRunToolNames(),

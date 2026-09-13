@@ -4,6 +4,7 @@ import type { CreateAgentRunRequest } from '@shared/agentRun.types'
 import { buildRunToolNames } from '@shared/tools.types'
 import { agentRunStore } from '../agents/AgentRunStore'
 import { agentRunService } from '../agents/AgentRunService'
+import { discardRunAttachments } from '../agents/agentRunAttachments'
 import { isRemoteCall } from '../clients/clientRegistry'
 import { createLogger } from '../utils/logger'
 
@@ -38,13 +39,20 @@ function startedFromAway(request: CreateAgentRunRequest): CreateAgentRunRequest 
   if (refused > 0) {
     log.warn(`refused ${refused} tool(s) on a run started remotely; not in the build set`)
   }
+  // A path in a request from away is a request to read that file off this
+  // machine, and nothing on the phone picks files for a run. Dropped rather
+  // than trusted until something does, and then only from the upload folder.
+  if (request.attachments?.length) {
+    log.warn(`dropped ${request.attachments.length} attachment(s) on a run started remotely`)
+  }
 
   return {
     ...request,
     // An empty ask is a run that could do nothing at all, which is a worse answer
     // than the default the desktop would have offered for the same goal.
     enabledTools: allowed.length > 0 ? allowed : [...vetted],
-    requirePlan: true
+    requirePlan: true,
+    attachments: undefined
   }
 }
 
@@ -52,9 +60,9 @@ function startedFromAway(request: CreateAgentRunRequest): CreateAgentRunRequest 
 export function registerAgentHandlers(): void {
   ipcMain.handle(IpcChannel.Agent.list, () => agentRunStore.list())
 
-  ipcMain.handle(IpcChannel.Agent.create, (event, request: CreateAgentRunRequest) => {
+  ipcMain.handle(IpcChannel.Agent.create, async (event, request: CreateAgentRunRequest) => {
     try {
-      return agentRunService.start(isRemoteCall(event) ? startedFromAway(request) : request)
+      return await agentRunService.start(isRemoteCall(event) ? startedFromAway(request) : request)
     } catch (error) {
       log.error('Failed to start agent run:', error)
       throw error instanceof Error ? error : new Error('Could not start this run.')
@@ -70,11 +78,12 @@ export function registerAgentHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannel.Agent.delete, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Agent.delete, async (_event, id: string) => {
     if (agentRunStore.get(id)?.status === 'running') {
       throw new Error('Stop this run before deleting it.')
     }
     agentRunStore.delete(id)
+    await discardRunAttachments(id)
   })
 
   ipcMain.handle(IpcChannel.Agent.approvePlan, (_event, id: string) => {

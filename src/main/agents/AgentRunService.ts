@@ -15,7 +15,12 @@ import { describeTurnOutcome, isDurableChange } from '../chat/turnSummary'
 import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
-import { agentRunStore } from './AgentRunStore'
+import { agentRunStore, generateAgentRunId } from './AgentRunStore'
+import {
+  attachmentsForTurn,
+  discardRunAttachments,
+  importRunAttachments
+} from './agentRunAttachments'
 import {
   buildKickoffPrompt,
   buildPlanningPrompt,
@@ -162,10 +167,22 @@ class AgentRunService {
    * Create the run + its conversation, then start it in the background —
    * either a plan-review turn first (`requirePlan`, the default), or
    * straight into the normal turn loop.
+   *
+   * Asynchronous only for its attachments, which are validated and copied
+   * before the run is recorded (see `importRunAttachments`). The lock is
+   * checked on both sides of that wait: before, so a busy service refuses
+   * without copying anything, and after, because another start may have taken
+   * the lock while the files were being copied.
    */
-  start(request: CreateAgentRunRequest): AgentRun {
+  async start(request: CreateAgentRunRequest): Promise<AgentRun> {
     if (this.runningRunId) throw new Error('Another agent run is currently in progress.')
-    const run = agentRunStore.create(request)
+    const id = generateAgentRunId()
+    const attachments = await importRunAttachments(id, request.attachments ?? [])
+    if (this.runningRunId) {
+      await discardRunAttachments(id)
+      throw new Error('Another agent run is currently in progress.')
+    }
+    const run = agentRunStore.create(request, { id, attachments })
     const conversation = this.createConversation(run)
     agentRunStore.update(run.id, { conversationId: conversation.id })
     const started = { ...run, conversationId: conversation.id }
@@ -360,6 +377,7 @@ class AgentRunService {
           controller.signal,
           plan,
           ledger,
+          run.attachments,
           { handoff: contextEpoch, historyFrom }
         )
         tokensUsed += tokens
@@ -626,7 +644,8 @@ class AgentRunService {
         providerOverride,
         controller.signal,
         null,
-        ledger
+        ledger,
+        run.attachments
       )
       let plan = first.plan
       let turnsUsed = 1
@@ -665,7 +684,8 @@ class AgentRunService {
           providerOverride,
           controller.signal,
           null,
-          ledger
+          ledger,
+          run.attachments
         )
         turnsUsed = 2
         tokensUsed += retry.tokens
@@ -753,6 +773,8 @@ class AgentRunService {
     signal: AbortSignal,
     currentPlan: Plan | null,
     ledger: TaskLedger,
+    /** The files the run was started with — see `attachmentsForTurn`. */
+    runAttachments: AgentRun['attachments'],
     /**
      * Recovery state after a turn ran out of context — see the run loop.
      * `handoff` carries what the dropped history proved; `historyFrom` is where
@@ -784,11 +806,19 @@ class AgentRunService {
     /** Set when the provider ran out of context — the run loop starts an epoch. */
     contextEpochCause?: 'proactive' | 'in-turn'
   }> {
+    // Everything from the epoch onward. The handoff below states what the
+    // dropped turns established, which is the whole reason it exists --
+    // `contextEpoch` is rendered into the protected system segment rather
+    // than appended to history, so replacing history with it is what
+    // actually frees the room.
+    const history = conversation.messages.slice(recovery.historyFrom).map(messageToHistoryTurn)
+    const carried = await attachmentsForTurn(runAttachments, history, prompt)
     const userMessage: ChatMessage = {
       id: generateId('agent_msg'),
       role: 'user',
-      content: prompt,
-      createdAt: Date.now()
+      content: carried.prompt,
+      createdAt: Date.now(),
+      ...(carried.attachments ? { attachments: carried.attachments } : {})
     }
     const assistantMessageId = generateId('agent_msg')
     const toolCallsById = new Map<string, ToolCall>()
@@ -799,13 +829,12 @@ class AgentRunService {
         messageId: assistantMessageId,
         projectId: conversation.projectId,
         context: conversation.context ?? null,
-        // Everything from the epoch onward. The handoff below states what the
-        // dropped turns established, which is the whole reason it exists --
-        // `contextEpoch` is rendered into the protected system segment rather
-        // than appended to history, so replacing history with it is what
-        // actually frees the room.
-        history: conversation.messages.slice(recovery.historyFrom).map(messageToHistoryTurn),
-        prompt,
+        history,
+        prompt: carried.prompt,
+        images: carried.images,
+        // So a tool that sends a file on — attaching it to an email — can name
+        // the run's attachments, and nothing else on disk.
+        userFiles: (runAttachments ?? []).map(({ name, path }) => ({ name, path })),
         plan: currentPlan,
         contextEpoch: recovery.handoff
       },

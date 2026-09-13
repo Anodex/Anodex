@@ -15,7 +15,8 @@ import {
   discardUpload,
   finishUpload
 } from '../remote/uploadStore'
-import { ok, err, toErrorMessage } from '@shared/result'
+import { ok, err, toErrorMessage, type Result } from '@shared/result'
+import type { AttachmentContent } from '@shared/chat.types'
 import {
   hasExpectedVisionImageSignature,
   isSupportedVisionImagePath,
@@ -98,6 +99,65 @@ async function pickImage(
 }
 
 /**
+ * Read a file the user chose to attach, by absolute path: a bounded data URL for a
+ * supported image, bounded text for anything else, and a refusal for binary data.
+ *
+ * Shared by the chat composer's IPC read and by agent runs, which validate and
+ * re-read their own copies with it — one definition of what an attachment may be.
+ */
+export async function readAttachmentFile(absolutePath: string): Promise<Result<AttachmentContent>> {
+  try {
+    const info = await stat(absolutePath)
+    if (!info.isFile()) return err('attachments.not-a-file', 'That is not a file.')
+
+    if (isImagePath(absolutePath)) {
+      if (info.size > MAX_VISION_IMAGE_BYTES) {
+        return err(
+          'attachments.image-too-large',
+          'That image is too large. Choose an image smaller than 15 MB.'
+        )
+      }
+      const buffer = await readFile(absolutePath)
+      if (!hasExpectedImageSignature(absolutePath, buffer)) {
+        return err(
+          'attachments.invalid-image',
+          'That file does not contain a valid supported image.'
+        )
+      }
+      const mimeType = imageMimeType(absolutePath)
+      return ok({
+        kind: 'image' as const,
+        dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+        mimeType,
+        sizeBytes: info.size,
+        truncated: false as const
+      })
+    }
+    if (UNSUPPORTED_IMAGE_EXTENSIONS.has(extname(absolutePath).toLowerCase())) {
+      return err(
+        'attachments.image-format-unsupported',
+        'Local vision accepts PNG, JPEG, GIF, or BMP images. Convert this image and try again.'
+      )
+    }
+
+    const buffer = await readFile(absolutePath)
+    if (isLikelyBinary(buffer)) {
+      return err(
+        'attachments.binary-file',
+        'That looks like a binary file, not text — only text/code files can be attached.'
+      )
+    }
+
+    const raw = buffer.toString('utf-8')
+    const truncated = raw.length > MAX_ATTACHMENT_BYTES
+    const content = truncated ? raw.slice(0, MAX_ATTACHMENT_BYTES) : raw
+    return ok({ kind: 'text' as const, content, sizeBytes: info.size, truncated })
+  } catch (error) {
+    return err('attachments.read-failed', 'Could not read that file.', toErrorMessage(error))
+  }
+}
+
+/**
  * IPC handler for reading a file the user dropped/dragged into the chat composer.
  *
  * Deliberately does NOT go through `resolveInWorkspace` — unlike every AI tool call, this is a
@@ -112,57 +172,9 @@ export function registerAttachmentHandlers(): void {
   ipcMain.handle(IpcChannel.Attachments.pickFiles, (event) => pickFiles(event))
   ipcMain.handle(IpcChannel.Attachments.pickImage, (event) => pickImage(event))
 
-  ipcMain.handle(IpcChannel.Attachments.readFile, async (_event, absolutePath: string) => {
-    try {
-      const info = await stat(absolutePath)
-      if (!info.isFile()) return err('attachments.not-a-file', 'That is not a file.')
-
-      if (isImagePath(absolutePath)) {
-        if (info.size > MAX_VISION_IMAGE_BYTES) {
-          return err(
-            'attachments.image-too-large',
-            'That image is too large. Choose an image smaller than 15 MB.'
-          )
-        }
-        const buffer = await readFile(absolutePath)
-        if (!hasExpectedImageSignature(absolutePath, buffer)) {
-          return err(
-            'attachments.invalid-image',
-            'That file does not contain a valid supported image.'
-          )
-        }
-        const mimeType = imageMimeType(absolutePath)
-        return ok({
-          kind: 'image' as const,
-          dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
-          mimeType,
-          sizeBytes: info.size,
-          truncated: false as const
-        })
-      }
-      if (UNSUPPORTED_IMAGE_EXTENSIONS.has(extname(absolutePath).toLowerCase())) {
-        return err(
-          'attachments.image-format-unsupported',
-          'Local vision accepts PNG, JPEG, GIF, or BMP images. Convert this image and try again.'
-        )
-      }
-
-      const buffer = await readFile(absolutePath)
-      if (isLikelyBinary(buffer)) {
-        return err(
-          'attachments.binary-file',
-          'That looks like a binary file, not text — only text/code files can be attached.'
-        )
-      }
-
-      const raw = buffer.toString('utf-8')
-      const truncated = raw.length > MAX_ATTACHMENT_BYTES
-      const content = truncated ? raw.slice(0, MAX_ATTACHMENT_BYTES) : raw
-      return ok({ kind: 'text' as const, content, sizeBytes: info.size, truncated })
-    } catch (error) {
-      return err('attachments.read-failed', 'Could not read that file.', toErrorMessage(error))
-    }
-  })
+  ipcMain.handle(IpcChannel.Attachments.readFile, (_event, absolutePath: string) =>
+    readAttachmentFile(absolutePath)
+  )
 
   registerUploadHandlers()
 }

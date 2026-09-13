@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   defaultMaxTurnsFor,
   maxTurnsCeilingFor,
   DEFAULT_MAX_TOKENS,
   MAX_MAX_TOKENS,
   DEFAULT_MAX_DURATION_MINUTES,
-  MAX_MAX_DURATION_MINUTES
+  MAX_MAX_DURATION_MINUTES,
+  type AgentRunAttachmentRequest
 } from '@shared/agentRun.types'
 import {
   buildRunToolNames,
@@ -23,6 +24,10 @@ import {
   type AgentRunProviderId
 } from '@shared/agentRunProviders'
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
+import { canProviderSeeImages } from '../../lib/visionAvailability'
+import { useModelStore } from '../../stores/modelStore'
+import { useComposerAttachments } from '../chat/composer/useComposerAttachments'
+import { ComposerAttachments } from '../chat/composer/ComposerAttachments'
 import { useProjectStore } from '../../stores/projectStore'
 import { useAgentStore } from '../../stores/agentStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -81,6 +86,8 @@ export interface AgentRunEditorSeed {
   limitsEnabled?: boolean
   requirePlan?: boolean
   enabledTools?: string[]
+  /** The retried run's own copies, re-read so the new run gets its own. */
+  attachments?: AgentRunAttachmentRequest[]
 }
 
 interface AgentRunEditorProps {
@@ -94,6 +101,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const projects = useProjectStore((s) => s.projects)
   const createRun = useAgentStore((s) => s.create)
   const settings = useSettingsStore((s) => s.settings)
+  const localVision = useModelStore((s) => Boolean(s.engine.vision))
 
   // Every provider this install can authenticate as, and which one a fresh
   // editor starts on. Both come from `@shared/agentRunProviders` rather than a
@@ -149,6 +157,24 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   const [saving, setSaving] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
 
+  // The chat composer's intake: the same caps, the same refusals, and the same
+  // drop handling for OS files and rows from the Files panel. One difference:
+  // images are always admitted here, and whether this run's provider can see
+  // them is checked at Start instead — the provider is still a choice on this
+  // form, and refusing a picture over a setting further down would be wrong
+  // the moment that setting changed.
+  const visionAvailable = canProviderSeeImages(provider, localVision)
+  const attachments = useComposerAttachments({ ready: true, visionAvailable: true })
+  const imageCount = attachments.attachments.filter((file) => file.kind === 'image').length
+  const seedAttachments = seed?.attachments
+  const { attachFiles } = attachments
+  useEffect(() => {
+    if (seedAttachments?.length) void attachFiles(seedAttachments)
+    // Once, for the seed the editor opened with. `attachFiles` is recreated
+    // every render, and intake already ignores a path it has admitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedAttachments])
+
   const hasProject = projectId !== null
   // Gates "Select all" and the save filter, so a run can't be started carrying
   // a human-approval-only tool it could only ever be refused.
@@ -163,7 +189,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     limitsEnabled,
     maxTurns,
     maxTokens,
-    maxDurationMinutes
+    maxDurationMinutes,
+    unseeableImages: visionAvailable ? 0 : imageCount
   })
   const canSave = blockedReason === null
 
@@ -247,7 +274,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       requirePlan,
       enabledTools: [...enabledTools].filter((toolName) =>
         availableTools.some((tool) => tool.name === toolName)
-      )
+      ),
+      attachments: attachments.attachments.map(({ path, name }) => ({ path, name }))
     })
     setSaving(false)
     // Only on success. `agentStore.create` reports its own failure and returns
@@ -278,21 +306,46 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       </div>
 
       <div className={styles.body}>
-        <label className={styles.field}>
-          <span className={styles.label}>What should Anodex accomplish?</span>
+        <div
+          className={`${styles.field} ${attachments.dragActive ? styles.dropActive : ''}`}
+          onDragEnter={attachments.handleDragEnter}
+          onDragOver={attachments.handleDragOver}
+          onDragLeave={attachments.handleDragLeave}
+          onDrop={attachments.handleDrop}
+        >
+          <div className={styles.goalHeader}>
+            <label className={styles.label} htmlFor="agent-run-goal">
+              What should Anodex accomplish?
+            </label>
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => void attachments.handleAttachClick()}
+              title="Attach reference images or text files"
+            >
+              <Icon name="paperclip" size={12} />
+              Attach files
+            </button>
+          </div>
           <textarea
+            id="agent-run-goal"
             className={styles.textarea}
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
             placeholder="e.g. Research what CONTRIBUTING.md says and summarize it."
-            rows={3}
+            rows={5}
             autoFocus
+          />
+          <ComposerAttachments
+            attachments={attachments.attachments}
+            onRemove={attachments.removeAttachment}
           />
           <p className={styles.hint}>
             Runs unattended, checking in as it goes — no one will answer follow-up questions, so be
-            specific.
+            specific. Drop in reference images or text files it can use; they stay available on
+            every turn.
           </p>
-        </label>
+        </div>
 
         <label className={styles.field}>
           <span className={styles.label}>Project</span>

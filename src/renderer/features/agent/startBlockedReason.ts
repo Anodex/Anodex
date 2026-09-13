@@ -5,6 +5,11 @@ export interface StartRequirements {
   maxTurns: number
   maxTokens: number
   maxDurationMinutes: number
+  /**
+   * Images attached while the chosen provider cannot see them. Optional so a
+   * caller with no attachments need not mention them.
+   */
+  unseeableImages?: number
 }
 
 /**
@@ -48,10 +53,22 @@ export function startBlockedReason(input: StartRequirements): string | null {
     if (!(input.maxDurationMinutes >= 1)) missing.push('a time budget of at least 1 minute')
   }
 
-  if (missing.length === 0) return null
+  // Not a missing field, so not folded into the sentence above. Sending images
+  // to a model that cannot take them fails on the provider mid-run — nobody is
+  // watching then, so it is refused here, where somebody is.
+  const images = input.unseeableImages ?? 0
+  const vision =
+    images > 0
+      ? `The selected model can’t see images. Choose a vision-capable model, or remove the ${
+          images === 1 ? 'image' : `${images} images`
+        }.`
+      : null
+
+  if (missing.length === 0) return vision
   const list =
     missing.length === 1
       ? missing[0]
       : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`
-  return `This run needs ${list} before it can start.`
+  const needs = `This run needs ${list} before it can start.`
+  return vision ? `${needs} ${vision}` : needs
 }
