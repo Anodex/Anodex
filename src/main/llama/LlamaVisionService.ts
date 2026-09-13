@@ -376,7 +376,7 @@ export class LlamaVisionService {
           }
         )
       : undefined
-    const toolSurface = this.boundTools(allToolFunctions)
+    const toolSurface = this.boundTools(allToolFunctions, params)
     const toolFunctions =
       Object.keys(toolSurface.functions).length > 0 ? toolSurface.functions : undefined
     const tools = toolFunctions ? toOpenAiTools(toolFunctions) : undefined
@@ -1229,13 +1229,17 @@ export class LlamaVisionService {
     })
   }
 
-  private boundTools(allFunctions: Record<string, ToolFunction> | undefined): BoundedToolSurface {
+  private boundTools(
+    allFunctions: Record<string, ToolFunction> | undefined,
+    params: GenerateParams
+  ): BoundedToolSurface {
     return boundToolSurface({
       allFunctions,
       define: defineToolFunction,
       targetFixedTokens: toolSurfaceTargetTokens(this.contextSize),
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       minDirectTools: COMPLETE_BUILDER_LOOP,
+      hardLimitTokens: visionSchemaCeilingTokens(this.contextSize, allFunctions, params),
       measureFixedTokens: (functions) =>
         functions ? Math.ceil(JSON.stringify(toOpenAiTools(functions)).length / 4) : 0
     })
@@ -1725,6 +1729,51 @@ function contextBudgetFor(input: {
 /** Token target `boundToolSurface` sizes this transport's native surface against. */
 function toolSurfaceTargetTokens(contextSize: number): number {
   return Math.max(900, Math.floor(contextSize * 0.18))
+}
+
+/**
+ * The most the tool schemas may cost before the turn cannot generate at all.
+ *
+ * `minDirectTools` admits the builder loop without consulting the budget, which
+ * is right when the budget is tight and wrong when the window cannot hold the
+ * loop at any price. At 4096 it was the second: the floor's ten schemas measured
+ * 2,086 tokens against a 3,584 input limit, and with a system prompt of roughly
+ * 1,800 the fixed input passed the limit before a single token of reply was
+ * reserved. Twelve turns of a twelve-turn run returned zero characters, every
+ * one stopping at `fixed-context-limit`.
+ *
+ * Derived from the gate that actually refuses the turn rather than from a
+ * fraction. `fitsNow` in `generate` requires
+ * `inputLimit - (system + prompt + schemas) >= minimumOutput`, so the schemas'
+ * ceiling is that inequality solved for schemas, in the same estimated units the
+ * surface is measured in.
+ *
+ * **A share of the input limit cannot work here, which is why this is absolute.**
+ * Not binding at 8K needs a fraction of at least 2,086/7,680 = 0.272; fixing 4K
+ * needs at most about 0.251. There is no single value, because the floor's
+ * absolute cost is more than half of 4096's entire input limit. Anchoring on the
+ * measured prompt removes the conflict: the same rule leaves 4,398 tokens at 8K,
+ * where the floor costs 2,086 and so never binds, and 302 at 4K, where it must.
+ *
+ * `needsBoundedWriteHeadroom` is asked of every tool on offer rather than of the
+ * surface that survives, because the surface does not exist yet. That errs
+ * toward the larger reserve and so toward a smaller ceiling, which is the safe
+ * direction: the cost is a slightly tighter surface, not a turn that cannot run.
+ */
+export function visionSchemaCeilingTokens(
+  contextSize: number,
+  allFunctions: Record<string, ToolFunction> | undefined,
+  params: GenerateParams
+): number {
+  if (!allFunctions || Object.keys(allFunctions).length === 0) return Number.POSITIVE_INFINITY
+  const inputLimitTokens = Math.max(0, contextSize - RESERVED_TOKENS)
+  const systemTokens = Math.ceil((params.systemPrompt?.length ?? 0) / 4)
+  const promptTokens = Math.ceil(params.prompt.length / 4)
+  const minimumOutput = minimumViableOutputTokens(
+    contextSize,
+    needsBoundedWriteHeadroom(Object.keys(allFunctions))
+  )
+  return Math.max(0, inputLimitTokens - systemTokens - promptTokens - minimumOutput)
 }
 
 /**
