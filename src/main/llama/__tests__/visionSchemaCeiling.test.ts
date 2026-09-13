@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GenerateParams } from '../LlamaService'
-import type { ToolFunction } from '../toolSurface'
+import type { ToolFunction } from '../../tools/types'
 import {
   RESERVED_TOKENS,
   minimumViableOutputTokens,
