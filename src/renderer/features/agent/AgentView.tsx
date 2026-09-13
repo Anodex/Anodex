@@ -22,6 +22,7 @@ import {
 import { useAwayArrivals } from './useAwayArrivals'
 import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
+import { plainSummary } from '@shared/titleText'
 
 /**
  * True for one render pass when a run reaches a terminal status the user
@@ -286,7 +287,7 @@ function RunCard({
               }`}
             >
               {run.status === 'error' ? 'Failed: ' : ''}
-              {run.summary ?? run.lastError}
+              {plainSummary(run.summary ?? run.lastError ?? '')}
             </p>
           )}
         </button>
