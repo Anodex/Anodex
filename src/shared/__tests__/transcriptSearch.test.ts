@@ -205,6 +205,68 @@ describe('searchTranscripts', () => {
     expect(results[0].excerpts[0].text.startsWith('…')).toBe(true)
   })
 
+  it('does not recall a chat on question words alone', () => {
+    // The defect, exactly as it shipped. Asked "what color is red?", Anodex
+    // recalled a fluid-simulation chat and offered to explain how red renders in
+    // that project's scene. "is" and "red" are below MIN_WORD_LENGTH, so the query
+    // the search ran was {what, color} — the subject of the question discarded, two
+    // of the commonest words in a coding transcript left standing for it. Every
+    // match scored exactly MIN_SCORE, and a tie goes to the most recent chat.
+    const conversations = [
+      conversation({
+        id: 'nebula',
+        title: 'Implement Stateful Nebula Fluid Simulation',
+        updatedAt: 2000,
+        messages: [
+          message({
+            id: 'm1',
+            role: 'assistant',
+            content: 'Let me see what the gas is doing and tune the color ramp on the test page'
+          })
+        ]
+      })
+    ]
+
+    expect(searchTranscripts(conversations, 'what color is red?')).toEqual([])
+  })
+
+  it('still recalls a chat that matches on the words the question is about', () => {
+    // The other half: the rule drops function words, not common ones. A question
+    // that genuinely overlaps past work still finds it.
+    const conversations = [
+      conversation({
+        id: 'nebula',
+        title: 'Implement Stateful Nebula Fluid Simulation',
+        messages: [
+          message({
+            id: 'm1',
+            role: 'assistant',
+            content: 'the nebula simulation reads mouse movement each frame'
+          })
+        ]
+      })
+    ]
+
+    const results = searchTranscripts(
+      conversations,
+      'what does the nebula simulation do with the mouse'
+    )
+
+    expect(results).toHaveLength(1)
+    expect(results[0].conversationId).toBe('nebula')
+  })
+
+  it('returns nothing when a query is nothing but function words', () => {
+    const conversations = [
+      conversation({
+        id: 'c1',
+        messages: [message({ id: 'm1', role: 'user', content: 'what would that have been about' })]
+      })
+    ]
+
+    expect(searchTranscripts(conversations, 'what would that have been about')).toEqual([])
+  })
+
   it('breaks a relevance tie by recency', () => {
     const conversations = [
       conversation({
