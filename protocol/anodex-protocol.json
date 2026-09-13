@@ -2133,6 +2133,26 @@
       }
     },
     {
+      "channel": "conversations:search",
+      "kind": "invoke",
+      "api": "conversations.search",
+      "args": [
+        {
+          "name": "query",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "ConversationSearchHit"
+        }
+      }
+    },
+    {
       "channel": "conversations:set-state",
       "kind": "invoke",
       "api": "conversations.setState",
@@ -13199,6 +13219,23 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        }
+      }
+    },
+    "ConversationSearchHit": {
+      "kind": "object",
+      "properties": {
+        "conversationId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "excerpt": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }
