@@ -56,7 +56,45 @@ unrelated piece of work.
 `KIND_CONFIG`; `request.diff` is the existing signal that a write really is a
 file change.
 
-### 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
+### PARTLY FIXED 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
+
+**The dead-window half is fixed; the 4K project run is not.** `boundTools` now
+passes `hardLimitTokens`, which this transport never did and its sibling always
+had. `visionSchemaCeilingTokens` derives it from the gate that actually refuses
+the turn — `fitsNow` wants
+`inputLimit - (system + prompt + schemas) >= minimumOutput`, so the ceiling is
+that inequality solved for schemas — rather than from a share of the input
+limit.
+
+**That is why the fraction below could not work and this can.** A share had to be
+at least 2,086/7,680 = 0.272 to leave 8K alone and at most about 0.251 to fix 4K,
+and no single number is both. Anchoring on the _measured_ prompt removes the
+conflict entirely: the same rule yields 4,398 tokens at 8K, where the loop costs
+2,086 and so never binds, and 302 at 4K, where it must. The first fix this entry
+records as tried and reverted was the right idea expressed against the wrong
+denominator.
+
+What it buys, by surface:
+
+- **A 4096 chat surface now runs.** No bounded-write tool means no 1,280-token
+  floor, so the ceiling is 1,091 — about seven tools where the unconditioned
+  floor was forcing ten at 2,086 and killing the turn.
+- **A 4096 project run degrades to the gateway instead of dying**, which is what
+  this entry proposed. It is not yet established that it then _completes_: with a
+  1,802-token prompt and the 1,280-token write floor, 3,082 of the 3,584 input
+  limit is spoken for before a single schema, and the gateway's own three
+  schemas are about 420. **The ultra-compact prompt tier this entry also names
+  is still the missing half**, and still deserves its own measurement.
+- **8K and above are arithmetically unchanged**, which is the property that
+  made this safe to ship. A test asserts it directly rather than leaving it to
+  be inferred.
+
+**Not yet measured on a live model.** Seven tests pin the arithmetic, including
+the non-binding-at-8K case, but the twelve-turn 27B run below was not re-run:
+another session held the dev server and port, and a run that loses the
+single-instance lock reports "produced nothing" for reasons that have nothing to
+do with the fix — which is the precise way this bug could be mistakenly called
+fixed. Re-run it before closing this entry.
 
 **Seen:** a 27B at 4096 on `LlamaVisionService` produced nothing on all twelve
 turns of the chat script, every one stopping at `fixed-context-limit`. The same
