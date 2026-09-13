@@ -141,6 +141,8 @@ const api: AnodexApi = {
     search: (query) => ipcRenderer.invoke(IpcChannel.Conversations.search, query),
     get: (conversationId, limit) =>
       ipcRenderer.invoke(IpcChannel.Conversations.get, conversationId, limit),
+    branchForEdit: (conversationId, messageId) =>
+      ipcRenderer.invoke(IpcChannel.Conversations.branchForEdit, conversationId, messageId),
     attachmentPreview: (conversationId, messageId, index) =>
       ipcRenderer.invoke(
         IpcChannel.Conversations.attachmentPreview,
