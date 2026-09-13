@@ -150,3 +150,11 @@ export interface ConversationSearchHit {
   /** The best-matching passage, already cut to a few hundred characters. */
   excerpt: string
 }
+
+/** A picture attached to a message, prepared for a phone. See `attachmentPreview`. */
+export interface RemoteAttachmentPreview {
+  mimeType: 'image/jpeg'
+  base64: string
+  width: number
+  height: number
+}
