@@ -5991,6 +5991,31 @@
       }
     },
     {
+      "channel": "personality:image",
+      "kind": "invoke",
+      "api": "personality.image",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "RemotePersonalityImage"
+          }
+        ]
+      }
+    },
+    {
       "channel": "personality:list",
       "kind": "invoke",
       "api": "personality.list",
@@ -21071,6 +21096,37 @@
                 "value": "series-4"
               }
             ]
+          }
+        },
+        "image": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "RemotePersonalityImage": {
+      "kind": "object",
+      "properties": {
+        "mimeType": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "base64": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }

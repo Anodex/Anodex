@@ -47,14 +47,21 @@ describe('the personality channels', () => {
     }
   })
 
-  it('is two channels and not a prefix', () => {
+  it('is three channels and not a prefix', () => {
     // `personality:` being allowed by default is only safe while it holds exactly
-    // these two. A third added later — importing one, say, or writing its prompt
-    // text — would be reachable from a phone the moment it was declared, without
-    // anybody deciding that.
+    // these. One added later — importing one, say, or writing its prompt text —
+    // would be reachable from a phone the moment it was declared, without anybody
+    // deciding that.
+    //
+    // `personality:image` was decided: it is a read, of a thumbnail, and it serves
+    // only files this app copied into its own picture store (see
+    // `personalityPictureAccess.test.ts`), so a hand-edited `image` path cannot turn
+    // it into a way to read the disk. Without it the phone drew initials for every
+    // personality somebody had given a face.
     expect(Object.values(IpcChannel.Personality)).toEqual([
       'personality:list',
-      'personality:set-active'
+      'personality:set-active',
+      'personality:image'
     ])
   })
 })
