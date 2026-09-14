@@ -35,6 +35,7 @@ import { registerGitHandlers } from './git.handlers'
 import { registerContextMenuHandlers } from '../contextMenu'
 import { registerComputerControlHandlers } from './computerControl.handlers'
 import { registerRemoteHandlers } from './remote.handlers'
+import { registerDevicesHandlers } from './devices.handlers'
 import { captureIpcHandlers } from '../remote/handlerRegistry'
 import { mcpManager } from '../mcp/McpManager'
 import { computerControlService } from '../computerControl/ComputerControlService'
@@ -60,6 +61,7 @@ export function registerIpcHandlers(): void {
   registerSystemHandlers()
   registerToolHandlers()
   registerRemoteHandlers()
+  registerDevicesHandlers()
   registerWindowHandlers()
   registerWorkspaceHandlers()
   registerToastHandlers()

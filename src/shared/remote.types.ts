@@ -133,3 +133,13 @@ export interface RemotePairingCode {
   port: number
   expiresAtEpochMs: number
 }
+
+/** A paired device as a paired phone sees it, in its own Settings. */
+export interface RemoteDeviceSummary {
+  deviceId: string
+  name: string
+  pairedAtEpochMs: number
+  lastSeenEpochMs: number
+  /** The device asking. Unpairing it disconnects the phone doing the unpairing. */
+  isThisDevice: boolean
+}
