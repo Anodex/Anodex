@@ -21,6 +21,9 @@ export function registerRemoteHandlers(): void {
   // rather than from a click. Settings is watching this screen when it happens.
   remoteService.onStatusChanged = (status) => {
     broadcastToWindows(IpcChannel.Remote.statusChanged, status)
+    // A phone showing its device list learned of changes only by reopening it:
+    // a device paired, renamed or connected elsewhere never appeared.
+    broadcastToWindows(IpcChannel.Devices.changed, null)
   }
 
   ipcMain.handle(IpcChannel.Remote.status, () => remoteService.status())

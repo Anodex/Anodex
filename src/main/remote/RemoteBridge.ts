@@ -108,8 +108,23 @@ export class RemoteBridge {
      * this machine hands out to its own phone would be taking directions from
      * whoever knocked.
      */
-    private readonly onReachedAt: (address: string | undefined) => void = () => {}
+    private readonly onReachedAt: (address: string | undefined) => void = () => {},
+    /**
+     * A paired device connected or disconnected, so the device lists can say which
+     * are connected right now rather than when each was last seen.
+     */
+    private readonly onConnectionsChanged: () => void = () => {}
   ) {}
+
+  /** The paired devices with a connection open right now. */
+  connectedDeviceIds(): Set<string> {
+    const connected = new Set<string>()
+    for (const socket of this.sockets?.clients ?? []) {
+      const owner = this.socketDevice.get(socket)
+      if (owner !== undefined && socket.readyState === socket.OPEN) connected.add(owner)
+    }
+    return connected
+  }
 
   /** Whether the listener is currently accepting connections. */
   get listening(): boolean {
@@ -309,7 +324,10 @@ export class RemoteBridge {
 
     socket.on('close', () => {
       clearTimeout(handshakeTimer)
-      if (client) detachRemoteClient(client)
+      if (client) {
+        detachRemoteClient(client)
+        this.onConnectionsChanged()
+      }
     })
 
     socket.on('error', (error) => {
@@ -366,6 +384,7 @@ export class RemoteBridge {
     }
     attachRemoteClient(client)
     log.info(`client attached: ${client.id}`)
+    this.onConnectionsChanged()
     return client
   }
 
