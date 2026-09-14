@@ -193,6 +193,11 @@ export class RemoteService {
   }
 
   /** The stored devices, reading a single pre-multi-device pairing as a list of one. */
+  /** Whether a paired device has a connection open right now. */
+  private isConnected(deviceId: string): boolean {
+    return this.bridge?.connectedDeviceIds().has(deviceId) ?? false
+  }
+
   private pairedDevices(): PairedDevice[] {
     return this.state.devices ?? (this.state.device ? [this.state.device] : [])
   }
@@ -203,6 +208,7 @@ export class RemoteService {
       name: device.name,
       pairedAtEpochMs: device.pairedAtEpochMs,
       lastSeenEpochMs: device.lastSeenEpochMs,
+      connected: this.isConnected(device.deviceId),
       // Only claimed when both halves are known. A phone paired before the
       // fingerprint was recorded gets `undefined` — not known, rather than
       // known to be wrong.
@@ -545,6 +551,7 @@ export class RemoteService {
       name: device.name,
       pairedAtEpochMs: device.pairedAtEpochMs,
       lastSeenEpochMs: device.lastSeenEpochMs,
+      connected: this.isConnected(device.deviceId),
       isThisDevice: device.deviceId === askingDeviceId
     }))
   }
@@ -588,7 +595,8 @@ export class RemoteService {
       undefined,
       () => this.externalAddress(),
       (address) => this.recordPeerAddress(address),
-      (address) => this.recordReachedAt(address)
+      (address) => this.recordReachedAt(address),
+      () => this.onStatusChanged?.(this.status())
     )
 
     // Prefer the port we used last time, so a paired phone finds us where it left

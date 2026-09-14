@@ -339,7 +339,8 @@ const api: AnodexApi = {
   devices: {
     list: () => ipcRenderer.invoke(IpcChannel.Devices.list),
     rename: (deviceId, name) => ipcRenderer.invoke(IpcChannel.Devices.rename, deviceId, name),
-    unpair: (deviceId) => ipcRenderer.invoke(IpcChannel.Devices.unpair, deviceId)
+    unpair: (deviceId) => ipcRenderer.invoke(IpcChannel.Devices.unpair, deviceId),
+    onChanged: (listener) => subscribe<null>(IpcChannel.Devices.changed, () => listener())
   },
   remote: {
     status: () => ipcRenderer.invoke(IpcChannel.Remote.status),

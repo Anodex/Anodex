@@ -603,7 +603,12 @@ export const IpcChannel = {
   Devices: {
     list: 'devices:list',
     rename: 'devices:rename',
-    unpair: 'devices:unpair'
+    unpair: 'devices:unpair',
+    /**
+     * Pushed when a device pairs, is renamed or unpaired, connects or disconnects.
+     * No payload: `isThisDevice` differs per phone, so each asks `list` again.
+     */
+    changed: 'devices:changed'
   },
   Remote: {
     /** Current listener state, paired device and certificate fingerprint. */
@@ -1139,6 +1144,8 @@ export interface AnodexApi {
   devices: {
     list(): Promise<RemoteDeviceSummary[]>
     rename(deviceId: string, name: string): Promise<RemoteDeviceSummary[]>
+    /** A device paired, was renamed or unpaired, connected or disconnected. */
+    onChanged(listener: () => void): () => void
     unpair(deviceId: string): Promise<RemoteDeviceSummary[]>
   }
   remote: {

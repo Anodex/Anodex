@@ -425,7 +425,9 @@ export function RemoteSettings(): JSX.Element {
                     // connection is refused.
                     'Paired to an older identity of this computer, so it can no longer connect. ' +
                     'Pair it again.'
-                  : `Last seen ${formatSeen(device.lastSeenEpochMs)}`
+                  : device.connected
+                    ? 'Connected now'
+                    : `Last seen ${formatSeen(device.lastSeenEpochMs)}`
               }
               control={
                 <Button variant="danger" onClick={() => setConfirmingUnpair(device)}>
