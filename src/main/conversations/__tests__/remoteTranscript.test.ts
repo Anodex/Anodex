@@ -151,4 +151,14 @@ describe('forRemote', () => {
 
     expect(sent.messages[0].content).toBe('')
   })
+  it('says a reply has thinking without sending it', () => {
+    // Thinking is often longer than the reply, and a phone shows it only when opened.
+    const sent = forRemote(
+      conversation([message('a', { thinking: 'Weighing it up at length.' }), message('b')])
+    )
+
+    expect(sent.messages[0].hasThinking).toBe(true)
+    expect(JSON.stringify(sent)).not.toContain('Weighing')
+    expect(sent.messages[1]).not.toHaveProperty('hasThinking')
+  })
 })

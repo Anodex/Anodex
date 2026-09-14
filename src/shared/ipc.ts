@@ -219,7 +219,18 @@ export const IpcChannel = {
      * device outright, and this is a client describing itself rather than reaching
      * into the pairing.
      */
-    setLiveTokens: 'chat:set-live-tokens'
+    setLiveTokens: 'chat:set-live-tokens',
+    /**
+     * Whether this client wants the model's thinking as it is generated.
+     *
+     * Separate from `setLiveTokens` because the two are read differently. A phone
+     * shows the reply as it arrives, but its thinking only when somebody opens it —
+     * and thinking is often most of what a reasoning model writes. A client that
+     * turns this on is sent the thinking so far for every turn still running, then
+     * the rest as it arrives. A client that has said nothing gets everything, as
+     * before this existed.
+     */
+    setLiveThinking: 'chat:set-live-thinking'
   },
   Provider: {
     /** Test whether a cloud provider API key (and configured model) actually works. */
@@ -370,6 +381,13 @@ export const IpcChannel = {
     branchForEdit: 'conversations:branch-for-edit',
     /** A picture on a message, sized for a phone. By conversation, message and index, never by path. */
     attachmentPreview: 'conversations:attachment-preview',
+    /**
+     * One reply's saved thinking, by conversation and message, or null.
+     *
+     * For the phone, which is sent transcripts without thinking — it is often longer
+     * than the reply — and reads one only when somebody opens it.
+     */
+    thinking: 'conversations:thinking',
     /**
      * main → renderer: a conversation was saved by someone other than this window.
      *

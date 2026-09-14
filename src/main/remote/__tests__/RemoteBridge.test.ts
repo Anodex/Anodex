@@ -285,6 +285,40 @@ describe('RemoteBridge', () => {
     socket.close()
   })
 
+  it('compresses frames, and sends a burst of tokens as one frame before the next result', async () => {
+    // One frame per token, uncompressed, was 370KB for a two-hundred-word reply.
+    const socket = await connect()
+    await pairPhone(socket)
+    expect(socket.extensions).toContain('permessage-deflate')
+
+    socket.send(
+      JSON.stringify({ type: 'invoke', id: 'c', channel: 'chat:send', args: [{ prompt: 'hi' }] })
+    )
+    await nextFrame(socket)
+    const client = resolveClientChannel(handled[0].event)
+
+    const frames: ServerFrame[] = []
+    socket.on('message', (raw: Buffer) =>
+      frames.push(JSON.parse(raw.toString('utf8')) as ServerFrame)
+    )
+    for (const token of ['Hel', 'lo', ' there']) {
+      client.send('chat:stream', { conversationId: 'c1', messageId: 'm1', token })
+    }
+    // A second call's result must come after the words already written.
+    socket.send(
+      JSON.stringify({ type: 'invoke', id: 'd', channel: 'chat:send', args: [{ prompt: 'again' }] })
+    )
+    await vi.waitFor(() => expect(frames).toHaveLength(2))
+
+    expect(frames[0]).toMatchObject({
+      type: 'event',
+      channel: 'chat:stream',
+      payload: { conversationId: 'c1', messageId: 'm1', token: 'Hello there' }
+    })
+    expect(frames[1]).toMatchObject({ type: 'result', id: 'd' })
+    socket.close()
+  })
+
   it('reports an unknown channel rather than leaving the phone waiting', async () => {
     const socket = await connect()
     await pairPhone(socket)
