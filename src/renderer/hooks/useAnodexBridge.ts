@@ -1,3 +1,4 @@
+import { useReadingProgressStore } from '../stores/readingProgressStore'
 import { useEffect } from 'react'
 import { recommendModel } from '@shared/modelRecommendation'
 import { anodex } from '../lib/anodex'
@@ -151,6 +152,13 @@ export function useAnodexBridge(): void {
       tokenBatcher.addToken(conversationId, messageId, token)
       scheduleTokenFlush()
     })
+    // How far the model has read a pending reply's prompt — the status line under
+    // that reply shows it while a long read is under way.
+    const offWorking = anodex.chat.onWorking((working) => {
+      if (working.phase === 'reading' && working.reading) {
+        useReadingProgressStore.getState().set(working.messageId, working.reading)
+      }
+    })
     const offThinkingStream = anodex.chat.onThinkingStream(
       ({ conversationId, messageId, token }) => {
         tokenBatcher.addThinkingToken(conversationId, messageId, token)
@@ -302,6 +310,7 @@ export function useAnodexBridge(): void {
       if (tokenFlushHandle !== null) cancelAnimationFrame(tokenFlushHandle)
       offStream()
       offThinkingStream()
+      offWorking()
       offProjectChanged()
       offConversationChanged()
       offSettingsChanged()

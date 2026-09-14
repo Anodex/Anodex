@@ -28,6 +28,7 @@ import { createLogger } from '../utils/logger'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
+import { promptProgressOf } from './promptProgress'
 import {
   minimumViableOutputTokens,
   needsBoundedWriteHeadroom,
@@ -736,12 +737,18 @@ export class LlamaVisionService {
             top_p: params.options?.topP,
             max_tokens: effectiveMaxTokens,
             stream: true,
-            stream_options: { include_usage: true }
+            stream_options: { include_usage: true },
+            // A llama.cpp extension, serialised through untouched: stream how far the
+            // prompt has been read, so a long read can be shown rather than looking
+            // like nothing is happening.
+            ...({ return_progress: true } as unknown as Record<string, never>)
           },
           { signal: params.signal }
         )
 
         for await (const chunk of stream) {
+          const reading = promptProgressOf(chunk)
+          if (reading) params.onPromptProgress?.(reading)
           if (chunk.usage?.completion_tokens) outputTokens += chunk.usage.completion_tokens
           if (typeof chunk.usage?.prompt_tokens === 'number' && chunk.usage.prompt_tokens > 0) {
             reportedPromptTokens = chunk.usage.prompt_tokens
