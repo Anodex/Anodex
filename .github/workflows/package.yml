@@ -214,6 +214,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The in-app updater shows these notes. 0.8.0 to 0.8.5 all went out saying
+      # "Release notes are written by hand before this is published", because
+      # nothing checked that they had been. Write the notes on the draft while
+      # the platforms build; if they are still the placeholder, this fails, the
+      # release stays a draft, and re-running this job publishes it once written.
+      - name: Refuse to publish without release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          if [ -z "${body//[[:space:]]/}" ] || printf '%s' "$body" | grep -q 'written by hand before this is published'; then
+            echo "::error::$GITHUB_REF_NAME still has placeholder release notes. Write them on the draft, then re-run this job."
+            exit 1
+          fi
+
       - name: Make the release visible to the updater
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
