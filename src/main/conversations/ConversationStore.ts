@@ -79,9 +79,37 @@ function definedFields<T extends object>(value: T): Partial<T> {
 
 /** A cached conversation together with the file that backs it. */
 interface CacheEntry {
+  /** The whole conversation — or, when `unloaded`, all of it but its messages. */
   conversation: Conversation
   filePath: string
+  /**
+   * True for an archived conversation, whose messages stay on disk until something
+   * asks for them. See `ARCHIVED_HOLD_MS`.
+   */
+  unloaded?: boolean
+  /** How many messages it has, known without holding them. */
+  messageCount: number
 }
+
+/** What is kept in memory for a conversation read from, or written to, `filePath`. */
+function entryFor(conversation: Conversation, filePath: string): CacheEntry {
+  const messageCount = conversation.messages.length
+  return conversation.archived
+    ? { conversation: { ...conversation, messages: [] }, filePath, unloaded: true, messageCount }
+    : { conversation, filePath, messageCount }
+}
+
+/**
+ * How long archived conversations read from disk are held before being let go.
+ *
+ * Every conversation used to be held in memory for as long as the app ran,
+ * archived ones included — on the machine this was measured on, 357 archived
+ * conversations and 95MB of JSON that nothing shows until the archive is opened,
+ * most of a 745MB main process. They are now read when asked for. The hold keeps
+ * that from being a disk read per message when searching past chats is set to
+ * include the archive, which reads every one of them for each turn.
+ */
+const ARCHIVED_HOLD_MS = 2 * 60_000
 
 /**
  * Persists conversations as individual JSON files under Electron's `userData`
@@ -101,6 +129,9 @@ class ConversationStore {
   private baseDir = ''
   private cache: Map<string, CacheEntry> | null = null
   private stateCache: ConversationState | null = null
+  /** Archived conversations read whole recently. See `ARCHIVED_HOLD_MS`. */
+  private readonly archivedHeld = new Map<string, Conversation>()
+  private archivedRelease: ReturnType<typeof setTimeout> | null = null
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
@@ -111,25 +142,41 @@ class ConversationStore {
     this.ensureDir(join(this.baseDir, GENERAL_DIR))
     this.cache = null
     this.stateCache = null
+    this.archivedHeld.clear()
     log.info('Initialised at', this.baseDir)
   }
 
   /** Return every persisted conversation, sorted by updatedAt descending. */
   list(): Conversation[] {
-    return this.listAll().filter((conversation) => !conversation.archived)
+    return [...this.ensureCache().values()]
+      .filter((entry) => !entry.conversation.archived)
+      .map((entry) => entry.conversation)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   /** Return archived conversations, sorted by archivedAt/updatedAt descending. */
   listArchived(): Conversation[] {
-    return this.listAll()
-      .filter((conversation) => conversation.archived)
-      .sort((a, b) => (b.archivedAt ?? b.updatedAt) - (a.archivedAt ?? a.updatedAt))
+    return this.archivedEntries()
+      .map((entry) => this.readable(entry))
+      .filter((conversation): conversation is Conversation => conversation !== null)
+  }
+
+  /**
+   * Archived conversations without their messages, and how many each has — all a
+   * list of them shows, read without touching the disk.
+   */
+  listArchivedWithoutMessages(): Array<{ conversation: Conversation; messageCount: number }> {
+    return this.archivedEntries().map((entry) => ({
+      conversation: entry.conversation,
+      messageCount: entry.messageCount
+    }))
   }
 
   /** Return every persisted conversation, sorted by updatedAt descending. */
   listAll(): Conversation[] {
     return [...this.ensureCache().values()]
-      .map((entry) => entry.conversation)
+      .map((entry) => this.readable(entry))
+      .filter((conversation): conversation is Conversation => conversation !== null)
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
@@ -144,7 +191,8 @@ class ConversationStore {
    * store to answer a single-key question the cache can answer directly.
    */
   get(id: string): Conversation | undefined {
-    return this.ensureCache().get(id)?.conversation
+    const entry = this.ensureCache().get(id)
+    return entry ? (this.readable(entry) ?? undefined) : undefined
   }
 
   /**
@@ -170,9 +218,11 @@ class ConversationStore {
     assertSafeId(normalized.id, 'conversation id')
 
     const existing = this.ensureCache().get(normalized.id)
+    // `whole` throws for an archived conversation that cannot be read, which fails
+    // the save — rather than merging into nothing and writing that over the file.
     const toWrite =
       options.fromRemote && existing
-        ? mergeRemoteSave(existing.conversation, normalized)
+        ? mergeRemoteSave(this.whole(existing), normalized)
         : normalized
 
     const dir = this.dirForProject(toWrite.projectId)
@@ -181,7 +231,8 @@ class ConversationStore {
 
     try {
       writeJsonAtomic(filePath, toWrite)
-      this.ensureCache().set(normalized.id, { conversation: toWrite, filePath })
+      this.ensureCache().set(normalized.id, entryFor(toWrite, filePath))
+      this.archivedHeld.delete(normalized.id)
     } catch (error) {
       log.error('Failed to save conversation:', filePath, error)
       throw error
@@ -204,7 +255,7 @@ class ConversationStore {
     if (!entry) return
     const now = Date.now()
     this.save({
-      ...entry.conversation,
+      ...this.whole(entry),
       archived: true,
       archivedAt: now,
       updatedAt: now
@@ -221,8 +272,10 @@ class ConversationStore {
     assertSafeId(id, 'conversation id')
     const entry = this.ensureCache().get(id)
     if (!entry) return
+    // Read whole first: restoring an archived conversation that cannot be read
+    // fails here, instead of writing it back with no messages.
     this.save({
-      ...entry.conversation,
+      ...this.whole(entry),
       archived: false,
       archivedAt: undefined,
       updatedAt: Date.now()
@@ -237,6 +290,7 @@ class ConversationStore {
     this.removeFile(entry.filePath)
     conversationAssetStore.removeConversation(id)
     this.ensureCache().delete(id)
+    this.archivedHeld.delete(id)
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
     abortGeneration(id)
@@ -306,10 +360,12 @@ class ConversationStore {
 
   restoreByProject(projectId: string): void {
     assertSafeId(projectId, 'project id')
-    for (const entry of this.ensureCache().values()) {
+    for (const entry of [...this.ensureCache().values()]) {
       if (entry.conversation.projectId !== projectId || !entry.conversation.archived) continue
+      const conversation = this.readable(entry)
+      if (!conversation) continue
       this.save({
-        ...entry.conversation,
+        ...conversation,
         archived: false,
         archivedAt: undefined,
         updatedAt: Date.now()
@@ -336,6 +392,7 @@ class ConversationStore {
     for (const id of conversationIds) {
       conversationAssetStore.removeConversation(id)
       cache.delete(id)
+      this.archivedHeld.delete(id)
       abortGeneration(id)
       if (state.activeConversationId === id) this.setState({ activeConversationId: null })
     }
@@ -382,10 +439,61 @@ class ConversationStore {
     const cache = new Map<string, CacheEntry>()
     for (const filePath of this.listFiles()) {
       const conversation = this.readFile(filePath)
-      if (conversation) cache.set(conversation.id, { conversation, filePath })
+      if (conversation) cache.set(conversation.id, entryFor(conversation, filePath))
     }
     this.cache = cache
     return cache
+  }
+
+  private archivedEntries(): CacheEntry[] {
+    return [...this.ensureCache().values()]
+      .filter((entry) => entry.conversation.archived)
+      .sort(
+        (a, b) =>
+          (b.conversation.archivedAt ?? b.conversation.updatedAt) -
+          (a.conversation.archivedAt ?? a.conversation.updatedAt)
+      )
+  }
+
+  /**
+   * The whole conversation, reading an archived one's messages from disk.
+   *
+   * Throws when that read fails. A caller about to write the conversation back
+   * must not carry on with it missing its messages.
+   */
+  private whole(entry: CacheEntry): Conversation {
+    if (!entry.unloaded) return entry.conversation
+    const id = entry.conversation.id
+    const held = this.archivedHeld.get(id)
+    if (held) {
+      this.holdArchived()
+      return held
+    }
+    const read = this.readFile(entry.filePath)
+    if (!read || read.id !== id) throw new Error(`Could not read archived conversation ${id}.`)
+    this.archivedHeld.set(id, read)
+    this.holdArchived()
+    return read
+  }
+
+  /** `whole`, or null for one that cannot be read — for callers that only read. */
+  private readable(entry: CacheEntry): Conversation | null {
+    try {
+      return this.whole(entry)
+    } catch (error) {
+      log.warn('Skipping an archived conversation that could not be read:', entry.filePath, error)
+      return null
+    }
+  }
+
+  /** Let go of archived conversations read whole, once nothing has asked for one for a while. */
+  private holdArchived(): void {
+    if (this.archivedRelease) clearTimeout(this.archivedRelease)
+    this.archivedRelease = setTimeout(() => {
+      this.archivedHeld.clear()
+      this.archivedRelease = null
+    }, ARCHIVED_HOLD_MS)
+    this.archivedRelease.unref?.()
   }
 
   private listFiles(): string[] {

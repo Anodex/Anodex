@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Conversation } from '@shared/conversation.types'
 
 const listConversations = vi.hoisted(() => vi.fn<() => Promise<Conversation[]>>())
+const getConversation = vi.hoisted(() => vi.fn<(id: string) => Promise<Conversation | null>>())
+const getConversationState = vi.hoisted(() =>
+  vi.fn<() => Promise<{ activeConversationId: string | null }>>()
+)
 
 // `lib/anodex` dereferences `window.anodex` at import time — there is no
 // window in the node test environment, so the preload bridge is stubbed out.
@@ -13,12 +17,14 @@ vi.mock('../../lib/anodex', () => ({
       save: vi.fn().mockResolvedValue(undefined),
       setState: vi.fn().mockResolvedValue(undefined),
       deletePermanent: vi.fn().mockResolvedValue(undefined),
-      list: listConversations
+      list: listConversations,
+      get: getConversation,
+      getState: getConversationState
     }
   }
 }))
 
-import { settleRunningToolCalls, useChatStore } from '../chatStore'
+import { settleRunningToolCalls, useChatStore, withReloaded } from '../chatStore'
 
 function seedConversation(streaming: boolean): Conversation {
   return {
@@ -475,5 +481,98 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
     // only ever applies to a conversation with a turn in flight.
     const [conversation] = useChatStore.getState().conversations
     expect(conversation.messages.map((m) => m.id)).toEqual(['sched_u', 'sched_a'])
+  })
+})
+
+/**
+ * A change announced for one conversation reads that conversation, not all of them.
+ *
+ * Reading every conversation — 48MB on the machine this was measured on — cost the
+ * window most of a second of CPU for each phone reply, two or three times a reply.
+ */
+describe('reloading one conversation', () => {
+  function chat(id: string, updatedAt: number, extra: Partial<Conversation> = {}): Conversation {
+    return { id, projectId: null, title: id, createdAt: 1, updatedAt, messages: [], ...extra }
+  }
+
+  beforeEach(() => {
+    listConversations.mockReset()
+    getConversation.mockReset()
+    getConversationState.mockReset()
+    getConversationState.mockResolvedValue({ activeConversationId: null })
+  })
+
+  it('replaces the changed conversation and moves it to where its date puts it', () => {
+    const current = [chat('a', 30), chat('b', 20), chat('c', 10)]
+    const next = withReloaded(current, 'c', chat('c', 40, { title: 'Renamed' }))
+    expect(next.map((c) => c.id)).toEqual(['c', 'a', 'b'])
+    expect(next[0].title).toBe('Renamed')
+  })
+
+  it('adds a new conversation and removes one archived or gone', () => {
+    const current = [chat('a', 30), chat('b', 20)]
+    expect(withReloaded(current, 'n', chat('n', 25)).map((c) => c.id)).toEqual(['a', 'n', 'b'])
+    expect(withReloaded(current, 'b', chat('b', 50, { archived: true })).map((c) => c.id)).toEqual([
+      'a'
+    ])
+    expect(withReloaded(current, 'b', null).map((c) => c.id)).toEqual(['a'])
+  })
+
+  it('never takes a generating conversation from under its reply', () => {
+    const live = seedConversation(true)
+    const onDisk = { ...live, messages: [], updatedAt: 99 }
+    expect(withReloaded([live], 'c1', onDisk)[0].messages.map((m) => m.id)).toEqual(['u1', 'a1'])
+    expect(withReloaded([live], 'c1', null)).toHaveLength(1)
+  })
+
+  it('reads only the named conversation, never the whole list', async () => {
+    useChatStore.setState({
+      conversations: [chat('a', 30), chat('b', 20)],
+      activeId: 'a',
+      loaded: true,
+      pendingMessages: {}
+    })
+    getConversation.mockResolvedValue(chat('b', 40, { title: 'From the phone' }))
+
+    await useChatStore.getState().reloadConversations(['b'])
+
+    expect(listConversations).not.toHaveBeenCalled()
+    expect(getConversation).toHaveBeenCalledWith('b')
+    expect(useChatStore.getState().conversations.map((c) => c.title)).toEqual([
+      'From the phone',
+      'a'
+    ])
+    expect(useChatStore.getState().activeId).toBe('a')
+  })
+
+  it('follows the computer when the open conversation was archived elsewhere', async () => {
+    useChatStore.setState({
+      conversations: [chat('a', 30)],
+      activeId: 'a',
+      loaded: true,
+      pendingMessages: {}
+    })
+    getConversation.mockResolvedValue(chat('a', 40, { archived: true }))
+
+    await useChatStore.getState().reloadConversations(['a'])
+
+    expect(useChatStore.getState().conversations).toEqual([])
+    expect(useChatStore.getState().activeId).toBeNull()
+  })
+
+  it('reads everything, as before, when reading the one fails', async () => {
+    useChatStore.setState({
+      conversations: [chat('a', 30)],
+      activeId: null,
+      loaded: true,
+      pendingMessages: {}
+    })
+    getConversation.mockRejectedValue(new Error('gone away'))
+    listConversations.mockResolvedValue([chat('a', 30), chat('z', 5)])
+
+    await useChatStore.getState().reloadConversations(['a'])
+
+    expect(listConversations).toHaveBeenCalledOnce()
+    expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['a', 'z'])
   })
 })

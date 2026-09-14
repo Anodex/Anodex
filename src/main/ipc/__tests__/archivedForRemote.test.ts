@@ -42,6 +42,11 @@ const archived = [
 vi.mock('@main/conversations/ConversationStore', () => ({
   conversationStore: {
     listArchived: () => archived,
+    listArchivedWithoutMessages: () =>
+      archived.map((conversation) => ({
+        conversation: { ...conversation, messages: [] },
+        messageCount: conversation.messages.length
+      })),
     list: () => [],
     get: () => undefined,
     save: vi.fn(),
@@ -65,6 +70,7 @@ describe('conversations:list-archived', () => {
     expect(rows[0].title).toBe('A long one')
     // The whole point: the two megabytes of message bodies do not travel.
     expect(rows[0].messages).toBeUndefined()
+    expect(rows[0].messageCount).toBe(400)
   })
 
   it('is small enough to actually send', () => {
@@ -73,17 +79,18 @@ describe('conversations:list-archived', () => {
     const remote = { [REMOTE_CLIENT]: { id: 'remote:pixel', send: vi.fn(), isAlive: () => true } }
 
     const forPhone = Buffer.byteLength(JSON.stringify(listArchived(remote)), 'utf8')
-    const forWindow = Buffer.byteLength(JSON.stringify(listArchived({ sender: {} })), 'utf8')
 
-    expect(forWindow).toBeGreaterThan(1_000_000)
+    expect(Buffer.byteLength(JSON.stringify(archived), 'utf8')).toBeGreaterThan(1_000_000)
     expect(forPhone).toBeLessThan(1_000)
   })
 
-  it('still gives a window the whole thing', () => {
-    // A renderer reads this in-process and does open what it lists, so narrowing it
-    // there would be taking something away for no gain.
+  it('gives a window every archived conversation, without its messages', () => {
+    // The archive page lists titles, projects and dates, and restoring reads the
+    // conversation afresh. Sending every archived transcript to it — 95MB on the
+    // machine this was measured on — cost a second of copying to show a list.
     const rows = listArchived({ sender: {} }) as Array<Record<string, unknown>>
 
-    expect(rows[0].messages).toHaveLength(400)
+    expect(rows[0]).toMatchObject({ id: 'c_1', title: 'A long one', archived: true })
+    expect(rows[0].messages).toEqual([])
   })
 })
