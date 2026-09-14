@@ -113,6 +113,7 @@ async function driveChat(scriptPath: string): Promise<void> {
         lastModelPath: settings.lastModelPath,
         describeModel,
         loadModel: (options, info) => llamaService.loadModel(options, info),
+        parallelJobs: settingsStore.get().model.parallelJobs,
         contextSize: resolveModelContextSize(settings, settings.lastModelPath ?? null)
       })
       log.info('Local model:', loaded)

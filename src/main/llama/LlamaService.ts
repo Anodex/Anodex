@@ -96,7 +96,7 @@ import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import type { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutputBudget'
 import { LlamaVisionService } from './LlamaVisionService'
-import { createAsyncMutex } from './asyncMutex'
+import { createModelGate } from './modelGate'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -420,6 +420,11 @@ class LlamaService extends EventEmitter {
   private refusedLoad?: RefusedModelLoad
   private generating = false
   /**
+   * Replies running on the vision runtime right now. More than one when the model
+   * was loaded with parallel jobs; see {@link maxParallelJobs}.
+   */
+  private visionJobs = 0
+  /**
    * Small, separate context/sequence dedicated to `summarizeForToast()`.
    * Deliberately independent of `this.context`/`this.contextSequence` (the
    * active conversation's session) — reusing that one for a one-off "give me
@@ -440,18 +445,20 @@ class LlamaService extends EventEmitter {
    */
   private loadingModel = false
   /**
-   * Serializes every model-touching operation onto the single loaded model.
-   * The local vision runtime is a `llama-server` started with `--parallel 1`,
-   * so a second concurrent request — a toast summary or chat-title generation
-   * firing while a reply is still streaming — drops the in-flight HTTP stream
-   * and surfaces as a raw `terminated` error. This lock makes those auxiliary
-   * calls *defer* until the active generation finishes instead of racing it.
+   * Admits model-touching operations onto the loaded model, as many at once as it
+   * has room for. The vision runtime is a `llama-server` started with one slot per
+   * parallel job (`--parallel`), and a request beyond its slots — a toast summary
+   * or chat-title generation firing while a reply is still streaming — drops the
+   * in-flight HTTP stream and surfaces as a raw `terminated` error. So capacity
+   * matches the slots: one unless the user turned parallel jobs on for a vision
+   * model, and always one for node-llama-cpp's single session. Extra callers
+   * *defer* instead of racing. Loading and unloading take the gate exclusively.
    * Acquired only at the public entry points (`generate`, `summarizeForToast`,
    * `generateChatTitle`, `compactConversationContext`); the shared internal
    * summary helpers run under the caller's already-held lock, so a mid-turn
    * compaction never deadlocks against it.
    */
-  private readonly modelLock = createAsyncMutex()
+  private readonly modelLock = createModelGate(1)
 
   /**
    * Whether a one-shot summarizer — inbox digest, chat title, toast summary —
@@ -478,7 +485,8 @@ class LlamaService extends EventEmitter {
       error: this.error,
       refusedLoad: this.refusedLoad,
       vision: this.visionService.active,
-      generating: this.generating,
+      generating: this.generating || this.visionJobs > 0,
+      parallelJobs: this.modelLock.capacity,
       contextTokensUsed: this.contextSequence?.nextTokenIndex,
       contextTokensConversationId: this.activeConversationId
     }
@@ -516,7 +524,7 @@ class LlamaService extends EventEmitter {
       throw new Error('Another model is already loading. Wait for it to finish first.')
     }
     this.loadingModel = true
-    const release = await this.acquireModelLock()
+    const release = await this.modelLock.acquireExclusive()
     try {
       return await this.loadModelInternal(options, info)
     } finally {
@@ -584,7 +592,11 @@ class LlamaService extends EventEmitter {
 
     try {
       if (options.visionProjectorPath) {
-        await this.visionService.load({ ...options, contextSize: requestedSize })
+        const parallelJobs = clampParallelJobs(options.parallelJobs)
+        await this.visionService.load({ ...options, contextSize: requestedSize, parallelJobs })
+        // llama-server was started with this many slots, so this many replies may
+        // run on it at once. Set while the load still holds the gate exclusively.
+        this.modelLock.setCapacity(parallelJobs)
         this.contextSize = requestedSize
         this.gpuLayersUsed =
           options.gpuLayers === 'auto' || options.gpuLayers === undefined
@@ -663,7 +675,7 @@ class LlamaService extends EventEmitter {
    * context a running decode may still be using.
    */
   async unload(): Promise<EngineState> {
-    const release = await this.acquireModelLock()
+    const release = await this.modelLock.acquireExclusive()
     try {
       return await this.unloadInternal()
     } finally {
@@ -673,6 +685,8 @@ class LlamaService extends EventEmitter {
 
   /** The body of {@link unload}, run with the model lock already held. */
   private async unloadInternal(): Promise<EngineState> {
+    // Back to one job at a time: parallel jobs belong to the runtime being unloaded.
+    this.modelLock.setCapacity(1)
     await this.visionService.unload()
     await this.disposeModel()
     // A refusal on record says "the load you asked for didn't happen, and the
@@ -715,7 +729,7 @@ class LlamaService extends EventEmitter {
    * which the model lock already serializes.
    */
   isGenerating(): boolean {
-    return this.generating
+    return this.generating || this.visionJobs > 0
   }
 
   /**
@@ -769,19 +783,21 @@ class LlamaService extends EventEmitter {
     // `CriticalThinkingService` pattern-matched as *transient*, which meant a
     // leaked flag disguised itself as ordinary busyness and was retried
     // against forever.
-    if (this.generating) {
-      throw new Error('Internal: a generation is already in progress on this engine.')
-    }
-
     if (this.visionService.active) {
-      this.generating = true
+      // Each reply is its own request to llama-server, which runs as many at once
+      // as it has slots, so there is no shared session here to guard.
+      this.visionJobs += 1
       this.emitState()
       try {
         return await this.visionService.generate(params)
       } finally {
-        this.generating = false
+        this.visionJobs -= 1
         this.emitState()
       }
+    }
+
+    if (this.generating) {
+      throw new Error('Internal: a generation is already in progress on this engine.')
     }
 
     // Take the lock before any awaited setup touches the shared context/session.
@@ -3128,3 +3144,12 @@ async function runFallbackToolCall(
 
 /** Singleton — one engine per application process. */
 export const llamaService = new LlamaService()
+
+/** The most replies a loaded model may run at once. */
+export const MAX_PARALLEL_JOBS = 3
+
+/** A usable parallel job count from whatever settings held: 1 to {@link MAX_PARALLEL_JOBS}. */
+export function clampParallelJobs(requested: number | undefined): number {
+  if (requested === undefined || !Number.isFinite(requested)) return 1
+  return Math.min(MAX_PARALLEL_JOBS, Math.max(1, Math.floor(requested)))
+}

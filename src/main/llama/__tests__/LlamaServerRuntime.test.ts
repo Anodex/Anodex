@@ -177,9 +177,22 @@ describe('start', () => {
     expect(args).toContain('127.0.0.1')
     expect(args[args.indexOf('--api-key') + 1]).toHaveLength(48)
     expect(args[args.indexOf('--parallel') + 1]).toBe('1')
+    expect(args).not.toContain('--kv-unified')
     expect(connection.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
     // A key generated per load, never a constant.
     expect(connection.apiKey).toBe(args[args.indexOf('--api-key') + 1])
+  })
+
+  it('opens a slot per parallel job, sharing one pool of context memory', async () => {
+    respond({ '/health': () => jsonResponse({}), '/models': () => jsonResponse({ data: [] }) })
+
+    await new LlamaServerRuntime().start({ ...options(), parallelJobs: 3 })
+    const args = spawn.mock.calls[0][1]
+
+    expect(args[args.indexOf('--parallel') + 1]).toBe('3')
+    // Without a unified pool each slot takes its own full context, tripling memory.
+    expect(args).toContain('--kv-unified')
+    expect(args[args.indexOf('--ctx-size') + 1]).toBe('4096')
   })
 
   /**

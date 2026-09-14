@@ -58,6 +58,7 @@ async function driveRun(question: string): Promise<void> {
         lastModelPath: settingsStore.get().lastModelPath,
         describeModel,
         loadModel: (options, info) => llamaService.loadModel(options, info),
+        parallelJobs: settingsStore.get().model.parallelJobs,
         contextSize: resolveModelContextSize(
           settingsStore.get(),
           settingsStore.get().lastModelPath ?? null
