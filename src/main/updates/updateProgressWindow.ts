@@ -1,8 +1,16 @@
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createLogger } from '../utils/logger'
+
+/**
+ * The longest Anodex waits for the window to appear before quitting to install.
+ *
+ * Starting PowerShell and loading WinForms takes a second or two. An update never
+ * waits on this window for longer than this, whether or not it appears.
+ */
+export const WINDOW_SHOWN_TIMEOUT_MS = 8_000
 
 const log = createLogger('updater')
 
@@ -19,28 +27,76 @@ const log = createLogger('updater')
  * update ships nothing extra. The script is written fresh for each update and holds no
  * input from anywhere but this app.
  */
-export function showUpdateProgressWindow(options: {
+export async function showUpdateProgressWindow(options: {
   version: string
   /** Anodex's own executable, for the window icon and to recognise it coming back. */
   exePath: string
-}): void {
+}): Promise<void> {
   if (process.platform !== 'win32') return
   try {
-    const script = join(tmpdir(), `anodex-update-progress-${Date.now()}.ps1`)
+    const stamp = Date.now()
+    const script = join(tmpdir(), `anodex-update-progress-${stamp}.ps1`)
+    const shownMarker = join(tmpdir(), `anodex-update-progress-${stamp}.shown`)
     // With a byte-order mark: Windows PowerShell 5.1 reads a file without one as the
     // local code page, not UTF-8.
-    writeFileSync(script, `\ufeff${updateProgressScript(options)}`, 'utf8')
-    const child = spawn(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script],
-      { detached: true, stdio: 'ignore', windowsHide: true }
-    )
+    writeFileSync(script, `\ufeff${updateProgressScript({ ...options, shownMarker })}`, 'utf8')
+
+    // Not spawned directly. Electron runs Anodex inside a Windows job object that
+    // ends every process in it when Anodex exits, and a child inherits the job —
+    // so the window started this way was ended the moment Anodex quit to install,
+    // before PowerShell had even loaded, and never appeared (0.9.5 → 0.9.6 on the
+    // user's machine). A process created through WMI belongs to WMI's own host, not
+    // to Anodex's job, and outlives it.
+    const child = spawn('powershell.exe', launcherArguments(script), {
+      stdio: 'ignore',
+      windowsHide: true
+    })
     child.on('error', (error) => log.warn('Update progress window did not open:', error))
-    child.unref()
+
+    // Quit only once the window is on screen, so there is never a moment with
+    // nothing: the window appears, then Anodex closes behind it.
+    if (await waitForFile(shownMarker, WINDOW_SHOWN_TIMEOUT_MS)) {
+      rmSync(shownMarker, { force: true })
+    } else {
+      log.warn('Update progress window did not appear in time; installing anyway.')
+    }
   } catch (error) {
     // The update itself does not depend on this window.
     log.warn('Update progress window did not open:', error)
   }
+}
+
+/**
+ * PowerShell arguments that start the window's script through WMI and return.
+ *
+ * Encoded, so no path or quote in the command line has to survive Windows argument
+ * quoting twice.
+ */
+export function launcherArguments(script: string): string[] {
+  const command = `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script}"`
+  const launcher =
+    `$created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create ` +
+    `-Arguments @{ CommandLine = ${psQuote(command)} }; exit $created.ReturnValue`
+  return [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-WindowStyle',
+    'Hidden',
+    '-EncodedCommand',
+    Buffer.from(launcher, 'utf16le').toString('base64')
+  ]
+}
+
+/** Whether `path` exists within `timeoutMs`, looking every tenth of a second. */
+async function waitForFile(path: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return true
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return existsSync(path)
 }
 
 /** A string safe inside a PowerShell single-quoted literal. */
@@ -49,7 +105,12 @@ function psQuote(value: string): string {
 }
 
 /** The PowerShell for {@link showUpdateProgressWindow}. Exported for tests. */
-export function updateProgressScript(options: { version: string; exePath: string }): string {
+export function updateProgressScript(options: {
+  version: string
+  exePath: string
+  /** Created once the window is on screen, which is what Anodex waits for before quitting. */
+  shownMarker?: string
+}): string {
   return `
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
@@ -58,6 +119,7 @@ Add-Type -AssemblyName System.Drawing
 
 $version = ${psQuote(options.version)}
 $exePath = ${psQuote(options.exePath)}
+$shownMarker = ${psQuote(options.shownMarker ?? '')}
 $startedAt = Get-Date
 # Anodex closes a moment after this window opens; anything started after that is the new copy.
 $quitGraceSeconds = 4
@@ -138,6 +200,7 @@ $timer.Add_Tick({
   }
 })
 $timer.Start()
+$form.Add_Shown({ if ($shownMarker) { New-Item -ItemType File -Path $shownMarker -Force | Out-Null } })
 [void]$form.ShowDialog()
 Remove-Item -LiteralPath $PSCommandPath -ErrorAction SilentlyContinue
 `
