@@ -21196,6 +21196,29 @@
             "kind": "boolean"
           }
         },
+        "route": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "literal",
+                "value": "home"
+              },
+              {
+                "kind": "literal",
+                "value": "vpn"
+              },
+              {
+                "kind": "literal",
+                "value": "internet"
+              }
+            ]
+          }
+        },
         "isThisDevice": {
           "optional": false,
           "type": {
@@ -21220,15 +21243,15 @@
             "of": [
               {
                 "kind": "literal",
+                "value": "internet"
+              },
+              {
+                "kind": "literal",
                 "value": "lan"
               },
               {
                 "kind": "literal",
                 "value": "mesh"
-              },
-              {
-                "kind": "literal",
-                "value": "internet"
               },
               {
                 "kind": "literal",
@@ -21420,6 +21443,29 @@
           "optional": false,
           "type": {
             "kind": "boolean"
+          }
+        },
+        "route": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "literal",
+                "value": "home"
+              },
+              {
+                "kind": "literal",
+                "value": "vpn"
+              },
+              {
+                "kind": "literal",
+                "value": "internet"
+              }
+            ]
           }
         },
         "trustsThisIdentity": {

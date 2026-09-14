@@ -3,7 +3,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 const networkInterfaces = vi.hoisted(() => vi.fn())
 vi.mock('node:os', () => ({ networkInterfaces }))
 
-const { collectHostAddresses, primaryHostAddress } = await import('../addresses')
+const { collectHostAddresses, connectionRoute, primaryHostAddress } = await import('../addresses')
 
 type Entry = { address: string; family: string; internal: boolean }
 
@@ -97,5 +97,31 @@ describe('host addresses', () => {
     })
 
     expect(primaryHostAddress()).toBe('100.90.80.70')
+  })
+})
+
+/** How a connected device reached this computer, as Settings and the phone say it. */
+describe('connectionRoute', () => {
+  it('calls private and local addresses the home network', () => {
+    expect(connectionRoute('192.168.1.20')).toBe('home')
+    expect(connectionRoute('10.0.0.117')).toBe('home')
+    expect(connectionRoute('::ffff:172.20.3.4')).toBe('home')
+    expect(connectionRoute('127.0.0.1')).toBe('home')
+    expect(connectionRoute('fe80::1')).toBe('home')
+    expect(connectionRoute('fd12:3456::9')).toBe('home')
+  })
+
+  it('calls a Tailscale-range address the VPN', () => {
+    expect(connectionRoute('100.101.102.103')).toBe('vpn')
+  })
+
+  it('calls anything public the internet', () => {
+    expect(connectionRoute('203.0.113.7')).toBe('internet')
+    expect(connectionRoute('::ffff:76.123.41.7')).toBe('internet')
+    expect(connectionRoute('2001:db8::1')).toBe('internet')
+  })
+
+  it('does not guess without an address', () => {
+    expect(connectionRoute(undefined)).toBeNull()
   })
 })

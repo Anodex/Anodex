@@ -426,7 +426,7 @@ export function RemoteSettings(): JSX.Element {
                     'Paired to an older identity of this computer, so it can no longer connect. ' +
                     'Pair it again.'
                   : device.connected
-                    ? 'Connected now'
+                    ? `Connected now${routeLabel(device.route)}`
                     : `Last seen ${formatSeen(device.lastSeenEpochMs)}`
               }
               control={
@@ -546,4 +546,18 @@ function formatSeen(epochMs: number): string {
   if (minutes < 60) return `${minutes} minutes ago`
   const hours = Math.round(minutes / 60)
   return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+}
+
+/** How a connected device reaches this computer, as a suffix to "Connected now". */
+function routeLabel(route: RemotePairedDevice['route']): string {
+  switch (route) {
+    case 'home':
+      return ' · on your home network'
+    case 'vpn':
+      return ' · over your VPN'
+    case 'internet':
+      return ' · from outside, over the internet'
+    default:
+      return ''
+  }
 }
