@@ -20,7 +20,7 @@ import { SidebarProfile } from './sidebar/SidebarProfile'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
 import { NavigationCount } from './sidebar/NavigationCount'
 import { ConfirmDialog } from './ui/ConfirmDialog'
-import { findBodyMatches, matchesQuery } from './sidebar/conversationSearch'
+import { matchesQuery, useBodyMatches } from './sidebar/conversationSearch'
 import styles from './Sidebar.module.css'
 
 interface FilteredProject {
@@ -75,22 +75,16 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const [confirmingArchiveChats, setConfirmingArchiveChats] = useState(false)
 
   const searching = searchQuery.trim().length > 0
+  const bodyMatches = useBodyMatches(searchQuery)
 
   const { filteredProjects, generalChats, searchEmpty, matchExcerpts } = useMemo(() => {
     const query = searchQuery.trim()
     const projectChats = new Map<string, Conversation[]>()
     const general: Conversation[] = []
-    // Scored once for the whole query rather than per conversation — a row
-    // surfaces on a title match or on something said inside it.
-    //
-    // This reads message content through a subscription that deliberately
-    // ignores it (`conversationsRelevantlyEqual`, which exists so a streaming
-    // reply doesn't re-render the sidebar on every token). The consequence is
-    // narrow and wanted: text in a reply that is still streaming isn't
-    // searchable until that turn settles. Do not "fix" that by widening the
-    // equality check — it would restore exactly the per-token re-render storm
-    // that function was written to stop.
-    const bodyMatches = findBodyMatches(conversations, query)
+    // A row surfaces on a title match or on something said inside it. What was
+    // said is searched on the computer (`useBodyMatches`), which holds every
+    // conversation's messages; this window reads only the ones opened. A reply
+    // still streaming is searchable once it is saved.
     const matched = (conversation: Conversation): boolean =>
       matchesQuery(conversation.title, query) || bodyMatches.ids.has(conversation.id)
 
@@ -143,7 +137,7 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
       searchEmpty: query.length > 0 && filtered.length === 0 && general.length === 0,
       matchExcerpts: bodyMatches.excerpts
     }
-  }, [chatSortMode, conversations, projects, searchQuery])
+  }, [bodyMatches, chatSortMode, conversations, projects, searchQuery])
 
   // Keep the active project first inside Workspace so "where you are" and
   // "what else is available" live in one predictable group.

@@ -5,7 +5,7 @@ import { describeRecurrence } from '@shared/parseWhen'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
-import { useChatStore } from '../../stores/chatStore'
+import { useLoadedConversation } from '../../hooks/useLoadedConversation'
 import { MessageContent } from '../chat/MessageContent'
 import { describeRunTiming, formatDuration, formatNextRun } from './scheduleFormat'
 import { useCountdown } from './useCountdown'
@@ -155,9 +155,7 @@ export function SchedulerConversation({
   onEdit,
   onContinueInChat
 }: SchedulerConversationProps): JSX.Element {
-  const conversation = useChatStore((s) =>
-    s.conversations.find((c) => c.id === task.conversationId)
-  )
+  const conversation = useLoadedConversation(task.conversationId)
   useCountdown(task.enabled ? task.nextRunAt : null)
 
   const segments = useMemo(

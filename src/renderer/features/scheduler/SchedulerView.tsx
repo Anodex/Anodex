@@ -302,12 +302,12 @@ export function SchedulerView(): JSX.Element {
    * read-only — it's a record of what ran unattended, and letting replies land
    * in it would mean the next run inherits a side conversation as context.
    */
-  const continueInChat = (task: ScheduledTask): void => {
+  const continueInChat = async (task: ScheduledTask): Promise<void> => {
     if (!task.conversationId) {
       notify({ kind: 'info', title: 'Nothing to continue', message: 'This task has not run yet.' })
       return
     }
-    const forkedId = forkConversation(task.conversationId, `${task.name} (continued)`)
+    const forkedId = await forkConversation(task.conversationId, `${task.name} (continued)`)
     if (!forkedId) {
       notify({
         kind: 'error',
@@ -340,7 +340,7 @@ export function SchedulerView(): JSX.Element {
           onBack={() => setOpenTaskId(null)}
           onRunNow={() => void handleRunNow(openTask)}
           onEdit={() => setEditingTask(openTask)}
-          onContinueInChat={() => continueInChat(openTask)}
+          onContinueInChat={() => void continueInChat(openTask)}
         />
         {editorOpen && (
           <SchedulerTaskEditor

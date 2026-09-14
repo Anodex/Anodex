@@ -50,6 +50,15 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /**
+   * The window's copy of a conversation whose messages are still on the computer.
+   *
+   * The desktop window lists conversations without their messages and reads a
+   * conversation's messages when it is opened. `messages` is then empty and means
+   * nothing, and a copy carrying this must never be saved: it would replace the
+   * conversation with no messages. `conversations:save` refuses one.
+   */
+  messagesNotLoaded?: true
   /** Archived chats are hidden from the sidebar until restored from Settings. */
   archived?: boolean
   archivedAt?: number

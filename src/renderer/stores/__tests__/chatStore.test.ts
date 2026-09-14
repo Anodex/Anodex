@@ -3,6 +3,8 @@ import type { Conversation } from '@shared/conversation.types'
 
 const listConversations = vi.hoisted(() => vi.fn<() => Promise<Conversation[]>>())
 const getConversation = vi.hoisted(() => vi.fn<(id: string) => Promise<Conversation | null>>())
+const listWithoutMessages = vi.hoisted(() => vi.fn<() => Promise<Conversation[]>>())
+const saveConversation = vi.hoisted(() => vi.fn<(c: Conversation) => Promise<void>>())
 const getConversationState = vi.hoisted(() =>
   vi.fn<() => Promise<{ activeConversationId: string | null }>>()
 )
@@ -14,17 +16,24 @@ vi.mock('../../lib/anodex', () => ({
     // Only the persistence calls the tested actions make; everything else on
     // the bridge stays absent so an unexpected call fails loudly.
     conversations: {
-      save: vi.fn().mockResolvedValue(undefined),
+      save: saveConversation,
       setState: vi.fn().mockResolvedValue(undefined),
       deletePermanent: vi.fn().mockResolvedValue(undefined),
       list: listConversations,
+      listWithoutMessages,
       get: getConversation,
       getState: getConversationState
     }
   }
 }))
 
-import { settleRunningToolCalls, useChatStore, withReloaded } from '../chatStore'
+import {
+  settleRunningToolCalls,
+  useChatStore,
+  withListFromDisk,
+  withoutMessages,
+  withReloaded
+} from '../chatStore'
 
 function seedConversation(streaming: boolean): Conversation {
   return {
@@ -45,6 +54,18 @@ function seedConversation(streaming: boolean): Conversation {
       }
     ]
   }
+}
+
+/**
+ * What the computer has on disk, as the window now reads it: a listing without
+ * messages, and each conversation whole when asked for.
+ */
+function onDisk(conversations: Conversation[]): void {
+  listWithoutMessages.mockResolvedValue(conversations.map(withoutMessages))
+  getConversation.mockImplementation((id) =>
+    Promise.resolve(conversations.find((c) => c.id === id) ?? null)
+  )
+  getConversationState.mockResolvedValue({ activeConversationId: null })
 }
 
 function assistantMessage() {
@@ -332,6 +353,8 @@ describe('refreshing the conversation list mid-turn', () => {
 
   beforeEach(() => {
     listConversations.mockReset()
+    listWithoutMessages.mockReset()
+    getConversation.mockReset()
     useChatStore.setState({
       conversations: [seedConversation(true)],
       activeId: 'c1',
@@ -341,7 +364,7 @@ describe('refreshing the conversation list mid-turn', () => {
   })
 
   it('keeps the streaming turn instead of the truncated version on disk', async () => {
-    listConversations.mockResolvedValue([persistedVersion()])
+    onDisk([persistedVersion()])
 
     await useChatStore.getState().refreshConversations()
 
@@ -351,7 +374,7 @@ describe('refreshing the conversation list mid-turn', () => {
   })
 
   it('keeps a still-generating conversation that is absent from disk', async () => {
-    listConversations.mockResolvedValue([])
+    onDisk([])
 
     await useChatStore.getState().refreshConversations()
 
@@ -360,7 +383,7 @@ describe('refreshing the conversation list mid-turn', () => {
 
   it('takes the loaded version once nothing is streaming', async () => {
     useChatStore.setState({ conversations: [seedConversation(false)] })
-    listConversations.mockResolvedValue([{ ...persistedVersion(), title: 'Renamed elsewhere' }])
+    onDisk([{ ...persistedVersion(), title: 'Renamed elsewhere' }])
 
     await useChatStore.getState().refreshConversations()
 
@@ -372,10 +395,7 @@ describe('refreshing the conversation list mid-turn', () => {
   it('still picks up conversations created elsewhere while a turn streams', async () => {
     // The reason the refresh exists: an agent run writes its own conversation
     // in the main process. Preserving the live turn must not cost us that.
-    listConversations.mockResolvedValue([
-      persistedVersion(),
-      { ...persistedVersion(), id: 'agent-run', title: 'Agent run' }
-    ])
+    onDisk([persistedVersion(), { ...persistedVersion(), id: 'agent-run', title: 'Agent run' }])
 
     await useChatStore.getState().refreshConversations()
 
@@ -425,6 +445,8 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
 
   beforeEach(() => {
     listConversations.mockReset()
+    listWithoutMessages.mockReset()
+    getConversation.mockReset()
     useChatStore.setState({
       conversations: [liveVersion()],
       activeId: 'sched',
@@ -438,7 +460,7 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
     // is also how the scheduled run's turn used to disappear: the refresh skips
     // this conversation, so the live copy never learns about the new turn and
     // persists over it when the reply finishes.
-    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+    onDisk([persistedWithBackgroundTurn()])
 
     await useChatStore.getState().refreshConversations()
 
@@ -447,7 +469,7 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
   })
 
   it('does not disturb the reply still streaming into it', async () => {
-    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+    onDisk([persistedWithBackgroundTurn()])
 
     await useChatStore.getState().refreshConversations()
 
@@ -460,7 +482,7 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
   it('adds nothing when the persisted copy holds nothing new', async () => {
     // The ordinary case, and the one the previous behaviour got right: a
     // refresh mid-turn must not start duplicating the turn it is protecting.
-    listConversations.mockResolvedValue([{ ...liveVersion(), messages: [] }])
+    onDisk([{ ...liveVersion(), messages: [] }])
 
     await useChatStore.getState().refreshConversations()
 
@@ -473,7 +495,7 @@ describe('a background turn landing in the chat the user is mid-reply in', () =>
     // Those discarded turns are on disk for an instant; taking them back would
     // undo the edit.
     useChatStore.setState({ conversations: [{ ...liveVersion(), messages: [] }] })
-    listConversations.mockResolvedValue([persistedWithBackgroundTurn()])
+    onDisk([persistedWithBackgroundTurn()])
 
     await useChatStore.getState().refreshConversations()
 
@@ -497,6 +519,7 @@ describe('reloading one conversation', () => {
 
   beforeEach(() => {
     listConversations.mockReset()
+    listWithoutMessages.mockReset()
     getConversation.mockReset()
     getConversationState.mockReset()
     getConversationState.mockResolvedValue({ activeConversationId: null })
@@ -560,7 +583,7 @@ describe('reloading one conversation', () => {
     expect(useChatStore.getState().activeId).toBeNull()
   })
 
-  it('reads everything, as before, when reading the one fails', async () => {
+  it('reads the list, as before, when reading the one fails', async () => {
     useChatStore.setState({
       conversations: [chat('a', 30)],
       activeId: null,
@@ -568,11 +591,162 @@ describe('reloading one conversation', () => {
       pendingMessages: {}
     })
     getConversation.mockRejectedValue(new Error('gone away'))
-    listConversations.mockResolvedValue([chat('a', 30), chat('z', 5)])
+    listWithoutMessages.mockResolvedValue([chat('a', 30), chat('z', 5)].map(withoutMessages))
 
     await useChatStore.getState().reloadConversations(['a'])
 
-    expect(listConversations).toHaveBeenCalledOnce()
+    // Once: the reread the list asks for fails too, and must not ask for the list again.
+    expect(listWithoutMessages).toHaveBeenCalledOnce()
     expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['a', 'z'])
+  })
+})
+
+/**
+ * The window lists conversations without their messages and reads one when it is
+ * needed. What that must never do is lose a message: save a conversation it never
+ * read, show an empty chat where there is history, or send a turn without it.
+ */
+describe('conversations read when they are needed', () => {
+  function whole(id: string, updatedAt = 10): Conversation {
+    return {
+      id,
+      projectId: null,
+      title: id,
+      createdAt: 1,
+      updatedAt,
+      messages: [
+        { id: `${id}-u`, role: 'user', content: 'question', createdAt: 1 },
+        { id: `${id}-a`, role: 'assistant', content: 'answer', createdAt: 2 }
+      ]
+    }
+  }
+
+  beforeEach(() => {
+    listConversations.mockReset()
+    getConversation.mockReset()
+    getConversationState.mockReset()
+    listWithoutMessages.mockReset()
+    saveConversation.mockReset()
+    saveConversation.mockResolvedValue(undefined)
+    getConversationState.mockResolvedValue({ activeConversationId: null })
+    useChatStore.setState({ conversations: [], activeId: null, loaded: true, pendingMessages: {} })
+  })
+
+  it('lists without messages, and reads the open conversation whole', async () => {
+    listWithoutMessages.mockResolvedValue([
+      withoutMessages(whole('a')),
+      withoutMessages(whole('b'))
+    ])
+    getConversationState.mockResolvedValue({ activeConversationId: 'b' })
+    getConversation.mockImplementation((id) => Promise.resolve(whole(id)))
+
+    await useChatStore.getState().load()
+    await vi.waitFor(() =>
+      expect(
+        useChatStore.getState().conversations.find((c) => c.id === 'b')?.messagesNotLoaded
+      ).toBeUndefined()
+    )
+
+    const [a, b] = useChatStore.getState().conversations
+    expect(listConversations).not.toHaveBeenCalled()
+    expect(a.messagesNotLoaded).toBe(true)
+    expect(b.messages).toHaveLength(2)
+    expect(getConversation).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a conversation when it is chosen', async () => {
+    useChatStore.setState({ conversations: [withoutMessages(whole('a'))] })
+    getConversation.mockResolvedValue(whole('a'))
+
+    await useChatStore.getState().selectConversation('a')
+    await vi.waitFor(() =>
+      expect(useChatStore.getState().conversations[0].messages).toHaveLength(2)
+    )
+  })
+
+  it('renames a conversation it never read without writing it back empty', async () => {
+    useChatStore.setState({ conversations: [withoutMessages(whole('a'))] })
+    getConversation.mockResolvedValue(whole('a'))
+
+    await useChatStore.getState().renameConversation('a', 'Better name')
+
+    const saved = saveConversation.mock.calls[0][0]
+    expect(saved.title).toBe('Better name')
+    expect(saved.messages).toHaveLength(2)
+    expect(saved.messagesNotLoaded).toBeUndefined()
+  })
+
+  it('keeps the messages of every conversation already read, and rereads each', () => {
+    useChatStore.setState({
+      conversations: [whole('a', 10), whole('b', 10), withoutMessages(whole('c'))]
+    })
+
+    const { conversations, stale } = withListFromDisk(useChatStore.getState().conversations, [
+      withoutMessages(whole('a', 10)),
+      withoutMessages(whole('b', 20)),
+      withoutMessages(whole('c', 30))
+    ])
+
+    expect(conversations.find((c) => c.id === 'a')?.messages).toHaveLength(2)
+    expect(conversations.find((c) => c.id === 'b')?.messages).toHaveLength(2)
+    expect(stale).toEqual(['a', 'b'])
+    expect(conversations.find((c) => c.id === 'c')?.updatedAt).toBe(30)
+  })
+
+  it('reads a conversation before sending into it, so the turn carries its history', async () => {
+    useChatStore.setState({ conversations: [withoutMessages(whole('a'))], activeId: null })
+    getConversation.mockResolvedValue(whole('a'))
+
+    const loaded = await useChatStore.getState().ensureConversationLoaded('a')
+
+    expect(loaded?.messages.map((m) => m.id)).toEqual(['a-u', 'a-a'])
+  })
+
+  it('never discards an email chat it has not read as though it were unused', () => {
+    useChatStore.setState({
+      conversations: [
+        { ...withoutMessages(whole('mail')), emailThread: { accountId: 'x', threadId: 't' } }
+      ],
+      pendingComposerText: null
+    })
+
+    useChatStore.getState().discardUnusedEmailThreadConversation('mail')
+
+    expect(useChatStore.getState().conversations).toHaveLength(1)
+  })
+
+  it('refuses to edit or regenerate in a conversation whose messages are not read', async () => {
+    useChatStore.setState({ conversations: [withoutMessages(whole('a'))], activeId: 'x' })
+    useChatStore.setState({ activeId: 'a' })
+    expect((await useChatStore.getState().editMessage('a-u', 'changed')).status).toBe('failed')
+    expect((await useChatStore.getState().regenerateMessage('a-a')).status).toBe('failed')
+  })
+
+  it('keeps a conversation it has not read out of memory when a change is announced', async () => {
+    useChatStore.setState({
+      conversations: [withoutMessages(whole('a')), whole('b')],
+      activeId: 'b'
+    })
+    getConversation.mockImplementation((id) => Promise.resolve(whole(id, 50)))
+
+    await useChatStore.getState().reloadConversations(['a', 'b'])
+
+    const byId = new Map(useChatStore.getState().conversations.map((c) => [c.id, c]))
+    expect(byId.get('a')?.messagesNotLoaded).toBe(true)
+    expect(byId.get('a')?.updatedAt).toBe(50)
+    expect(byId.get('b')?.messages).toHaveLength(2)
+  })
+
+  it('records a checkpoint undone from the panel on a conversation it had not read', async () => {
+    useChatStore.setState({ conversations: [withoutMessages(whole('a'))], activeId: null })
+    getConversation.mockResolvedValue(whole('a'))
+    const checkpoint = { id: 'cp', changedFiles: ['x.ts'], restored: true } as never
+
+    useChatStore.getState().syncCheckpointSummary('a', 'a-a', checkpoint)
+
+    await vi.waitFor(() => expect(saveConversation).toHaveBeenCalled())
+    const saved = saveConversation.mock.calls[0][0]
+    expect(saved.messages.find((m) => m.id === 'a-a')?.checkpoint).toEqual(checkpoint)
+    expect(saved.messages).toHaveLength(2)
   })
 })

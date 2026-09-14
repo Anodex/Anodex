@@ -9,8 +9,11 @@ import { searchTranscripts } from '@shared/transcriptSearch'
  */
 export const MAX_SEARCH_HITS = 50
 
-/** Shortest query worth running: one or two characters match nearly everything. */
-const MIN_QUERY_CHARS = 3
+/**
+ * Shortest query worth running for a phone: one or two characters match nearly
+ * everything, and every hit is a line in a list on a small screen.
+ */
+export const MIN_QUERY_CHARS = 3
 
 /**
  * Search what was said in conversations, for a client that cannot load them all.
@@ -23,9 +26,11 @@ const MIN_QUERY_CHARS = 3
  */
 export function searchConversationBodies(
   conversations: Conversation[],
-  query: string
+  query: string,
+  /** The desktop sidebar searches from the first character, as it did in the window. */
+  minQueryChars: number = MIN_QUERY_CHARS
 ): ConversationSearchHit[] {
-  if (query.trim().length < MIN_QUERY_CHARS) return []
+  if (query.trim().length < Math.max(1, minQueryChars)) return []
 
   return searchTranscripts(conversations, query, { maxResults: MAX_SEARCH_HITS }).flatMap(
     (result) => {

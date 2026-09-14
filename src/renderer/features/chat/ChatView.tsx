@@ -47,7 +47,11 @@ export function ChatView(): JSX.Element {
         }
       />
       <div className={styles.body}>
-        {conversation && conversation.messages.length > 0 ? (
+        {conversation?.messagesNotLoaded ? (
+          // Opened, its messages still being read: the empty-chat greeting here
+          // would say a conversation with history has none.
+          <ChatBackground />
+        ) : conversation && conversation.messages.length > 0 ? (
           <MessageList
             messages={conversation.messages}
             context={conversation.context}
