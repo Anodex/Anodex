@@ -76,6 +76,8 @@ export interface RemotePairedDevice {
   name: string
   pairedAtEpochMs: number
   lastSeenEpochMs: number
+  /** Connected right now. `lastSeenEpochMs` only moves when a device connects. */
+  connected: boolean
   /**
    * Whether this phone pinned the certificate the listener is actually serving.
    *
@@ -140,6 +142,8 @@ export interface RemoteDeviceSummary {
   name: string
   pairedAtEpochMs: number
   lastSeenEpochMs: number
+  /** Connected right now. `lastSeenEpochMs` only moves when a device connects. */
+  connected: boolean
   /** The device asking. Unpairing it disconnects the phone doing the unpairing. */
   isThisDevice: boolean
 }

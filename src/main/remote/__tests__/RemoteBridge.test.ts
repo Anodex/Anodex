@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { X509Certificate } from 'node:crypto'
 import { generateRemoteCertificate, type RemoteCertificate } from '../certificate'
@@ -114,6 +114,33 @@ describe('RemoteBridge', () => {
     expect(tablet.readyState).toBe(WebSocket.OPEN)
     expect(pairing.paired().map((device) => device.deviceId)).toEqual([tabletId])
     tablet.close()
+  })
+
+  it('knows which devices are connected, and says when that changes', async () => {
+    await bridge.stop()
+    let changes = 0
+    bridge = new RemoteBridge(
+      pairing,
+      certificate,
+      () => undefined,
+      () => null,
+      () => {},
+      () => {},
+      () => changes++
+    )
+    port = await bridge.start(0)
+
+    const phone = await connect()
+    await pairPhone(phone)
+    const phoneId = pairing.paired()[0].deviceId
+    expect([...bridge.connectedDeviceIds()]).toEqual([phoneId])
+    expect(changes).toBe(1)
+
+    const closed = new Promise<void>((resolve) => phone.once('close', () => resolve()))
+    phone.close()
+    await closed
+    await vi.waitFor(() => expect(changes).toBe(2))
+    expect(bridge.connectedDeviceIds().size).toBe(0)
   })
 
   it('serves the certificate the phone is told to pin', async () => {
