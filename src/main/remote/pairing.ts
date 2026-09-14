@@ -254,23 +254,16 @@ export class PairingService {
    * Only the key's hash is stored, so a copy of the settings file is not a
    * credential. The comparison is constant-time: a length- or content-dependent
    * one leaks the stored value a byte at a time to anyone who can measure it.
+   *
+   * The lockout refuses wrong keys only. It used to be checked first, for every
+   * key, and it is shared: one phone unpaired from another device kept retrying its
+   * dead key, and after ten tries every phone still paired was refused for five
+   * minutes. A 256-bit key is not guessed ten at a time, so a right one is always let in.
    */
   authenticate(
     offeredKey: string
   ): { ok: true; device: PairedDevice } | { ok: false; failure: PairingFailure } {
     const now = this.now()
-
-    if (now < this.authLockedUntil) {
-      return {
-        ok: false,
-        failure: {
-          reason: 'rate-limited',
-          message: 'Too many failed attempts.',
-          retryAfterMs: this.authLockedUntil - now
-        }
-      }
-    }
-
     const devices = this.store.read()
     if (devices.length === 0) {
       return {
@@ -285,6 +278,17 @@ export class PairingService {
     let device: PairedDevice | null = null
     for (const candidate of devices) {
       if (constantTimeEquals(offeredHash, candidate.keyHash) && !device) device = candidate
+    }
+
+    if (!device && now < this.authLockedUntil) {
+      return {
+        ok: false,
+        failure: {
+          reason: 'rate-limited',
+          message: 'Too many failed attempts.',
+          retryAfterMs: this.authLockedUntil - now
+        }
+      }
     }
 
     if (!device) {
