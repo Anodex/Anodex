@@ -1851,6 +1851,74 @@
       }
     },
     {
+      "channel": "conversations:branch-for-edit",
+      "kind": "invoke",
+      "api": "conversations.branchForEdit",
+      "args": [
+        {
+          "name": "conversationId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "messageId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "remainingMessages": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "conversations:changed",
       "kind": "event",
       "api": "conversations.onChanged",

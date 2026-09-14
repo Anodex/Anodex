@@ -363,6 +363,11 @@ export const IpcChannel = {
     search: 'conversations:search',
     /** One conversation, with the most recent `limit` messages. */
     get: 'conversations:get',
+    /**
+     * Cut a conversation back to just before one of its questions, for Edit from a
+     * phone. See `branchForEdit` for when it is refused.
+     */
+    branchForEdit: 'conversations:branch-for-edit',
     /** A picture on a message, sized for a phone. By conversation, message and index, never by path. */
     attachmentPreview: 'conversations:attachment-preview',
     /**
@@ -867,6 +872,10 @@ export interface AnodexApi {
      * beginning of a long one is both large and rarely what was asked for.
      */
     get(conversationId: string, limit?: number): Promise<Conversation | null>
+    branchForEdit(
+      conversationId: string,
+      messageId: string
+    ): Promise<Result<{ remainingMessages: number }>>
     attachmentPreview(
       conversationId: string,
       messageId: string,
