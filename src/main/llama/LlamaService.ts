@@ -445,12 +445,14 @@ class LlamaService extends EventEmitter {
    */
   private loadingModel = false
   /**
-   * Serializes every model-touching operation onto the single loaded model.
-   * The local vision runtime is a `llama-server` started with `--parallel 1`,
-   * so a second concurrent request — a toast summary or chat-title generation
-   * firing while a reply is still streaming — drops the in-flight HTTP stream
-   * and surfaces as a raw `terminated` error. This lock makes those auxiliary
-   * calls *defer* until the active generation finishes instead of racing it.
+   * Admits model-touching operations onto the loaded model, as many at once as it
+   * has room for. The vision runtime is a `llama-server` started with one slot per
+   * parallel job (`--parallel`), and a request beyond its slots — a toast summary
+   * or chat-title generation firing while a reply is still streaming — drops the
+   * in-flight HTTP stream and surfaces as a raw `terminated` error. So capacity
+   * matches the slots: one unless the user turned parallel jobs on for a vision
+   * model, and always one for node-llama-cpp's single session. Extra callers
+   * *defer* instead of racing. Loading and unloading take the gate exclusively.
    * Acquired only at the public entry points (`generate`, `summarizeForToast`,
    * `generateChatTitle`, `compactConversationContext`); the shared internal
    * summary helpers run under the caller's already-held lock, so a mid-turn
