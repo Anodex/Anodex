@@ -5,6 +5,7 @@ import type { UpdateDownloadedEvent } from 'electron-updater'
 import type { UpdateStatus } from '@shared/update.types'
 import { createLogger } from '../utils/logger'
 import { verifyUpdateFile } from './verifyRelease'
+import { showUpdateProgressWindow } from './updateProgressWindow'
 
 const log = createLogger('updater')
 
@@ -139,6 +140,8 @@ class UpdateService extends EventEmitter {
    */
   installAndRestart(): void {
     if (this.status.state !== 'downloaded') return
+    // Silent means nothing on screen while it installs, so say it is happening.
+    showUpdateProgressWindow({ version: this.status.version, exePath: app.getPath('exe') })
     autoUpdater.quitAndInstall(true, true)
   }
 
