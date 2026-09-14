@@ -2483,6 +2483,15 @@
       }
     },
     {
+      "channel": "devices:changed",
+      "kind": "event",
+      "api": "devices.onChanged",
+      "args": [],
+      "payload": {
+        "kind": "void"
+      }
+    },
+    {
       "channel": "devices:list",
       "kind": "invoke",
       "api": "devices.list",
@@ -21181,6 +21190,12 @@
             "kind": "number"
           }
         },
+        "connected": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
         "isThisDevice": {
           "optional": false,
           "type": {
@@ -21399,6 +21414,12 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        },
+        "connected": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
           }
         },
         "trustsThisIdentity": {
