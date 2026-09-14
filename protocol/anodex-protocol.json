@@ -11240,6 +11240,10 @@
               {
                 "kind": "literal",
                 "value": "working"
+              },
+              {
+                "kind": "literal",
+                "value": "reading"
               }
             ]
           }
@@ -11248,6 +11252,20 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        },
+        "reading": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "$ref": "PromptReadingProgress"
+              }
+            ]
           }
         }
       }
@@ -13964,11 +13982,11 @@
             "of": [
               {
                 "kind": "literal",
-                "value": "planning"
+                "value": "reading"
               },
               {
                 "kind": "literal",
-                "value": "reading"
+                "value": "planning"
               },
               {
                 "kind": "literal",
@@ -14263,6 +14281,10 @@
               },
               {
                 "kind": "literal",
+                "value": "reading"
+              },
+              {
+                "kind": "literal",
                 "value": "stopped"
               },
               {
@@ -14280,10 +14302,6 @@
               {
                 "kind": "literal",
                 "value": "searching"
-              },
-              {
-                "kind": "literal",
-                "value": "reading"
               },
               {
                 "kind": "literal",
@@ -20497,6 +20515,23 @@
           }
         },
         "tokens": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      }
+    },
+    "PromptReadingProgress": {
+      "kind": "object",
+      "properties": {
+        "done": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "total": {
           "optional": false,
           "type": {
             "kind": "number"

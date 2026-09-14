@@ -1,3 +1,4 @@
+import type { PromptReadingProgress } from '@shared/chat.types'
 import { app } from 'electron'
 import { PromptPrefixStore } from './promptWarmup'
 import { EventEmitter } from 'node:events'
@@ -211,6 +212,11 @@ export interface GenerateParams {
    * doc comment. Only reasoning-tuned models ever call this at all.
    */
   onThinkingToken?: (token: string) => void
+  /**
+   * How far the model has read the prompt, while it reads. Only the vision runtime
+   * reports this; llama-server sends it about every 2,000 tokens.
+   */
+  onPromptProgress?: (progress: PromptReadingProgress) => void
   signal?: AbortSignal
   /** Provider tool-use round cap selected by the shared execution policy. */
   maxProviderRounds?: number

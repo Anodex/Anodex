@@ -1,3 +1,4 @@
+import type { PromptReadingProgress } from '@shared/chat.types'
 import { randomUUID } from 'node:crypto'
 import type {
   ChatRequest,
@@ -97,6 +98,8 @@ export interface RunGenerationIo {
   onToken?: (token: string) => void
   /** See `GenerateParams.onThinkingToken`'s doc comment. */
   onThinkingToken?: (token: string) => void
+  /** See `GenerateParams.onPromptProgress`'s doc comment. */
+  onPromptProgress?: (progress: PromptReadingProgress) => void
   onActivity?: (call: ToolCall) => void
   confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   /** Restricts which tools get registered; undefined/null = unrestricted (normal chat). */
@@ -901,7 +904,8 @@ export async function runGeneration(
       signal: execution.signal,
       tools,
       onToken: (token) => io.onToken?.(token),
-      onThinkingToken: (token) => io.onThinkingToken?.(token)
+      onThinkingToken: (token) => io.onThinkingToken?.(token),
+      onPromptProgress: (progress) => io.onPromptProgress?.(progress)
     })
   } finally {
     execution.dispose(io.signal)

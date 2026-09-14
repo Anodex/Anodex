@@ -484,8 +484,20 @@ export interface ChatStreamChunk {
 export interface ChatWorkingEvent {
   conversationId: string
   messageId: string
-  phase: 'waiting-for-model' | 'working'
+  /**
+   * `reading` while the model reads the prompt before writing — most of the wait on
+   * a local model when a long conversation has to be read — with how far it is.
+   */
+  phase: 'waiting-for-model' | 'working' | 'reading'
   since: number
+  /** Tokens of the prompt read so far, cached ones included, out of the total. Only with `reading`. */
+  reading?: PromptReadingProgress
+}
+
+/** How far a model has read its prompt. */
+export interface PromptReadingProgress {
+  done: number
+  total: number
 }
 
 /** Live chain-of-thought tokens, streamed separately from `ChatStreamChunk`'s visible-reply tokens. */
