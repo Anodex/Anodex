@@ -1,5 +1,6 @@
-import type { Conversation } from '@shared/conversation.types'
-import { searchTranscripts } from '@shared/transcriptSearch'
+import { useEffect, useState } from 'react'
+import type { ConversationSearchHit } from '@shared/conversation.types'
+import { anodex } from '../../lib/anodex'
 
 /**
  * Sidebar search over both conversation titles and what was actually said in
@@ -17,12 +18,11 @@ import { searchTranscripts } from '@shared/transcriptSearch'
  */
 
 /**
- * Deliberately far above `transcriptSearch`'s own default of 3. That default
- * bounds how much gets injected into a prompt; here the only cost is list
- * length, and a search that silently caps at three hits would be worse than
- * no search at all.
+ * How long typing has to pause before the computer is asked. Searching every
+ * conversation's messages is the computer's work now — the window no longer holds
+ * them — and one search per keystroke would queue work nobody reads.
  */
-const MAX_BODY_MATCHES = 50
+export const BODY_SEARCH_DEBOUNCE_MS = 150
 
 export interface SidebarSearchMatches {
   /** Ids of conversations matching on message content. */
@@ -33,24 +33,56 @@ export interface SidebarSearchMatches {
 
 const EMPTY: SidebarSearchMatches = { ids: new Set(), excerpts: new Map() }
 
-/** Rank `conversations` by what their messages say. Empty query yields no matches. */
-export function findBodyMatches(
-  conversations: Conversation[],
-  query: string
-): SidebarSearchMatches {
-  if (!query.trim()) return EMPTY
-
-  const results = searchTranscripts(conversations, query, { maxResults: MAX_BODY_MATCHES })
+/**
+ * The computer's body-search hits as the sidebar reads them.
+ *
+ * The ranking is `transcriptSearch`'s, run by `conversations:search` where the
+ * messages are, with the same cap of fifty the sidebar always used; each hit carries
+ * its best excerpt already.
+ */
+export function matchesFromHits(hits: ConversationSearchHit[]): SidebarSearchMatches {
+  if (hits.length === 0) return EMPTY
   const ids = new Set<string>()
   const excerpts = new Map<string, string>()
-  for (const result of results) {
-    ids.add(result.conversationId)
-    // `searchTranscripts` returns excerpts already sorted by score, so the
-    // first is the strongest reason this conversation surfaced.
-    const best = result.excerpts[0]
-    if (best) excerpts.set(result.conversationId, best.text)
+  for (const hit of hits) {
+    ids.add(hit.conversationId)
+    if (hit.excerpt) excerpts.set(hit.conversationId, hit.excerpt)
   }
   return { ids, excerpts }
+}
+
+/**
+ * Conversations whose messages match `query`, asked of the computer once typing
+ * pauses. Nothing for an empty query, and nothing — titles still match — when the
+ * search cannot be run.
+ */
+export function useBodyMatches(query: string): SidebarSearchMatches {
+  const [matches, setMatches] = useState<SidebarSearchMatches>(EMPTY)
+  const trimmed = query.trim()
+
+  useEffect(() => {
+    if (!trimmed) {
+      setMatches(EMPTY)
+      return
+    }
+    let current = true
+    const timer = setTimeout(() => {
+      anodex.conversations
+        .search(trimmed)
+        .then((hits) => {
+          if (current) setMatches(matchesFromHits(hits))
+        })
+        .catch(() => {
+          if (current) setMatches(EMPTY)
+        })
+    }, BODY_SEARCH_DEBOUNCE_MS)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [trimmed])
+
+  return trimmed ? matches : EMPTY
 }
 
 /** Whether `text` contains `query`, case-insensitively. */

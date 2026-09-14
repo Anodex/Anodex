@@ -2183,6 +2183,18 @@
       }
     },
     {
+      "channel": "conversations:list-without-messages",
+      "kind": "invoke",
+      "api": "conversations.listWithoutMessages",
+      "args": [],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "Conversation"
+        }
+      }
+    },
+    {
       "channel": "conversations:read-visual-preview",
       "kind": "invoke",
       "api": "conversations.readVisualPreview",
@@ -13151,6 +13163,20 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        },
+        "messagesNotLoaded": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              }
+            ]
           }
         },
         "archived": {
