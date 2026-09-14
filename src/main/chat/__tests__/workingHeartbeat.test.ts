@@ -75,6 +75,18 @@ describe('startWorkingHeartbeat', () => {
     expect(sent).toEqual([])
   })
 
+  it('keeps its schedule through thinking a phone was not sent, but no longer says waiting', () => {
+    // A phone that has not opened the thinking hears nothing while a model thinks
+    // for a minute, and gives up on a turn after five minutes of silence.
+    const waiting = { value: true }
+    const { beat, sent, advance } = harness(waiting)
+    sent.length = 0
+    advance(20_000)
+    beat.touch(false)
+    advance(10_000)
+    expect(sent.map((event) => event.phase)).toEqual(['working'])
+  })
+
   it('sends nothing after it is stopped', () => {
     const { beat, sent, advance } = harness({ value: false })
     beat.stop()

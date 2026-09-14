@@ -41,6 +41,11 @@ export interface RemoteMessage {
    * it. Paths stay on the computer.
    */
   attachments?: RemoteAttachment[]
+  /**
+   * True when the reply has saved thinking. The text itself is not sent — it is often
+   * longer than the reply — and is read with `conversations:thinking` when opened.
+   */
+  hasThinking?: true
 }
 
 export interface RemoteAttachment {
@@ -137,7 +142,8 @@ function trim(
         role: message.role,
         content: full,
         ...(message.persona ? { persona: message.persona } : {}),
-        ...attachmentsOf(message)
+        ...attachmentsOf(message),
+        ...thinkingFlagOf(message)
       },
       wasCut: false
     }
@@ -160,13 +166,19 @@ function trim(
       role: message.role,
       content: `${head}\n\n… ${trimmedKb}KB more. Open this conversation on the computer to read the rest.`,
       ...(message.persona ? { persona: message.persona } : {}),
-      ...attachmentsOf(message)
+      ...attachmentsOf(message),
+      ...thinkingFlagOf(message)
     },
     wasCut: true
   }
 }
 
 const byteLength = (text: string): number => Buffer.byteLength(text, 'utf8')
+
+/** Whether a phone can ask for this message's thinking. */
+function thinkingFlagOf(message: ChatMessage): { hasThinking?: true } {
+  return message.thinking?.trim() ? { hasThinking: true } : {}
+}
 
 /** A message's attachments as a phone may see them, or nothing when it has none. */
 function attachmentsOf(message: ChatMessage): { attachments?: RemoteAttachment[] } {

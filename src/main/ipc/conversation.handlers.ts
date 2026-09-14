@@ -22,8 +22,17 @@ const log = createLogger('ipc:conversations')
 export function registerConversationHandlers(): void {
   ipcMain.handle(IpcChannel.Conversations.list, () => conversationStore.list())
 
-  ipcMain.handle(IpcChannel.Conversations.listSummaries, () =>
-    conversationStore.list().map(toSummary)
+  // Given ids, only those conversations; one archived or gone is simply absent. A
+  // phone told one conversation changed reads that row rather than the whole list,
+  // which on a real store is tens of kilobytes every save.
+  ipcMain.handle(IpcChannel.Conversations.listSummaries, (_event, ids?: unknown) =>
+    summariesOf(conversationStore.list(), ids)
+  )
+
+  ipcMain.handle(
+    IpcChannel.Conversations.thinking,
+    (_event, conversationId: string, messageId: string) =>
+      thinkingOf(conversationStore.get(conversationId), messageId)
   )
 
   ipcMain.handle(IpcChannel.Conversations.search, (_event, query: string) =>
@@ -252,6 +261,22 @@ function announceChange(event: unknown, conversationId: string): void {
   )
 }
 
+/** Every summary, or only those named when `ids` is a list of them. */
+export function summariesOf(conversations: Conversation[], ids?: unknown): ConversationSummary[] {
+  if (!Array.isArray(ids)) return conversations.map(toSummary)
+  const wanted = new Set(ids.filter((id): id is string => typeof id === 'string'))
+  return conversations.filter((conversation) => wanted.has(conversation.id)).map(toSummary)
+}
+
+/** One message's saved thinking, or null when it has none or is not there. */
+export function thinkingOf(
+  conversation: Conversation | null | undefined,
+  messageId: string
+): string | null {
+  const message = conversation?.messages.find((candidate) => candidate.id === messageId)
+  return message?.thinking?.trim() ? message.thinking : null
+}
+
 /**
  * A conversation minus its messages.
  *
@@ -259,7 +284,7 @@ function announceChange(event: unknown, conversationId: string): void {
  * conversation is, never what is in it, and the messages are the entire reason the
  * full store is too large to send anywhere.
  */
-function toSummary(conversation: Conversation): ConversationSummary {
+export function toSummary(conversation: Conversation): ConversationSummary {
   return {
     id: conversation.id,
     projectId: conversation.projectId,

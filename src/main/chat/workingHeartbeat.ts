@@ -9,8 +9,14 @@ import type { ChatWorkingEvent, PromptReadingProgress } from '@shared/chat.types
 export const WORKING_HEARTBEAT_MS = 30_000
 
 export interface WorkingHeartbeat {
-  /** Something visible happened: a token, a thought, a tool. */
-  touch(): void
+  /**
+   * Something visible happened: a token, a thought, a tool.
+   *
+   * `reachedEveryone` false for one some client was not sent — thinking a phone has
+   * not opened, or tokens it asked not to receive. The turn has started, but that
+   * client has heard nothing, so the heartbeat keeps its schedule.
+   */
+  touch(reachedEveryone?: boolean): void
   /**
    * The model is reading the prompt, this far. Sent straight away rather than on the
    * heartbeat's schedule — it is the one quiet stretch worth watching move.
@@ -74,9 +80,9 @@ export function startWorkingHeartbeat(options: {
   }, interval)
 
   return {
-    touch(): void {
+    touch(reachedEveryone = true): void {
       started = true
-      lastSent = now()
+      if (reachedEveryone) lastSent = now()
     },
     reading(progress: PromptReadingProgress): void {
       if (stopped) return
