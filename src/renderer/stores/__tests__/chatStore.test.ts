@@ -628,6 +628,7 @@ describe('conversations read when they are needed', () => {
     listWithoutMessages.mockReset()
     saveConversation.mockReset()
     saveConversation.mockResolvedValue(undefined)
+    getConversation.mockResolvedValue(null)
     getConversationState.mockResolvedValue({ activeConversationId: null })
     useChatStore.setState({ conversations: [], activeId: null, loaded: true, pendingMessages: {} })
   })
@@ -738,15 +739,15 @@ describe('conversations read when they are needed', () => {
   })
 
   it('records a checkpoint undone from the panel on a conversation it had not read', async () => {
-    useChatStore.setState({ conversations: [withoutMessages(whole('a'))], activeId: null })
-    getConversation.mockResolvedValue(whole('a'))
+    useChatStore.setState({ conversations: [withoutMessages(whole('ck'))], activeId: null })
+    getConversation.mockResolvedValue(whole('ck'))
     const checkpoint = { id: 'cp', changedFiles: ['x.ts'], restored: true } as never
 
-    useChatStore.getState().syncCheckpointSummary('a', 'a-a', checkpoint)
+    useChatStore.getState().syncCheckpointSummary('ck', 'ck-a', checkpoint)
 
     await vi.waitFor(() => expect(saveConversation).toHaveBeenCalled())
     const saved = saveConversation.mock.calls[0][0]
-    expect(saved.messages.find((m) => m.id === 'a-a')?.checkpoint).toEqual(checkpoint)
+    expect(saved.messages.find((m) => m.id === 'ck-a')?.checkpoint).toEqual(checkpoint)
     expect(saved.messages).toHaveLength(2)
   })
 })
