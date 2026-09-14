@@ -81,4 +81,31 @@ describe('startWorkingHeartbeat', () => {
     advance(60_000)
     expect(sent).toEqual([])
   })
+
+  it('sends reading progress at once, and a later quiet stretch no longer says waiting', () => {
+    const waiting = { value: true }
+    const { beat, sent, advance } = harness(waiting)
+    sent.length = 0
+
+    beat.reading({ done: 2_048, total: 9_840 })
+    expect(sent).toEqual([
+      {
+        conversationId: 'c1',
+        messageId: 'm1',
+        phase: 'reading',
+        since: 1_000,
+        reading: { done: 2_048, total: 9_840 }
+      }
+    ])
+
+    advance(30_000)
+    expect(sent.at(-1)?.phase).toBe('working')
+  })
+
+  it('sends nothing once stopped', () => {
+    const { beat, sent } = harness({ value: false })
+    beat.stop()
+    beat.reading({ done: 1, total: 2 })
+    expect(sent).toEqual([])
+  })
 })

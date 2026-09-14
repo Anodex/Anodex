@@ -102,6 +102,7 @@ export function registerChatHandlers(): void {
             token
           })
         },
+        onPromptProgress: (progress) => heartbeat.reading(progress),
         onThinkingToken: (token) => {
           heartbeat.touch()
           broadcastLiveToken(IpcChannel.Chat.thinkingStream, {

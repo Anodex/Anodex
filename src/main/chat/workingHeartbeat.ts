@@ -1,4 +1,4 @@
-import type { ChatWorkingEvent } from '@shared/chat.types'
+import type { ChatWorkingEvent, PromptReadingProgress } from '@shared/chat.types'
 
 /**
  * How often a turn nobody can see progress on says it is still alive.
@@ -11,6 +11,11 @@ export const WORKING_HEARTBEAT_MS = 30_000
 export interface WorkingHeartbeat {
   /** Something visible happened: a token, a thought, a tool. */
   touch(): void
+  /**
+   * The model is reading the prompt, this far. Sent straight away rather than on the
+   * heartbeat's schedule — it is the one quiet stretch worth watching move.
+   */
+  reading(progress: PromptReadingProgress): void
   stop(): void
 }
 
@@ -72,6 +77,18 @@ export function startWorkingHeartbeat(options: {
     touch(): void {
       started = true
       lastSent = now()
+    },
+    reading(progress: PromptReadingProgress): void {
+      if (stopped) return
+      started = true
+      lastSent = now()
+      options.send({
+        conversationId: options.conversationId,
+        messageId: options.messageId,
+        phase: 'reading',
+        since,
+        reading: progress
+      })
     },
     stop(): void {
       if (stopped) return
