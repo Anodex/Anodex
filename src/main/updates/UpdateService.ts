@@ -127,10 +127,19 @@ class UpdateService extends EventEmitter {
     this.setStatus({ state: 'downloaded', version: event.version })
   }
 
-  /** Quits and installs the already-downloaded update. Only valid after `downloaded`. */
+  /**
+   * Quits and installs the already-downloaded update. Only valid after `downloaded`.
+   *
+   * Silent, and relaunching afterwards. The Windows installer is the assisted
+   * kind (`oneClick: false`), so run normally it opens on "who should this be
+   * installed for?" and waits there — Anodex has already quit, so nothing comes
+   * back until someone finds that window and clicks through it. The user agreed to
+   * the install by pressing Restart & install; the upgrade keeps the existing
+   * per-user installation and its folder either way.
+   */
   installAndRestart(): void {
     if (this.status.state !== 'downloaded') return
-    autoUpdater.quitAndInstall()
+    autoUpdater.quitAndInstall(true, true)
   }
 
   private setStatus(status: UpdateStatus): void {
