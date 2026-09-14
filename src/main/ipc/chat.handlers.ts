@@ -20,7 +20,14 @@ import {
 import { broadcastLiveToken, broadcastToWindows } from '../broadcast'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
-import { isRemoteCall, resolveClientChannel, setLiveTokens } from '../clients/clientRegistry'
+import {
+  isRemoteCall,
+  resolveClientChannel,
+  setLiveThinking,
+  setLiveTokens,
+  wantsLiveThinking
+} from '../clients/clientRegistry'
+import { endThinking, noteThinking, thinkingSoFar } from '../chat/liveThinking'
 import { rehydrateUploadedImage } from '../remote/uploadStore'
 import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
@@ -47,6 +54,22 @@ export function registerChatHandlers(): void {
   // that reconnects on Wi-Fi should not still be muted from when it was on a train.
   ipcMain.handle(IpcChannel.Chat.setLiveTokens, (event, wanted: boolean) => {
     setLiveTokens(resolveClientChannel(event).id, wanted)
+  })
+
+  // Opened, the thinking so far comes first, as one frame that replaces whatever the
+  // client holds, and then the rest as it is written.
+  ipcMain.handle(IpcChannel.Chat.setLiveThinking, (event, wanted: boolean) => {
+    const client = resolveClientChannel(event)
+    setLiveThinking(client.id, wanted === true)
+    if (wanted !== true || !wantsLiveThinking(client)) return
+    for (const turn of thinkingSoFar()) {
+      client.send(IpcChannel.Chat.thinkingStream, {
+        conversationId: turn.conversationId,
+        messageId: turn.messageId,
+        token: turn.text,
+        replace: true
+      })
+    }
   })
 
   ipcMain.handle(IpcChannel.Chat.send, async (event, rawRequest: ChatRequest) => {
@@ -95,21 +118,28 @@ export function registerChatHandlers(): void {
         surface: 'chat',
         signal: controller.signal,
         onToken: (token) => {
-          heartbeat.touch()
-          broadcastLiveToken(IpcChannel.Chat.stream, {
-            conversationId: request.conversationId,
-            messageId: request.messageId,
-            token
-          })
+          heartbeat.touch(
+            broadcastLiveToken(IpcChannel.Chat.stream, {
+              conversationId: request.conversationId,
+              messageId: request.messageId,
+              token
+            })
+          )
         },
         onPromptProgress: (progress) => heartbeat.reading(progress),
         onThinkingToken: (token) => {
-          heartbeat.touch()
-          broadcastLiveToken(IpcChannel.Chat.thinkingStream, {
-            conversationId: request.conversationId,
-            messageId: request.messageId,
-            token
-          })
+          noteThinking(request.conversationId, request.messageId, token)
+          heartbeat.touch(
+            broadcastLiveToken(
+              IpcChannel.Chat.thinkingStream,
+              {
+                conversationId: request.conversationId,
+                messageId: request.messageId,
+                token
+              },
+              'thinking'
+            )
+          )
         },
         onActivity: (call) => {
           heartbeat.touch()
@@ -169,6 +199,7 @@ export function registerChatHandlers(): void {
       return err('chat.generation-failed', message)
     } finally {
       heartbeat.stop()
+      endThinking(request.conversationId, request.messageId)
       releaseGeneration(request.conversationId, controller)
     }
   })

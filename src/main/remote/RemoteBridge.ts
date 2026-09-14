@@ -16,6 +16,7 @@ import { hostname } from 'node:os'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
 import type { PairingService } from './pairing'
+import { createTokenCoalescer, type TokenCoalescer } from './tokenCoalescer'
 import {
   MAX_FRAME_BYTES,
   MAX_RESPONSE_BYTES,
@@ -67,6 +68,13 @@ const HANDSHAKE_TIMEOUT_MS = 10_000
  */
 const FAREWELL_GRACE_MS = 250
 
+/**
+ * Frames smaller than this go uncompressed. Low, because with the window kept
+ * between frames even a hundred-byte token frame shrinks to a fraction; only a
+ * ping-sized one is not worth the call into zlib.
+ */
+const COMPRESS_FROM_BYTES = 48
+
 export class RemoteBridge {
   private server: HttpsServer | null = null
   private sockets: WebSocketServer | null = null
@@ -74,6 +82,8 @@ export class RemoteBridge {
   private readonly socketDevice = new WeakMap<WebSocket, string>()
   /** Where each authenticated socket connected from. */
   private readonly socketPeer = new WeakMap<WebSocket, string | undefined>()
+  /** Tokens held for each authenticated socket. */
+  private readonly coalescers = new WeakMap<WebSocket, TokenCoalescer>()
   private sequence = 0
 
   constructor(
@@ -166,7 +176,19 @@ export class RemoteBridge {
       minVersion: 'TLSv1.2'
     })
 
-    const sockets = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES })
+    const sockets = new WebSocketServer({
+      server,
+      maxPayload: MAX_FRAME_BYTES,
+      // Compressed, with the window kept between frames, which is what makes a
+      // small frame worth compressing: every token frame repeats the same channel,
+      // conversation id and message id, and after the first they cost a few bytes.
+      // The phone's OkHttp offers this on its own, and a client that does not is
+      // simply sent frames uncompressed.
+      perMessageDeflate: {
+        threshold: COMPRESS_FROM_BYTES,
+        zlibDeflateOptions: { level: 6 }
+      }
+    })
     sockets.on('connection', (socket, request) =>
       this.onConnection(socket, request.socket.remoteAddress)
     )
@@ -336,6 +358,7 @@ export class RemoteBridge {
 
     socket.on('close', () => {
       clearTimeout(handshakeTimer)
+      this.coalescers.get(socket)?.dispose()
       if (client) {
         detachRemoteClient(client)
         this.onConnectionsChanged()
@@ -388,11 +411,17 @@ export class RemoteBridge {
     // can get in — and reporting it would claim the setup works when it may not.
     this.onPeer(peerAddress)
 
+    // Tokens are held a moment and sent several to a frame. Every other frame to this
+    // socket sends what is held first — see `send` — so nothing arrives out of order.
+    const coalescer = createTokenCoalescer({
+      emit: (channel, payload) =>
+        this.sendNow(socket, { type: 'event', channel, payload, seq: ++this.sequence })
+    })
+    this.coalescers.set(socket, coalescer)
+
     const client: ClientChannel = {
       id: `remote:${deviceId}`,
-      send: (channel, payload) => {
-        this.send(socket, { type: 'event', channel, payload, seq: ++this.sequence })
-      },
+      send: (channel, payload) => coalescer.event(channel, payload),
       isAlive: () => socket.readyState === socket.OPEN
     }
     attachRemoteClient(client)
@@ -453,6 +482,12 @@ export class RemoteBridge {
    * outcome available into an error message.
    */
   private send(socket: WebSocket, frame: ServerFrame): void {
+    // Held tokens go first: a turn's result must not arrive before its last words.
+    this.coalescers.get(socket)?.flush()
+    this.sendNow(socket, frame)
+  }
+
+  private sendNow(socket: WebSocket, frame: ServerFrame): void {
     if (socket.readyState !== socket.OPEN) return
 
     const text = JSON.stringify(frame)

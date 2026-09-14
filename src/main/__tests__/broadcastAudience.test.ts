@@ -37,9 +37,11 @@ vi.mock('electron', () => ({
 
 const remotes: ClientChannel[] = []
 const muted = new Set<string>()
+const thinkingMuted = new Set<string>()
 vi.mock('@main/clients/clientRegistry', () => ({
   activeRemoteClients: () => remotes,
-  wantsLiveTokens: (c: ClientChannel) => !muted.has(c.id)
+  wantsLiveTokens: (c: ClientChannel) => !muted.has(c.id),
+  wantsLiveThinking: (c: ClientChannel) => !muted.has(c.id) && !thinkingMuted.has(c.id)
 }))
 
 const { broadcastToOtherClients, broadcastToWindows, broadcastLiveToken } =
@@ -66,6 +68,7 @@ beforeEach(() => {
   windows.length = 0
   remotes.length = 0
   muted.clear()
+  thinkingMuted.clear()
 })
 
 describe('broadcastToOtherClients', () => {
@@ -202,5 +205,21 @@ describe('broadcastLiveToken', () => {
 
     expect(quiet.sent).toEqual([])
     expect(loud.sent).toHaveLength(1)
+  })
+
+  it('sends thinking only to a phone that has not closed it, and says who was left out', () => {
+    // Thinking is most of what a reasoning model writes, and a phone shows it only
+    // when somebody opens it.
+    const desktop = fakeWindow(1)
+    const phone = fakeRemote('remote:pixel')
+    thinkingMuted.add('remote:pixel')
+
+    expect(broadcastLiveToken('chat:thinking-stream', { token: 'hm' }, 'thinking')).toBe(false)
+    expect(phone.sent).toEqual([])
+    expect(desktop.sent).toHaveLength(1)
+
+    // The reply still reaches it.
+    expect(broadcastLiveToken('chat:stream', { token: 'hi' })).toBe(true)
+    expect(phone.sent).toHaveLength(1)
   })
 })

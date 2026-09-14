@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { ClientChannel } from './clients/ClientChannel'
-import { activeRemoteClients, wantsLiveTokens } from './clients/clientRegistry'
+import { activeRemoteClients, wantsLiveThinking, wantsLiveTokens } from './clients/clientRegistry'
 
 /**
  * Frame-disposal-safe IPC delivery to renderer windows.
@@ -91,9 +91,21 @@ export function broadcastToOtherClients(
  * Windows always receive. The preference exists for a connection that is paid for by
  * the megabyte, which a renderer in the same process is not.
  */
-export function broadcastLiveToken(channel: string, payload: unknown): void {
+export function broadcastLiveToken(
+  channel: string,
+  payload: unknown,
+  kind: 'reply' | 'thinking' = 'reply'
+): boolean {
   for (const window of BrowserWindow.getAllWindows()) sendToWindow(window, channel, payload)
+  let reachedEveryone = true
   for (const client of activeRemoteClients()) {
-    if (wantsLiveTokens(client)) client.send(channel, payload)
+    if (kind === 'thinking' ? wantsLiveThinking(client) : wantsLiveTokens(client)) {
+      client.send(channel, payload)
+    } else {
+      reachedEveryone = false
+    }
   }
+  // Whether every remote client was sent it. A token a phone was not sent is not
+  // proof to that phone that the turn is alive, so the heartbeat must still speak.
+  return reachedEveryone
 }

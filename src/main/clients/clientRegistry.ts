@@ -133,3 +133,21 @@ export function setLiveTokens(clientId: string, wanted: boolean): void {
 export function wantsLiveTokens(client: ClientChannel): boolean {
   return !mutedLiveTokens.has(client.id)
 }
+
+/**
+ * Clients that have asked not to be sent thinking as it is generated.
+ *
+ * Kept apart from [mutedLiveTokens] and by id for the same reasons. Empty means
+ * everybody gets thinking, which is what a phone from before this existed expects:
+ * it reads a thinking token as proof the turn is alive.
+ */
+const mutedLiveThinking = new Set<string>()
+
+export function setLiveThinking(clientId: string, wanted: boolean): void {
+  if (wanted) mutedLiveThinking.delete(clientId)
+  else mutedLiveThinking.add(clientId)
+}
+
+export function wantsLiveThinking(client: ClientChannel): boolean {
+  return wantsLiveTokens(client) && !mutedLiveThinking.has(client.id)
+}
