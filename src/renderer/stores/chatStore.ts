@@ -180,6 +180,14 @@ interface ChatState {
   deleteAllConversations: () => Promise<void>
   refreshConversations: () => Promise<void>
   /**
+   * Read these conversations again, and only these.
+   *
+   * What a change announced for one conversation needs. `refreshConversations`
+   * reads every conversation the app has — tens of megabytes on a real store —
+   * and a phone's reply alone announces a change two or three times.
+   */
+  reloadConversations: (ids: string[]) => Promise<void>
+  /**
    * Detach a conversation from a project that no longer exists — e.g. the
    * project was deleted while this conversation survived (an interrupted
    * delete, or data from an older build). Moves it back to being a general
@@ -311,6 +319,44 @@ export function preserveInFlight(current: Conversation[], loaded: Conversation[]
     if (!merged.some((c) => c.id === id)) merged.unshift(conversation)
   }
   return merged
+}
+
+/** Which read of each conversation is the newest, so an older answer is not applied over it. */
+const latestReload = new Map<string, number>()
+let reloadCounter = 0
+function nextReload(id: string): number {
+  reloadCounter += 1
+  latestReload.set(id, reloadCounter)
+  return reloadCounter
+}
+
+/**
+ * The conversation list with one conversation as the computer now has it.
+ *
+ * The same rules as `preserveInFlight`, for one conversation: one still generating
+ * here keeps its live copy and gains only turns it has not seen, and is never
+ * removed from under its reply. Otherwise it is replaced, added in date order, or —
+ * archived or gone — removed.
+ */
+export function withReloaded(
+  current: Conversation[],
+  id: string,
+  loaded: Conversation | null | undefined
+): Conversation[] {
+  const index = current.findIndex((c) => c.id === id)
+  const existing = index >= 0 ? current[index] : undefined
+  if (existing?.messages.some((m) => m.streaming)) {
+    if (!loaded || loaded.archived) return current
+    const merged = withPersistedTurnsMissingFrom(existing, loaded)
+    return merged === existing ? current : current.map((c) => (c.id === id ? merged : c))
+  }
+
+  const others = index >= 0 ? current.filter((c) => c.id !== id) : current
+  if (!loaded || loaded.archived) return index >= 0 ? others : current
+
+  // Where the full reload would have put it: newest first.
+  const at = others.findIndex((c) => c.updatedAt < loaded.updatedAt)
+  return at < 0 ? [...others, loaded] : [...others.slice(0, at), loaded, ...others.slice(at)]
 }
 
 /**
@@ -696,6 +742,39 @@ export const useChatStore = create<ChatState>()(
           'Could not refresh chats',
           error instanceof Error ? error.message : 'The request failed.'
         )
+      }
+    },
+
+    reloadConversations: async (ids) => {
+      const wanted = [...new Set(ids.filter(Boolean))]
+      if (wanted.length === 0) return
+      // A newer read of the same conversation wins, whichever answer lands first.
+      const reads = wanted.map((id) => [id, nextReload(id)] as const)
+      try {
+        const [loaded, persistedState] = await Promise.all([
+          Promise.all(wanted.map((id) => anodex.conversations.get(id))),
+          anodex.conversations.getState()
+        ])
+        set((state) => {
+          reads.forEach(([id, read], index) => {
+            if (latestReload.get(id) !== read) return
+            state.conversations = withReloaded(state.conversations, id, loaded[index])
+          })
+          // The open conversation archived or deleted elsewhere: follow the computer
+          // to whatever it now has open, as the full reload did.
+          if (state.activeId && !state.conversations.some((c) => c.id === state.activeId)) {
+            state.activeId = persistedState.activeConversationId
+          }
+        })
+        const { activeId, conversations } = get()
+        const active =
+          activeId && wanted.includes(activeId)
+            ? conversations.find((c) => c.id === activeId)
+            : undefined
+        if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
+      } catch {
+        // Reading one failed; reading all of them is what this used to do.
+        await get().refreshConversations()
       }
     },
 
