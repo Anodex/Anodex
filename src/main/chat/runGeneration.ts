@@ -37,7 +37,13 @@ import {
   type ContextAssemblyReport,
   type PromptCalibration
 } from '@shared/contextPlanner'
-import { composeSystemPrompt, type PromptSurface } from '@shared/prompts'
+import {
+  appendTurnContext,
+  composeCacheablePrompt,
+  composeSystemPrompt,
+  type PromptSurface,
+  withTurnContext
+} from '@shared/prompts'
 import { CLOUD_PROVIDER_LABELS } from '@shared/providerCatalog'
 import { resolveActivePersona } from '@shared/chatPersonality'
 import { buildContextEpochSystemPrompt, capContextEpochHandoff } from '@shared/contextPrompt'
@@ -707,12 +713,17 @@ export async function runGeneration(
       { id: 'transcript-recall', units: transcriptRecall?.blocks ?? [], separator: '\n' }
     ]
   })
-  const systemPrompt = composeSystemPrompt({
+  // What stays the same between messages goes in the system prompt; the date, and
+  // the workspace, memory and past chats chosen for this message, travel with the
+  // message itself. See `composeCacheablePrompt` for why that is most of the wait
+  // before a local model writes anything.
+  const cacheablePrompt = composeCacheablePrompt({
     ...composeParts,
     workspaceContext: automaticReferenceContext.texts.workspace,
     memoryContext: automaticReferenceContext.texts.memory,
     transcriptRecallContext: automaticReferenceContext.texts['transcript-recall']
   })
+  const systemPrompt = cacheablePrompt.system
   // Only what the model was actually given. The retrievers rank more than the
   // window can always afford, and reporting their full selection would have the
   // UI credit the reply with memory entries and past-chat excerpts that the
@@ -722,9 +733,13 @@ export async function runGeneration(
     0,
     automaticReferenceContext.includedUnits['transcript-recall']
   )
-  let modelSystemPrompt = [systemPrompt, currentPlanBlock, request.continuationBrief]
-    .filter((part): part is string => Boolean(part))
-    .join('\n\n')
+  let modelSystemPrompt = systemPrompt
+  // A plan's progress and a continuation brief change turn to turn as well.
+  const turnContext = appendTurnContext(
+    cacheablePrompt.turnContext,
+    currentPlanBlock,
+    request.continuationBrief
+  )
 
   // Signal reconciliation is a pre-turn operation. The provider sees one
   // stable context for the complete turn; a later change is recorded for the
@@ -773,7 +788,11 @@ export async function runGeneration(
       bounding.summarize,
       bounding.summaryChunkTokenBudget,
       {
-        toolSchemaReserveTokens: bounding.toolSchemaReserveTokens,
+        // The turn context is fixed cost that no longer sits in the system prompt
+        // this function measures, so it is reserved alongside the tool schemas.
+        toolSchemaReserveTokens:
+          bounding.toolSchemaReserveTokens +
+          Math.ceil((turnContext?.length ?? 0) / promptCharsPerToken),
         messageFramingTokens: bounding.messageFramingTokens,
         // Vision/llama-server is stateless: it must use the same bounded
         // replay window as the text engine or a rebuilt epoch immediately
@@ -852,7 +871,9 @@ export async function runGeneration(
       systemPrompt: boundedSystemPrompt,
       context: activeContext,
       history: boundedHistory,
-      prompt: request.prompt,
+      prompt: withTurnContext(request.prompt, turnContext),
+      userPrompt: request.prompt,
+      turnContext: turnContext ?? undefined,
       images: [
         ...(request.images ?? []),
         ...[computerControlService.takePendingObservation(request.conversationId)].filter(
