@@ -1,3 +1,4 @@
+import type { RemoteConnectionRoute } from '@shared/remote.types'
 import { networkInterfaces } from 'node:os'
 
 /**
@@ -83,6 +84,31 @@ export function collectHostAddresses(): HostAddress[] {
 
   const order: Record<HostAddressKind, number> = { lan: 0, mesh: 1, virtual: 2 }
   return found.sort((a, b) => order[a.kind] - order[b.kind])
+}
+
+/**
+ * How a connected device reached this computer, from the address it connected from.
+ *
+ * - `home`: a private address, so the same network as this computer.
+ * - `vpn`: a mesh VPN address (Tailscale and friends).
+ * - `internet`: anything else, which can only have come in through the router.
+ */
+export function connectionRoute(peerAddress: string | undefined): RemoteConnectionRoute | null {
+  if (!peerAddress) return null
+  // ::ffff:192.168.1.20 — Node reports an IPv4 peer on a dual-stack socket this way.
+  const address = peerAddress.replace(/^::ffff:/i, '')
+
+  if (address.includes(':')) {
+    const lower = address.toLowerCase()
+    // Loopback, link-local and unique-local are all on this side of the router.
+    if (lower === '::1' || lower.startsWith('fe80') || /^f[cd]/.test(lower)) return 'home'
+    return 'internet'
+  }
+
+  if (isMeshAddress(address)) return 'vpn'
+  const [a, b] = address.split('.').map(Number)
+  if (isPrivateLan(address) || a === 127 || (a === 169 && b === 254)) return 'home'
+  return 'internet'
 }
 
 /** The single best address, for the QR and the Settings summary. */

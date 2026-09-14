@@ -1,6 +1,7 @@
 import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import { broadcastToWindows } from '../broadcast'
+import { broadcastToOtherClients } from '../broadcast'
+import { resolveClientChannel } from '../clients/clientRegistry'
 import { hasInflightGeneration } from '../chat/inflightGenerations'
 import type { CreateProjectRequest, UpdateProjectRequest } from '@shared/project.types'
 import { projectStore } from '../projects/ProjectStore'
@@ -62,7 +63,7 @@ export function registerProjectHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannel.Projects.setActive, (_event, id: string | null) => {
+  ipcMain.handle(IpcChannel.Projects.setActive, (event, id: string | null) => {
     // There is one active project and it is global state: `setActive` writes
     // `settings.workspace.root`. Switching mid-generation pulls the workspace out
     // from under a live turn, which is breakage rather than a surprise — and it
@@ -79,7 +80,12 @@ export function registerProjectHandlers(): void {
 
       // A switch can now come from a phone, so the desktop has to be told rather
       // than assuming it was the one that asked. Never swap silently (§10.1).
-      broadcastToWindows(IpcChannel.Projects.changed, state)
+      //
+      // Everyone but whoever asked. Sent to every window, the desktop's own switch
+      // came back to it and was announced as "Changed from your phone" — a switch
+      // made at the desk, credited to a phone that had done nothing. The caller has
+      // the new state already, as this handler's return value.
+      broadcastToOtherClients(resolveClientChannel(event), IpcChannel.Projects.changed, state)
       return state
     } catch (error) {
       log.error('Failed to set active project:', id, error)

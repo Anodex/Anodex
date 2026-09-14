@@ -72,6 +72,8 @@ export class RemoteBridge {
   private sockets: WebSocketServer | null = null
   /** Which paired device each authenticated socket belongs to. */
   private readonly socketDevice = new WeakMap<WebSocket, string>()
+  /** Where each authenticated socket connected from. */
+  private readonly socketPeer = new WeakMap<WebSocket, string | undefined>()
   private sequence = 0
 
   constructor(
@@ -118,10 +120,20 @@ export class RemoteBridge {
 
   /** The paired devices with a connection open right now. */
   connectedDeviceIds(): Set<string> {
-    const connected = new Set<string>()
+    return new Set(this.connectedDevices().keys())
+  }
+
+  /**
+   * Each connected device and the address it connected from. A device with two
+   * sockets open reports the newer one's address.
+   */
+  connectedDevices(): Map<string, string | undefined> {
+    const connected = new Map<string, string | undefined>()
     for (const socket of this.sockets?.clients ?? []) {
       const owner = this.socketDevice.get(socket)
-      if (owner !== undefined && socket.readyState === socket.OPEN) connected.add(owner)
+      if (owner !== undefined && socket.readyState === socket.OPEN) {
+        connected.set(owner, this.socketPeer.get(socket))
+      }
     }
     return connected
   }
@@ -370,6 +382,7 @@ export class RemoteBridge {
 
   private attach(socket: WebSocket, deviceId: string, peerAddress?: string): ClientChannel {
     this.socketDevice.set(socket, deviceId)
+    this.socketPeer.set(socket, peerAddress)
     // Reported only for a socket that authenticated. An unauthenticated stranger
     // arriving from the internet is a port scanner, not proof the user's own phone
     // can get in — and reporting it would claim the setup works when it may not.

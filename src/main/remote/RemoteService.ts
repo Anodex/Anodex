@@ -1,9 +1,10 @@
 import { app, safeStorage } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
-import { collectHostAddresses, primaryHostAddress } from './addresses'
+import { collectHostAddresses, connectionRoute, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
 import type {
+  RemoteConnectionRoute,
   RemoteDeviceSummary,
   RemoteInternetAccess,
   RemotePairedDevice,
@@ -198,6 +199,13 @@ export class RemoteService {
     return this.bridge?.connectedDeviceIds().has(deviceId) ?? false
   }
 
+  /** How a connected device reached this computer; null when it is not connected. */
+  private routeOf(deviceId: string): RemoteConnectionRoute | null {
+    const connected = this.bridge?.connectedDevices()
+    if (!connected?.has(deviceId)) return null
+    return connectionRoute(connected.get(deviceId))
+  }
+
   private pairedDevices(): PairedDevice[] {
     return this.state.devices ?? (this.state.device ? [this.state.device] : [])
   }
@@ -209,6 +217,7 @@ export class RemoteService {
       pairedAtEpochMs: device.pairedAtEpochMs,
       lastSeenEpochMs: device.lastSeenEpochMs,
       connected: this.isConnected(device.deviceId),
+      route: this.routeOf(device.deviceId),
       // Only claimed when both halves are known. A phone paired before the
       // fingerprint was recorded gets `undefined` — not known, rather than
       // known to be wrong.
@@ -552,6 +561,7 @@ export class RemoteService {
       pairedAtEpochMs: device.pairedAtEpochMs,
       lastSeenEpochMs: device.lastSeenEpochMs,
       connected: this.isConnected(device.deviceId),
+      route: this.routeOf(device.deviceId),
       isThisDevice: device.deviceId === askingDeviceId
     }))
   }
