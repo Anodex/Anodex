@@ -746,6 +746,11 @@ export function validatePatch(patch: SettingsPatch): void {
       throw new Error('model.gpuLayers must be "auto" or a non-negative finite number')
     }
   }
+  if (model?.parallelJobs !== undefined) {
+    if (!Number.isInteger(model.parallelJobs) || model.parallelJobs < 1 || model.parallelJobs > 3) {
+      throw new Error('model.parallelJobs must be 1, 2 or 3')
+    }
+  }
 
   if (patch.modelsDirectory !== undefined) {
     if (typeof patch.modelsDirectory !== 'string' || patch.modelsDirectory.trim() === '') {

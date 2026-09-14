@@ -69,6 +69,7 @@ export class LlamaServerRuntime {
     }
     await this.stop()
 
+    const parallelJobs = Math.max(1, Math.floor(options.parallelJobs ?? 1))
     const binaryPath = await resolveLlamaServerBinary()
     const port = await reserveLoopbackPort()
     const apiKey = randomBytes(24).toString('hex')
@@ -85,8 +86,13 @@ export class LlamaServerRuntime {
       String(port),
       '--api-key',
       apiKey,
+      // One slot per reply that may run at once. With more than one, the slots
+      // share a single pool of context memory (`--kv-unified`) instead of each
+      // taking its own, so running jobs side by side costs no extra memory: they
+      // divide the same context between them.
       '--parallel',
-      '1',
+      String(parallelJobs),
+      ...(parallelJobs > 1 ? ['--kv-unified'] : []),
       '--jinja',
       '--no-webui',
       '--n-gpu-layers',

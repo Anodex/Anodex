@@ -17607,6 +17607,20 @@
           "type": {
             "kind": "boolean"
           }
+        },
+        "parallelJobs": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
         }
       }
     },
@@ -19441,6 +19455,20 @@
               }
             ]
           }
+        },
+        "parallelJobs": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
         }
       }
     },
@@ -19578,6 +19606,12 @@
                 "value": "auto"
               }
             ]
+          }
+        },
+        "parallelJobs": {
+          "optional": false,
+          "type": {
+            "kind": "number"
           }
         },
         "autoConfigured": {
