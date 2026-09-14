@@ -1074,6 +1074,23 @@
       }
     },
     {
+      "channel": "chat:set-live-thinking",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "wanted",
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "kind": "void"
+      }
+    },
+    {
       "channel": "chat:set-live-tokens",
       "kind": "invoke",
       "servedBy": "ipcMain.handle",
@@ -2294,6 +2311,38 @@
       ],
       "result": {
         "kind": "void"
+      }
+    },
+    {
+      "channel": "conversations:thinking",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "conversationId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "messageId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "kind": "string"
+          }
+        ]
       }
     },
     {

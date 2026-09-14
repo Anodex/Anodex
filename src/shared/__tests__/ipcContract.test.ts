@@ -103,6 +103,11 @@ const PHONE_ONLY = new Set([
   // in the same process as the thing producing them — there is no connection between
   // them to be metered, and nothing to save by asking for less.
   'Chat.setLiveTokens',
+  // The same, for thinking. The renderer always shows it live.
+  'Chat.setLiveThinking',
+  // A phone is sent transcripts without thinking and reads one reply's when it is
+  // opened. The renderer loads whole conversations, thinking included.
+  'Conversations.thinking',
   // The desktop's own meter computes this projection in the renderer, from three
   // stores it already holds. The phone holds none of them — not the settings, not
   // the system prompt the turn will carry, not the tool schemas — so it has to be
