@@ -5,6 +5,7 @@ import { anodex } from '../lib/anodex'
 import { notifyDesktop, shouldShowDesktopToast } from '../lib/notifications'
 import { playChime } from '../lib/sound'
 import { useChatStore } from '../stores/chatStore'
+import { conversationsOfChangedRuns } from './changedRunConversations'
 import { useModelStore } from '../stores/modelStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useProviderUsageStore } from '../stores/providerUsageStore'
@@ -185,8 +186,11 @@ export function useAnodexBridge(): void {
     // A phone can now write conversations. Without this a chat started there did
     // not exist on the desktop until Anodex was restarted, which looks exactly like
     // it having failed to save.
-    const offConversationChanged = anodex.conversations.onChanged(() => {
-      void useChatStore.getState().load()
+    //
+    // Only the conversation named is read again. Reading all of them — 48MB on a
+    // real store — took the window most of a second of CPU for every phone reply.
+    const offConversationChanged = anodex.conversations.onChanged((conversationId) => {
+      void useChatStore.getState().reloadConversations([conversationId])
     })
 
     // A phone can change the personality. Without this the desktop keeps showing
@@ -242,11 +246,15 @@ export function useAnodexBridge(): void {
       void useChatStore.getState().refreshConversations()
     })
     const offAgentRuns = anodex.agent.onRunsChanged((runs) => {
+      const before = useAgentStore.getState().runs
       useAgentStore.getState().setRuns(runs)
       // A run creates or appends to its own conversation in the main process
-      // without the renderer ever calling `chat.send` — refresh the list so
-      // its chat/badge shows up without a manual reload.
-      void useChatStore.getState().refreshConversations()
+      // without the renderer ever calling `chat.send` — so its chat/badge has to be
+      // read here to show up without a manual reload. A run announces itself once
+      // per turn, so only the conversations of runs that changed are read.
+      const changed = conversationsOfChangedRuns(before, runs)
+      if (changed === null) void useChatStore.getState().refreshConversations()
+      else void useChatStore.getState().reloadConversations(changed)
     })
     const offCriticalThinkingStream = anodex.criticalThinking.onStream(({ runId, token }) => {
       useCriticalThinkingStore.getState().appendToken(runId, token)

@@ -102,7 +102,10 @@ export function registerConversationHandlers(): void {
   )
 
   ipcMain.handle(IpcChannel.Conversations.listArchived, (event) => {
-    const archived = conversationStore.listArchived()
+    // Without messages, for either client: the archive lists names and dates and
+    // never opens what it lists, and an archived conversation's messages are left
+    // on disk until something does.
+    const archived = conversationStore.listArchivedWithoutMessages()
 
     // A phone gets summaries, not transcripts.
     //
@@ -112,7 +115,12 @@ export function registerConversationHandlers(): void {
     // archive screen failed outright rather than rendering slowly. This is the same
     // failure `forRemote` was written for on the tail read, and the same narrowing:
     // the archive lists names and dates, and never opens what it lists.
-    return isRemoteCall(event) ? archived.map(toSummary) : archived
+    return isRemoteCall(event)
+      ? archived.map(({ conversation, messageCount }) => ({
+          ...toSummary(conversation),
+          messageCount
+        }))
+      : archived.map(({ conversation }) => conversation)
   })
 
   ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {

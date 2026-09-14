@@ -338,6 +338,77 @@ describe('ConversationStore persistence', () => {
   })
 })
 
+describe('ConversationStore holding archived conversations', () => {
+  function withMessages(id: string, count: number): Conversation {
+    return conversation({
+      id,
+      messages: Array.from({ length: count }, (_, i) => ({
+        id: `${id}-m${i}`,
+        role: 'user' as const,
+        content: `message ${i}`,
+        createdAt: 1
+      }))
+    })
+  }
+
+  /** A fresh store reading what is on disk, as at launch. */
+  function relaunch(): void {
+    conversationStore.init()
+  }
+
+  it("leaves an archived conversation's messages on disk until they are asked for", () => {
+    conversationStore.save(withMessages('old', 3))
+    conversationStore.archive('old')
+    relaunch()
+
+    const [listed] = conversationStore.listArchivedWithoutMessages()
+    expect(listed.conversation.messages).toEqual([])
+    expect(listed.messageCount).toBe(3)
+
+    // Every read that promises a conversation still gets all of it.
+    expect(conversationStore.get('old')?.messages).toHaveLength(3)
+    expect(conversationStore.listArchived()[0].messages).toHaveLength(3)
+    expect(conversationStore.listAll().find((c) => c.id === 'old')?.messages).toHaveLength(3)
+  })
+
+  it('restores an archived conversation with every message', () => {
+    conversationStore.save(withMessages('old', 4))
+    conversationStore.archive('old')
+    relaunch()
+
+    conversationStore.restore('old')
+    relaunch()
+
+    expect(conversationStore.list()[0].messages.map((m) => m.id)).toEqual([
+      'old-m0',
+      'old-m1',
+      'old-m2',
+      'old-m3'
+    ])
+  })
+
+  it('refuses to restore one it cannot read, rather than writing it back empty', () => {
+    conversationStore.save(withMessages('old', 2))
+    conversationStore.archive('old')
+    relaunch()
+    conversationStore.listArchivedWithoutMessages()
+    const file = join(userDataDir, 'conversations', 'general', 'old.json')
+    writeFileSync(file, 'not json', 'utf-8')
+
+    expect(() => conversationStore.restore('old')).toThrow(/Could not read archived conversation/)
+  })
+
+  it('merges a remote save into an archived conversation without losing its messages', () => {
+    conversationStore.save(withMessages('old', 2))
+    conversationStore.archive('old')
+    relaunch()
+
+    conversationStore.save(withMessages('old', 0), { fromRemote: true })
+
+    expect(conversationStore.get('old')?.messages).toHaveLength(2)
+  })
+})
+
 describe('ConversationStore archiving', () => {
   it('moves conversations between the active and archived lists', () => {
     conversationStore.save(conversation({ id: 'chat-1' }))
