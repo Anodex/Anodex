@@ -41,6 +41,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     model: {
       contextSize: 8192,
       gpuLayers: 'auto',
+      parallelJobs: 1,
       autoConfigured: false
     },
     ui: {},

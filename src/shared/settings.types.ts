@@ -31,6 +31,14 @@ export interface ModelSettings {
   /** GPU layer offload. `'auto'` lets the engine decide based on hardware. */
   gpuLayers: number | 'auto'
   /**
+   * How many things the local model may work on at once: 1 (off), 2 or 3.
+   *
+   * Takes effect when a model loads. Honoured by models that load through the
+   * multimodal runtime, where jobs share one pool of context memory; a text-only
+   * model still runs one job at a time.
+   */
+  parallelJobs: number
+  /**
    * True once context/GPU/token defaults have been seeded from detected
    * hardware. Prevents overwriting the user's manual choices on later launches.
    *

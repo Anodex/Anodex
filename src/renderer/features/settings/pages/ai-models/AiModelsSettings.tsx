@@ -24,12 +24,19 @@ import { DiscoverModelsPanel } from './DiscoverModelsPanel'
 import { InstalledModelsList } from './InstalledModelsList'
 import { ProviderConnectionsPanel } from './ProviderConnectionsPanel'
 import { ctxSizeWarning, scoreInstalledModel } from './scoring'
+import { parallelJobsDescription } from './parallelJobs'
 import styles from './AiModelsSettings.module.css'
 
 const CONTEXT_OPTIONS = CONTEXT_SIZE_LADDER.map((tokens) => ({
   label: formatContextSizeLabel(tokens),
   value: String(tokens)
 }))
+
+const PARALLEL_OPTIONS = [
+  { label: 'Off', value: '1' },
+  { label: '2 at once', value: '2' },
+  { label: '3 at once', value: '3' }
+]
 
 const GPU_OPTIONS = [
   { label: 'Auto', value: 'auto' },
@@ -548,6 +555,25 @@ export function AiModelsSettings(): JSX.Element {
                   }
                 />
               )}
+              <SettingRow
+                label="Work on several things at once"
+                description={parallelJobsDescription(
+                  settings.model.parallelJobs,
+                  engine.status === 'ready' ? engine.vision : undefined,
+                  engine.contextSize ?? settings.model.contextSize
+                )}
+                control={
+                  <SelectControl
+                    value={String(settings.model.parallelJobs ?? 1)}
+                    options={PARALLEL_OPTIONS}
+                    onChange={(value) =>
+                      void update({ model: { parallelJobs: Number(value) } }).then(
+                        reloadActiveModelIfSafe
+                      )
+                    }
+                  />
+                }
+              />
               {engine.status === 'ready' &&
                 engine.gpuLayersUsed !== undefined &&
                 engine.gpuLayersTotal !== undefined && (

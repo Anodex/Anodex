@@ -38,6 +38,11 @@ export interface ModelLoadOptions {
   contextSize?: number
   /** Number of layers to offload to GPU. `'auto'` lets the engine decide. */
   gpuLayers?: number | 'auto'
+  /**
+   * How many replies may run on the model at once. 1 unless the user turned on
+   * parallel jobs; only the multimodal runtime honours more than 1 today.
+   */
+  parallelJobs?: number
 }
 
 /**
@@ -108,6 +113,8 @@ export interface EngineState {
   contextTokensConversationId?: string
   /** True while a completion is actively being generated. */
   generating: boolean
+  /** How many replies the loaded model can run at once right now. */
+  parallelJobs?: number
 }
 
 /**
