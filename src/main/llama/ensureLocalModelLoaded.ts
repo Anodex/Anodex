@@ -38,6 +38,8 @@ export interface EnsureLocalModelDeps {
   loadModel: (options: ModelLoadOptions, info: ModelInfo) => Promise<unknown>
   /** Context window to request; omitted lets the engine use the model default. */
   contextSize?: number
+  /** How many replies may run at once, from settings. Omitted means one. */
+  parallelJobs?: number
 }
 
 export async function ensureLocalModelLoaded(
@@ -63,7 +65,8 @@ export async function ensureLocalModelLoaded(
         // Carried through for the same reason the IPC handler carries it: a
         // vision model loaded without its projector silently loses vision.
         visionProjectorPath: info.visionProjectorPath,
-        contextSize: deps.contextSize
+        contextSize: deps.contextSize,
+        parallelJobs: deps.parallelJobs
       },
       info
     )

@@ -111,12 +111,14 @@ export function registerModelHandlers(): void {
       const contextSize =
         options.contextSize ?? resolveModelContextSize(settings, options.path, undefined)
       const gpuLayers = options.gpuLayers ?? settings.model.gpuLayers
+      const parallelJobs = options.parallelJobs ?? settings.model.parallelJobs
 
       const state = await llamaService.loadModel(
         {
           ...options,
           contextSize,
           gpuLayers,
+          parallelJobs,
           visionProjectorPath: info.visionProjectorPath
         },
         info
