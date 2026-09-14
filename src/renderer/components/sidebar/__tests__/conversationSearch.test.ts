@@ -1,15 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import type { Conversation } from '@shared/conversation.types'
-import type { ChatMessage } from '@shared/chat.types'
-import { findBodyMatches, matchesQuery } from '../conversationSearch'
+import { describe, expect, it, vi } from 'vitest'
 
-function message(id: string, role: ChatMessage['role'], content: string): ChatMessage {
-  return { id, role, content, createdAt: 1 }
-}
+vi.mock('../../../lib/anodex', () => ({ anodex: { conversations: { search: vi.fn() } } }))
 
-function conversation(id: string, title: string, messages: ChatMessage[]): Conversation {
-  return { id, projectId: null, title, messages, createdAt: 1, updatedAt: 1 }
-}
+import { matchesFromHits, matchesQuery } from '../conversationSearch'
 
 describe('matchesQuery', () => {
   it('matches case-insensitively', () => {
@@ -19,49 +12,22 @@ describe('matchesQuery', () => {
   })
 })
 
-describe('findBodyMatches', () => {
-  const chats = [
-    conversation('c1', 'Untitled', [
-      message('m1', 'user', 'How do I configure the postgres connection pool?'),
-      message('m2', 'assistant', 'Set max_connections in the config file.')
-    ]),
-    conversation('c2', 'Grocery list', [message('m3', 'user', 'milk, eggs, bread')])
-  ]
-
-  it('finds a conversation by something said inside it, not its title', () => {
-    const matches = findBodyMatches(chats, 'postgres connection pool')
-    expect(matches.ids.has('c1')).toBe(true)
-    expect(matches.ids.has('c2')).toBe(false)
-  })
-
-  it('carries an excerpt so the row can say why it surfaced', () => {
-    const matches = findBodyMatches(chats, 'postgres connection pool')
+/**
+ * The sidebar's body search runs on the computer now — the window no longer holds
+ * every conversation's messages. `conversationBodySearch.test.ts` covers the ranking.
+ */
+describe('matchesFromHits', () => {
+  it('surfaces each conversation the computer found, with the passage that matched', () => {
+    const matches = matchesFromHits([
+      { conversationId: 'c1', excerpt: 'How do I configure the postgres connection pool?' },
+      { conversationId: 'c2', excerpt: '' }
+    ])
+    expect([...matches.ids]).toEqual(['c1', 'c2'])
     expect(matches.excerpts.get('c1')).toContain('postgres')
+    expect(matches.excerpts.has('c2')).toBe(false)
   })
 
-  it('finds assistant messages too, not just what the user typed', () => {
-    const matches = findBodyMatches(chats, 'max_connections')
-    expect(matches.ids.has('c1')).toBe(true)
-  })
-
-  it('returns nothing for an empty or whitespace query', () => {
-    expect(findBodyMatches(chats, '').ids.size).toBe(0)
-    expect(findBodyMatches(chats, '   ').ids.size).toBe(0)
-    expect(findBodyMatches(chats, '').excerpts.size).toBe(0)
-  })
-
-  it('returns nothing when the query matches no message', () => {
-    expect(findBodyMatches(chats, 'kubernetes').ids.size).toBe(0)
-  })
-
-  it('raises the result cap well above the prompt-injection default of 3', () => {
-    // The recall default bounds prompt size; a user-facing search that
-    // silently stopped at three hits would be worse than no search.
-    const many = Array.from({ length: 12 }, (_, index) =>
-      conversation(`c${index}`, 'Untitled', [
-        message(`m${index}`, 'user', 'the postgres connection pool question again')
-      ])
-    )
-    expect(findBodyMatches(many, 'postgres connection pool').ids.size).toBe(12)
+  it('is empty for no hits', () => {
+    expect(matchesFromHits([]).ids.size).toBe(0)
   })
 })

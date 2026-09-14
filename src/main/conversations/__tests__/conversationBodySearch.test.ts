@@ -40,4 +40,24 @@ describe('searchConversationBodies', () => {
   it('returns nothing rather than recent chats when nothing matches', () => {
     expect(searchConversationBodies(store, 'kubernetes ingress')).toEqual([])
   })
+
+  it('searches from the first character when asked to, as the desktop sidebar does', () => {
+    // A phone waits for three characters; the sidebar does not.
+    expect(searchConversationBodies(store, 'fo')).toEqual([])
+    expect(() => searchConversationBodies(store, 'fo', 1)).not.toThrow()
+    expect(
+      searchConversationBodies(store, 'volumetric', 1).map((hit) => hit.conversationId)
+    ).toEqual(['nebula'])
+  })
+
+  it('finds what the assistant said, not only what was typed', () => {
+    expect(
+      searchConversationBodies(store, 'Neither needs').map((hit) => hit.conversationId)
+    ).toEqual(['email'])
+  })
+
+  it('lists far more than the three a prompt gets', () => {
+    const many = Array.from({ length: 60 }, (_, i) => conversation(`c${i}`, 'deploy the release'))
+    expect(searchConversationBodies(many, 'deploy release', 1)).toHaveLength(50)
+  })
 })

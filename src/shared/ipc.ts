@@ -365,6 +365,12 @@ export const IpcChannel = {
      */
     listSummaries: 'conversations:list-summaries',
     /**
+     * Every conversation, with its messages left on the computer
+     * (`messagesNotLoaded`). What the desktop window lists; it reads a
+     * conversation's messages with `get` when that conversation is opened.
+     */
+    listWithoutMessages: 'conversations:list-without-messages',
+    /**
      * Conversations whose messages match a query, best first, with one excerpt each.
      *
      * For the phone, which holds summaries but never whole transcripts and so cannot
@@ -885,6 +891,8 @@ export interface AnodexApi {
   }
   conversations: {
     list(): Promise<Conversation[]>
+    /** See `IpcChannel.Conversations.listWithoutMessages`. */
+    listWithoutMessages(): Promise<Conversation[]>
     listSummaries(): Promise<ConversationSummary[]>
     /** Search what was said, not just titles. See `IpcChannel.Conversations.search`. */
     search(query: string): Promise<ConversationSearchHit[]>

@@ -13,7 +13,12 @@ vi.mock('../../utils/logger', () => ({
   createLogger: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() })
 }))
 
-import { summariesOf, thinkingOf } from '../conversation.handlers'
+import {
+  assertMessagesLoaded,
+  summariesOf,
+  thinkingOf,
+  withoutMessages
+} from '../conversation.handlers'
 
 const chat = (id: string, messages: Conversation['messages'] = []): Conversation => ({
   id,
@@ -53,5 +58,20 @@ describe('thinkingOf', () => {
     expect(thinkingOf(conversation, 'r:reply')).toBeNull()
     expect(thinkingOf(conversation, 'nope')).toBeNull()
     expect(thinkingOf(null, 'q:reply')).toBeNull()
+  })
+})
+
+describe('the window listing conversations without their messages', () => {
+  const stored = chat('a', [{ id: 'q', role: 'user', content: 'Why?', createdAt: 1 }])
+
+  it('lists everything but the messages, and says so', () => {
+    const listed = withoutMessages(stored)
+    expect(listed).toMatchObject({ id: 'a', title: 'a', messages: [], messagesNotLoaded: true })
+  })
+
+  it('refuses to save a copy whose messages were never read', () => {
+    // Saved, it would replace the conversation on disk with no messages at all.
+    expect(() => assertMessagesLoaded(withoutMessages(stored))).toThrow(/not loaded/)
+    expect(() => assertMessagesLoaded(stored)).not.toThrow()
   })
 })

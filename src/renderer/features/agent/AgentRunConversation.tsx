@@ -9,7 +9,7 @@ import { formatBytes } from '../../lib/format'
 import { loadAttachmentImage } from '../chat/loadAttachmentImage'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
-import { useChatStore } from '../../stores/chatStore'
+import { useLoadedConversation } from '../../hooks/useLoadedConversation'
 import { formatRelativeTime } from '../../lib/time'
 import { MessageContent } from '../chat/MessageContent'
 import {
@@ -359,9 +359,7 @@ export function AgentRunConversation({
   onReject,
   onContinueInChat
 }: AgentRunConversationProps): JSX.Element {
-  const conversation = useChatStore((s) =>
-    run.conversationId ? s.conversations.find((c) => c.id === run.conversationId) : undefined
-  )
+  const conversation = useLoadedConversation(run.conversationId)
 
   const turns = useMemo(
     () => (conversation?.messages ?? []).filter((message) => message.role === 'assistant'),
