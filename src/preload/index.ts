@@ -334,6 +334,11 @@ const api: AnodexApi = {
     commit: (projectId, message) => ipcRenderer.invoke(IpcChannel.Git.commit, projectId, message),
     push: (projectId) => ipcRenderer.invoke(IpcChannel.Git.push, projectId)
   },
+  devices: {
+    list: () => ipcRenderer.invoke(IpcChannel.Devices.list),
+    rename: (deviceId, name) => ipcRenderer.invoke(IpcChannel.Devices.rename, deviceId, name),
+    unpair: (deviceId) => ipcRenderer.invoke(IpcChannel.Devices.unpair, deviceId)
+  },
   remote: {
     status: () => ipcRenderer.invoke(IpcChannel.Remote.status),
     setEnabled: (enabled) => ipcRenderer.invoke(IpcChannel.Remote.setEnabled, enabled),

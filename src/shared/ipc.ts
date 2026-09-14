@@ -16,7 +16,7 @@ import type {
   ModelSettingsRecommendation
 } from './model.types'
 import type { ModelReliabilityRecord } from './modelReliability.types'
-import type { RemotePairingCode, RemoteStatus } from './remote.types'
+import type { RemotePairingCode, RemoteStatus, RemoteDeviceSummary } from './remote.types'
 import type { RecommendedModel } from './recommendedModels'
 import type {
   AttachmentContent,
@@ -588,6 +588,18 @@ export const IpcChannel = {
     commit: 'git:commit',
     push: 'git:push'
   },
+  /**
+   * The paired devices, managed from a paired phone.
+   *
+   * Deliberately not under `remote:`, which a phone is refused whole: those change
+   * who may connect at all (listener on or off, new pairing codes). These only list,
+   * rename and unpair devices that are already trusted, which is the user's own set.
+   */
+  Devices: {
+    list: 'devices:list',
+    rename: 'devices:rename',
+    unpair: 'devices:unpair'
+  },
   Remote: {
     /** Current listener state, paired device and certificate fingerprint. */
     status: 'remote:status',
@@ -1114,6 +1126,11 @@ export interface AnodexApi {
     switchBranch(projectId: string, name: string): Promise<Result<GitWorkspaceStatus>>
     commit(projectId: string, message: string): Promise<Result<GitWorkspaceStatus>>
     push(projectId: string): Promise<Result<void>>
+  }
+  devices: {
+    list(): Promise<RemoteDeviceSummary[]>
+    rename(deviceId: string, name: string): Promise<RemoteDeviceSummary[]>
+    unpair(deviceId: string): Promise<RemoteDeviceSummary[]>
   }
   remote: {
     status(): Promise<RemoteStatus>
