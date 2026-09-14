@@ -78,6 +78,8 @@ export interface RemotePairedDevice {
   lastSeenEpochMs: number
   /** Connected right now. `lastSeenEpochMs` only moves when a device connects. */
   connected: boolean
+  /** How it is connected, while it is. Null when not connected. */
+  route: RemoteConnectionRoute | null
   /**
    * Whether this phone pinned the certificate the listener is actually serving.
    *
@@ -136,6 +138,12 @@ export interface RemotePairingCode {
   expiresAtEpochMs: number
 }
 
+/**
+ * How a connected device reaches this computer: over the home network, over a mesh
+ * VPN, or in from the internet through the router.
+ */
+export type RemoteConnectionRoute = 'home' | 'vpn' | 'internet'
+
 /** A paired device as a paired phone sees it, in its own Settings. */
 export interface RemoteDeviceSummary {
   deviceId: string
@@ -144,6 +152,8 @@ export interface RemoteDeviceSummary {
   lastSeenEpochMs: number
   /** Connected right now. `lastSeenEpochMs` only moves when a device connects. */
   connected: boolean
+  /** How it is connected, while it is. Null when not connected. */
+  route: RemoteConnectionRoute | null
   /** The device asking. Unpairing it disconnects the phone doing the unpairing. */
   isThisDevice: boolean
 }
