@@ -10,6 +10,13 @@ export function registerBackupHandlers(): void {
   ipcMain.handle(
     IpcChannel.Backup.exportConversation,
     async (event, conversation: Conversation, format: ConversationExportFormat) => {
+      // A window's listed copy has no messages; exporting it would write an empty chat.
+      if (conversation?.messagesNotLoaded) {
+        return err(
+          'backup.export-failed',
+          'Could not export this chat: its messages were not loaded.'
+        )
+      }
       try {
         const path = await exportConversation(
           BrowserWindow.fromWebContents(event.sender),

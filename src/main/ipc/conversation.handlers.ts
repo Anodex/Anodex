@@ -22,6 +22,10 @@ const log = createLogger('ipc:conversations')
 export function registerConversationHandlers(): void {
   ipcMain.handle(IpcChannel.Conversations.list, () => conversationStore.list())
 
+  ipcMain.handle(IpcChannel.Conversations.listWithoutMessages, () =>
+    conversationStore.list().map(withoutMessages)
+  )
+
   // Given ids, only those conversations; one archived or gone is simply absent. A
   // phone told one conversation changed reads that row rather than the whole list,
   // which on a real store is tens of kilobytes every save.
@@ -35,10 +39,13 @@ export function registerConversationHandlers(): void {
       thinkingOf(conversationStore.get(conversationId), messageId)
   )
 
-  ipcMain.handle(IpcChannel.Conversations.search, (_event, query: string) =>
+  // The desktop sidebar searches here too, now that the window no longer holds every
+  // conversation's messages — from the first character, as it did in the window.
+  ipcMain.handle(IpcChannel.Conversations.search, (event, query: string) =>
     searchConversationBodies(
       conversationStore.list().filter((conversation) => !conversation.archived),
-      typeof query === 'string' ? query : ''
+      typeof query === 'string' ? query : '',
+      isRemoteCall(event) ? undefined : 1
     )
   )
 
@@ -124,6 +131,7 @@ export function registerConversationHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {
+    assertMessagesLoaded(conversation)
     try {
       // A remote client may only be holding the tail of this conversation, so its
       // turns are merged rather than written over what is on disk. See
@@ -267,6 +275,25 @@ function announceChange(event: unknown, conversationId: string): void {
     IpcChannel.Conversations.changed,
     conversationId
   )
+}
+
+/** A conversation as the window lists it: everything but its messages. */
+export function withoutMessages(conversation: Conversation): Conversation {
+  return { ...conversation, messages: [], messagesNotLoaded: true }
+}
+
+/**
+ * Refuse to save a copy whose messages were never loaded.
+ *
+ * Saved, it would replace the conversation on disk with no messages at all. The
+ * window reads a conversation's messages before changing one; this is the check
+ * that holds if some path ever forgets to.
+ */
+export function assertMessagesLoaded(conversation: Conversation): void {
+  if (conversation?.messagesNotLoaded) {
+    log.error('Refused to save a conversation whose messages were not loaded:', conversation.id)
+    throw new Error('Could not save chat: its messages were not loaded.')
+  }
 }
 
 /** Every summary, or only those named when `ids` is a list of them. */

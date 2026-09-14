@@ -170,7 +170,15 @@ interface ChatState {
    * reply in, without turning the log itself into a conversation. Returns the
    * new id, or null if the source is gone.
    */
-  forkConversation: (sourceId: string, title: string) => string | null
+  forkConversation: (sourceId: string, title: string) => Promise<string | null>
+  /**
+   * Read a conversation's messages, if this window has not yet.
+   *
+   * The window lists conversations without their messages and reads each one's when
+   * it is needed — opened, shown, sent to, forked. Resolves with the conversation as
+   * the store then holds it, or null when it could not be read or is not listed.
+   */
+  ensureConversationLoaded: (id: string) => Promise<Conversation | null>
   selectConversation: (id: string) => Promise<void>
   renameConversation: (id: string, title: string) => Promise<void>
   deleteConversation: (id: string) => Promise<void>
@@ -186,7 +194,7 @@ interface ChatState {
    * reads every conversation the app has — tens of megabytes on a real store —
    * and a phone's reply alone announces a change two or three times.
    */
-  reloadConversations: (ids: string[]) => Promise<void>
+  reloadConversations: (ids: string[], options?: { fallBackToList?: boolean }) => Promise<void>
   /**
    * Detach a conversation from a project that no longer exists — e.g. the
    * project was deleted while this conversation survived (an interrupted
@@ -321,6 +329,45 @@ export function preserveInFlight(current: Conversation[], loaded: Conversation[]
   return merged
 }
 
+/** A conversation as the window lists it: everything but its messages. */
+export function withoutMessages(conversation: Conversation): Conversation {
+  return { ...conversation, messages: [], messagesNotLoaded: true }
+}
+
+/**
+ * The list as the computer now has it, keeping the messages of every conversation
+ * this window has already read.
+ *
+ * The listing carries no messages, so taking it as it is would empty every open
+ * conversation. A read one takes the listing's fields and keeps its messages for
+ * now, and is named in `stale` to be read again — the full reload this replaces took
+ * the disk's copy of every conversation, and reading the few held whole keeps that:
+ * a generating one gains a turn that landed on disk meanwhile, and one that is not
+ * generating takes the disk's messages. A generating one keeps its live copy, as
+ * `preserveInFlight` always has.
+ */
+export function withListFromDisk(
+  current: Conversation[],
+  listed: Conversation[]
+): { conversations: Conversation[]; stale: string[] } {
+  const byId = new Map(current.map((conversation) => [conversation.id, conversation]))
+  const stale: string[] = []
+  const merged = listed.map((light) => {
+    const had = byId.get(light.id)
+    if (!had || had.messagesNotLoaded) return light
+    stale.push(light.id)
+    const { messagesNotLoaded: _flag, ...fields } = light
+    return { ...fields, messages: had.messages }
+  })
+  return { conversations: preserveInFlight(current, merged), stale }
+}
+
+/** Reads of a conversation's messages in progress, so two asks share one. */
+const pendingLoads = new Map<string, Promise<Conversation | null>>()
+/** When a read last failed, so one that keeps failing is not retried on every change. */
+const failedLoadAt = new Map<string, number>()
+const LOAD_RETRY_MS = 5_000
+
 /** Which read of each conversation is the newest, so an older answer is not applied over it. */
 const latestReload = new Map<string, number>()
 let reloadCounter = 0
@@ -450,13 +497,31 @@ function appendThinking(message: ChatMessage, token: string): void {
  */
 async function persistConversation(conversation: Conversation): Promise<void> {
   try {
-    await anodex.conversations.save(sanitizeConversationTranscript(conversation).conversation)
+    const whole = await withStoredMessages(conversation)
+    if (!whole) return
+    await anodex.conversations.save(sanitizeConversationTranscript(whole).conversation)
   } catch (error) {
     notifyError(
       'Could not save chat',
       error instanceof Error ? error.message : 'The save request failed.'
     )
   }
+}
+
+/**
+ * A conversation ready to save: itself, or — when this window never read its
+ * messages — its fields laid over the messages on disk.
+ *
+ * What lets a rename or a project change work on a conversation that was never
+ * opened, without writing it back with no messages. Null when it is no longer on
+ * disk, where there is nothing to save onto.
+ */
+async function withStoredMessages(conversation: Conversation): Promise<Conversation | null> {
+  if (!conversation.messagesNotLoaded) return conversation
+  const stored = await anodex.conversations.get(conversation.id)
+  if (!stored) return null
+  const { messages: _unread, messagesNotLoaded: _flag, ...fields } = conversation
+  return { ...stored, ...fields, messages: stored.messages }
 }
 
 async function persistActiveState(activeId: string | null): Promise<void> {
@@ -479,13 +544,18 @@ export const useChatStore = create<ChatState>()(
     pendingMessages: {},
 
     load: async () => {
-      const conversations = await anodex.conversations.list()
+      // Without messages: every conversation in full was tens of megabytes held for
+      // the life of the window. The open one is read when it is opened — see the
+      // subscription at the end of this file.
+      const listed = await anodex.conversations.listWithoutMessages()
       const state = await anodex.conversations.getState()
+      const { conversations, stale } = withListFromDisk(get().conversations, listed)
       set({
         conversations,
         activeId: state.activeConversationId,
         loaded: true
       })
+      if (stale.length > 0) void get().reloadConversations(stale)
       const active = conversations.find((c) => c.id === state.activeConversationId)
       if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
     },
@@ -575,7 +645,14 @@ export const useChatStore = create<ChatState>()(
       const conversation = get().conversations.find((item) => item.id === id)
       // Only ever discards a chat this feature created and nobody used: linked
       // to a thread, no turns, and nothing typed. Anything else is the user's.
-      if (!conversation?.emailThread || conversation.messages.length > 0) return
+      // Not read yet is not the same as empty.
+      if (
+        !conversation?.emailThread ||
+        conversation.messagesNotLoaded ||
+        conversation.messages.length > 0
+      ) {
+        return
+      }
       // An instruction waiting in the composer is work in progress — the user
       // clicked Reply and then navigated away, and the chat has to survive for
       // them to come back to.
@@ -611,9 +688,10 @@ export const useChatStore = create<ChatState>()(
       return id
     },
 
-    forkConversation: (sourceId, title) => {
-      const source = get().conversations.find((c) => c.id === sourceId)
-      if (!source) return null
+    forkConversation: async (sourceId, title) => {
+      // A fork copies the messages, so they are read first.
+      const source = await get().ensureConversationLoaded(sourceId)
+      if (!source || source.messagesNotLoaded) return null
       const id = createId('c')
       const now = Date.now()
       const conversation: Conversation = {
@@ -687,10 +765,7 @@ export const useChatStore = create<ChatState>()(
     restoreConversation: async (id) => {
       try {
         await anodex.conversations.restore(id)
-        const conversations = await anodex.conversations.list()
-        set((state) => {
-          state.conversations = preserveInFlight(state.conversations, conversations)
-        })
+        await applyListFromDisk(await anodex.conversations.listWithoutMessages())
       } catch (error) {
         notifyError(
           'Could not restore chat',
@@ -702,10 +777,7 @@ export const useChatStore = create<ChatState>()(
     deleteConversationPermanent: async (id) => {
       try {
         await anodex.conversations.deletePermanent(id)
-        const conversations = await anodex.conversations.list()
-        set((state) => {
-          state.conversations = preserveInFlight(state.conversations, conversations)
-        })
+        await applyListFromDisk(await anodex.conversations.listWithoutMessages())
       } catch (error) {
         notifyError(
           'Could not permanently delete chat',
@@ -733,10 +805,7 @@ export const useChatStore = create<ChatState>()(
 
     refreshConversations: async () => {
       try {
-        const conversations = await anodex.conversations.list()
-        set((state) => {
-          state.conversations = preserveInFlight(state.conversations, conversations)
-        })
+        await applyListFromDisk(await anodex.conversations.listWithoutMessages())
       } catch (error) {
         notifyError(
           'Could not refresh chats',
@@ -745,7 +814,7 @@ export const useChatStore = create<ChatState>()(
       }
     },
 
-    reloadConversations: async (ids) => {
+    reloadConversations: async (ids, options = {}) => {
       const wanted = [...new Set(ids.filter(Boolean))]
       if (wanted.length === 0) return
       // A newer read of the same conversation wins, whichever answer lands first.
@@ -758,7 +827,17 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           reads.forEach(([id, read], index) => {
             if (latestReload.get(id) !== read) return
-            state.conversations = withReloaded(state.conversations, id, loaded[index])
+            // Read whole only where the window already holds it whole, or it is the
+            // open one; otherwise it joins the list without its messages, as at launch.
+            const existing = state.conversations.find((c) => c.id === id)
+            const keepWhole =
+              id === state.activeId || (existing != null && !existing.messagesNotLoaded)
+            const fresh = loaded[index]
+            state.conversations = withReloaded(
+              state.conversations,
+              id,
+              fresh && !keepWhole ? withoutMessages(fresh) : fresh
+            )
           })
           // The open conversation archived or deleted elsewhere: follow the computer
           // to whatever it now has open, as the full reload did.
@@ -773,9 +852,50 @@ export const useChatStore = create<ChatState>()(
             : undefined
         if (active) useUiStore.getState().markConversationRead(active.id, active.updatedAt)
       } catch {
-        // Reading one failed; reading all of them is what this used to do.
-        await get().refreshConversations()
+        // Reading one failed; reading all of them is what this used to do. Not when
+        // that is what asked, or the two would ask each other for ever.
+        if (options.fallBackToList !== false) await get().refreshConversations()
       }
+    },
+
+    ensureConversationLoaded: async (id) => {
+      const listed = get().conversations.find((c) => c.id === id)
+      if (!listed) return null
+      if (!listed.messagesNotLoaded) return listed
+      if (Date.now() - (failedLoadAt.get(id) ?? 0) < LOAD_RETRY_MS) return listed
+
+      let read = pendingLoads.get(id)
+      if (!read) {
+        read = anodex.conversations.get(id).finally(() => pendingLoads.delete(id))
+        pendingLoads.set(id, read)
+      }
+      let whole: Conversation | null
+      try {
+        whole = await read
+      } catch (error) {
+        failedLoadAt.set(id, Date.now())
+        notifyError(
+          'Could not open chat',
+          error instanceof Error ? error.message : 'Its messages could not be read.'
+        )
+        return get().conversations.find((c) => c.id === id) ?? null
+      }
+      if (!whole || whole.archived) {
+        // Gone or archived since the list was read: bring the list up to date.
+        failedLoadAt.set(id, Date.now())
+        void get().reloadConversations([id])
+        return null
+      }
+      failedLoadAt.delete(id)
+      set((state) => {
+        const index = state.conversations.findIndex((c) => c.id === id)
+        // Only over the copy still waiting for it: a copy read or changed here in
+        // the meantime is newer than this answer.
+        if (index >= 0 && state.conversations[index].messagesNotLoaded) {
+          state.conversations[index] = whole
+        }
+      })
+      return get().conversations.find((c) => c.id === id) ?? null
     },
 
     clearOrphanedProjectId: async (id) => {
@@ -797,6 +917,14 @@ export const useChatStore = create<ChatState>()(
 
       const conversationId = conversationIdOverride ?? get().activeId ?? get().newConversation()
       if (!conversationId) return
+      // The turn carries the conversation so far, so it has to have been read.
+      if (get().conversations.find((c) => c.id === conversationId)?.messagesNotLoaded) {
+        const read = await get().ensureConversationLoaded(conversationId)
+        if (!read || read.messagesNotLoaded) {
+          notifyError('Could not send', 'This chat could not be read. Try again in a moment.')
+          return
+        }
+      }
       invalidateReplaySuggestion(conversationId)
       const existing = get().conversations.find((c) => c.id === conversationId)
       const projectId = existing?.projectId ?? null
@@ -1104,6 +1232,7 @@ export const useChatStore = create<ChatState>()(
     editMessage: async (messageId, text, options = {}) => {
       const conversationId = get().activeId
       const conversation = get().conversations.find((item) => item.id === conversationId)
+      if (conversation?.messagesNotLoaded) return { status: 'failed' }
       const branch = conversation ? buildMessageEditBranch(conversation, messageId) : null
       const trimmed = text.trim()
       if (!conversation || !branch || (!trimmed && !branch.target.attachments?.length)) {
@@ -1179,6 +1308,7 @@ export const useChatStore = create<ChatState>()(
 
     regenerateMessage: async (messageId, options) => {
       const conversation = get().conversations.find((item) => item.id === get().activeId)
+      if (conversation?.messagesNotLoaded) return { status: 'failed' }
       const target = conversation ? buildRegenerateTarget(conversation.messages, messageId) : null
       if (!conversation || !target) return { status: 'failed' }
 
@@ -1496,6 +1626,19 @@ export const useChatStore = create<ChatState>()(
     },
 
     syncCheckpointSummary: (conversationId, messageId, checkpoint) => {
+      // The checkpoint panel lists changes from every conversation in the project,
+      // not only the open one. Its messages are read first, so the summary lands on
+      // the message it belongs to rather than on nothing.
+      if (get().conversations.find((item) => item.id === conversationId)?.messagesNotLoaded) {
+        void get()
+          .ensureConversationLoaded(conversationId)
+          .then((read) => {
+            if (read && !read.messagesNotLoaded) {
+              get().syncCheckpointSummary(conversationId, messageId, checkpoint)
+            }
+          })
+        return
+      }
       let changed = false
       const updatedAt = Date.now()
       set((state) => {
@@ -1662,6 +1805,25 @@ function editedFilesForAssistantMessage(conversation: Conversation, messageId: s
     )
   )
 }
+
+/** Take a fresh listing of conversations, then read again any this window holds out of date. */
+async function applyListFromDisk(listed: Conversation[]): Promise<void> {
+  const { conversations, stale } = withListFromDisk(useChatStore.getState().conversations, listed)
+  useChatStore.setState({ conversations })
+  if (stale.length > 0) {
+    await useChatStore.getState().reloadConversations(stale, { fallBackToList: false })
+  }
+}
+
+// The open conversation is always read whole. Whatever made it the open one —
+// choosing it, launch, a thread's chat, the computer archiving the one before — it
+// is read here, once; a read that fails waits before being tried again.
+useChatStore.subscribe((state) => {
+  const active = state.activeId
+    ? state.conversations.find((conversation) => conversation.id === state.activeId)
+    : undefined
+  if (active?.messagesNotLoaded) void state.ensureConversationLoaded(active.id)
+})
 
 function deriveTitle(text: string): string {
   // Without markdown marks: a pasted prompt otherwise became a sidebar title like

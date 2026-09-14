@@ -8,7 +8,7 @@ import {
   type MouseEvent
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { Conversation } from '../../stores/chatStore'
+import { useChatStore, type Conversation } from '../../stores/chatStore'
 import type { ConversationExportFormat } from '@shared/backup.types'
 import { formatRelativeTime } from '../../lib/time'
 import { anodex } from '../../lib/anodex'
@@ -256,14 +256,22 @@ type ChatMenuEntry =
 
 /**
  * Write this chat to a file the user picks. Lives here rather than being
- * threaded down from the sidebar because the row already holds the whole
- * conversation — the only thing an export needs.
+ * threaded down from the sidebar because the row holds the conversation — read
+ * whole first when this window has only listed it, or the export would be a chat
+ * with no messages.
  */
 async function exportChat(
   conversation: Conversation,
   format: ConversationExportFormat
 ): Promise<void> {
-  const result = await anodex.backup.exportConversation(conversation, format)
+  const whole = conversation.messagesNotLoaded
+    ? await useChatStore.getState().ensureConversationLoaded(conversation.id)
+    : conversation
+  if (!whole || whole.messagesNotLoaded) {
+    notifyError('Could not export chat', 'Its messages could not be read. Try again in a moment.')
+    return
+  }
+  const result = await anodex.backup.exportConversation(whole, format)
   if (!result.ok) {
     notifyError('Could not export chat', result.error.detail ?? result.error.message)
     return

@@ -414,7 +414,7 @@ export function AgentView(): JSX.Element {
    * it's a record of what ran unattended — so this forks a fresh conversation
    * the user owns instead of reopening the run's own transcript for edits.
    */
-  const continueInChat = (run: AgentRun): void => {
+  const continueInChat = async (run: AgentRun): Promise<void> => {
     if (!run.conversationId) {
       notify({
         kind: 'info',
@@ -425,7 +425,7 @@ export function AgentView(): JSX.Element {
     }
     const headline = goalHeadline(run.goal)
     const shortGoal = headline.length > 48 ? `${headline.slice(0, 48)}…` : headline
-    const forkedId = forkConversation(run.conversationId, `${shortGoal} (continued)`)
+    const forkedId = await forkConversation(run.conversationId, `${shortGoal} (continued)`)
     if (!forkedId) {
       notify({
         kind: 'error',
@@ -489,7 +489,7 @@ export function AgentView(): JSX.Element {
           onDelete={() => void handleDelete(selectedRun)}
           onApprove={() => void handleApprove(selectedRun)}
           onReject={() => void handleReject(selectedRun)}
-          onContinueInChat={() => continueInChat(selectedRun)}
+          onContinueInChat={() => void continueInChat(selectedRun)}
         />
         {editor}
       </div>
