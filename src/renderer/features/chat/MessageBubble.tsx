@@ -16,6 +16,11 @@ import { TranscriptRecallCard } from './TranscriptRecallCard'
 import { MessageContent } from './MessageContent'
 import { MessageSources } from './MessageSources'
 import { LiveActivityIndicator } from './LiveActivityIndicator'
+import {
+  readingLabel,
+  readingPercent,
+  useReadingProgressStore
+} from '../../stores/readingProgressStore'
 import { TurnRecap } from './TurnRecap'
 import { CheckpointDialog } from './CheckpointDialog'
 import { EditMessageDialog } from './EditMessageDialog'
@@ -198,11 +203,22 @@ export function MessageBubble({
   // The tail of a streaming message always carries an unobtrusive live status.
   // Tool names come from actual activity events; other labels describe only
   // the observable generation state, not unexposed model reasoning.
+  // While the model reads a long prompt — a big conversation, or the results a tool
+  // just returned — say so, with how far, rather than "Thinking" for all of it. Only
+  // while nothing is being written and no tool is running.
+  const readingProgress = useReadingProgressStore((state) =>
+    message.streaming ? state.byMessage[message.id] : undefined
+  )
+  const toolRunning = (message.toolCalls ?? []).some((call) => call.status === 'running')
+  const reading =
+    message.streaming && !toolRunning && lastSegment?.type !== 'text'
+      ? readingLabel(readingProgress)
+      : null
   const tailActivityLabel =
     message.streaming && lastSegment
       ? lastSegment.type === 'text'
         ? 'Writing response'
-        : liveActivityLabel(message.toolCalls ?? [], false)
+        : (reading ?? liveActivityLabel(message.toolCalls ?? [], false))
       : null
 
   // First light: 'waiting' until this mount sees the thinking indicator,
@@ -278,7 +294,10 @@ export function MessageBubble({
             </div>
           )}
           {showInitialActivity ? (
-            <LiveActivityIndicator label={liveActivityLabel(message.toolCalls ?? [], false)} />
+            <LiveActivityIndicator
+              label={reading ?? liveActivityLabel(message.toolCalls ?? [], false)}
+              progress={reading && readingProgress ? readingPercent(readingProgress) : undefined}
+            />
           ) : (
             <div className={styles.segments}>
               {timeline.map((block, index) => {
@@ -317,7 +336,10 @@ export function MessageBubble({
           )}
           {tailActivityLabel && (
             <div className={styles.tailActivity}>
-              <LiveActivityIndicator label={tailActivityLabel} />
+              <LiveActivityIndicator
+                label={tailActivityLabel}
+                progress={reading && readingProgress ? readingPercent(readingProgress) : undefined}
+              />
             </div>
           )}
 

@@ -745,6 +745,7 @@ export async function runBoundedChatGeneration(
           enabledTools: new Set(['update_plan_step']),
           onToken: undefined,
           onThinkingToken: undefined,
+          onPromptProgress: undefined,
           onActivity: (call) => {
             if (call.status !== 'running') completedToolCalls.set(`plan:${call.id}`, call)
             if (call.plan) currentPlan = activePlan(call.plan)
@@ -786,7 +787,13 @@ export async function runBoundedChatGeneration(
           context,
           plan: currentPlan
         },
-        { ...io, enabledTools: new Set(), onToken: undefined, onThinkingToken: undefined }
+        {
+          ...io,
+          enabledTools: new Set(),
+          onToken: undefined,
+          onThinkingToken: undefined,
+          onPromptProgress: undefined
+        }
       )
       totalTokens += closing.stats.tokens
       totalDurationMs += closing.stats.durationMs
