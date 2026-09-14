@@ -866,7 +866,11 @@ export const useChatStore = create<ChatState>()(
 
       let read = pendingLoads.get(id)
       if (!read) {
-        read = anodex.conversations.get(id).finally(() => pendingLoads.delete(id))
+        // Through a resolved promise, so a read that throws before it starts is a
+        // failed read like any other rather than an error nobody catches.
+        read = Promise.resolve()
+          .then(() => anodex.conversations.get(id))
+          .finally(() => pendingLoads.delete(id))
         pendingLoads.set(id, read)
       }
       let whole: Conversation | null
