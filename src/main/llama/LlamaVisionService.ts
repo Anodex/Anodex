@@ -58,6 +58,7 @@ import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
 import { basename } from 'node:path'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
+import type { PromptPrefixStore } from './promptWarmup'
 import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
 import { ToolGuidanceError } from '../tools/ToolGuidanceError'
@@ -311,9 +312,52 @@ export class LlamaVisionService {
    */
   constructor(
     onUnexpectedExit?: (message: string) => void,
-    private readonly getCurrentModel?: () => ModelInfo | undefined
+    private readonly getCurrentModel?: () => ModelInfo | undefined,
+    /** Where the unchanging start of a request is kept for {@link warmUp}. */
+    private readonly promptPrefixes?: PromptPrefixStore
   ) {
     this.runtime = new LlamaServerRuntime(onUnexpectedExit)
+  }
+
+  /**
+   * Read the start of the last request before anybody asks anything.
+   *
+   * Sends the system prompt and tool definitions last used with this model, asking
+   * for a single token, so llama-server has them in its prompt cache. The first real
+   * message then reads only its own words. With more than one parallel job, every
+   * slot is warmed, since a message may land on any of them.
+   *
+   * Never throws: a failed warm-up costs one slow first message, nothing more.
+   */
+  async warmUp(modelPath: string, slots = 1): Promise<boolean> {
+    const connection = this.runtime.activeConnection
+    const prefix = this.promptPrefixes?.load(modelPath)
+    if (!connection || !prefix) return false
+    const client = new OpenAI({
+      apiKey: connection.apiKey,
+      baseURL: connection.baseUrl,
+      timeout: 5 * 60_000,
+      maxRetries: 0
+    })
+    const warm = (): Promise<unknown> =>
+      client.chat.completions.create({
+        model: connection.modelId,
+        messages: repairLoneSurrogatesDeep([prefix.system, { role: 'user', content: '.' }]),
+        tools: prefix.tools,
+        tool_choice: prefix.tools ? 'auto' : undefined,
+        parallel_tool_calls: false,
+        max_tokens: 1,
+        stream: false
+      })
+    try {
+      const started = Date.now()
+      await Promise.all(Array.from({ length: Math.max(1, slots) }, warm))
+      log.info('Prompt cache warmed', { modelPath, slots, ms: Date.now() - started })
+      return true
+    } catch (error) {
+      log.warn('Prompt cache warm-up failed:', error)
+      return false
+    }
   }
 
   get active(): boolean {
@@ -669,6 +713,11 @@ export class LlamaVisionService {
       // stale-parse branch below, where that is the difference between a
       // runtime fault and a genuine truncation.
       const runtimeOutputBefore = this.runtime.recentOutput()
+      // Remembered for the next load's warm-up: the unchanging start of the request.
+      const currentModelPath = this.getCurrentModel?.()?.path
+      if (currentModelPath && messages[0]?.role === 'system') {
+        this.promptPrefixes?.save({ modelPath: currentModelPath, system: messages[0], tools })
+      }
       const pendingCalls = new Map<number, PendingToolCall>()
       let reportedPromptTokens: number | undefined
       try {
