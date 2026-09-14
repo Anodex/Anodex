@@ -225,6 +225,17 @@ describe('remote pairing', () => {
     expect(locked.failure.reason).toBe('rate-limited')
   })
 
+  it('a paired phone still connects while another device is locked out', () => {
+    // Seen with two phones: one was unpaired, kept retrying its dead key, and
+    // tripped the lockout for the one still paired.
+    const key = pair()
+    for (let i = 0; i < MAX_AUTH_ATTEMPTS; i++) service.authenticate('unpaired-phone-key')
+    const locked = service.authenticate('unpaired-phone-key')
+    expect(!locked.ok && locked.failure.reason).toBe('rate-limited')
+
+    expect(service.authenticate(key).ok).toBe(true)
+  })
+
   it('a valid key still works after someone else has been guessing', () => {
     // The lockout must not become a way to lock the real user out permanently.
     const key = pair()
