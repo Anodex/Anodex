@@ -11,6 +11,7 @@ import { err, ok, toErrorMessage } from '@shared/result'
 import { conversationStore } from '../conversations/ConversationStore'
 import { forRemote } from '../conversations/remoteTranscript'
 import { attachmentPreview } from '../conversations/attachmentPreview'
+import { branchForEdit } from '../conversations/branchForEdit'
 import { searchConversationBodies } from '../conversations/conversationBodySearch'
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
@@ -52,6 +53,38 @@ export function registerConversationHandlers(): void {
     // phone does read, and as many turns of them as will fit.
     return isRemoteCall(event) ? forRemote(tail) : tail
   })
+
+  ipcMain.handle(
+    IpcChannel.Conversations.branchForEdit,
+    (event, conversationId: string, messageId: string) => {
+      const outcome = branchForEdit(conversationStore.get(conversationId), messageId, Date.now())
+      if (!outcome.ok) {
+        return err(
+          `conversations.edit-${outcome.reason}`,
+          outcome.reason === 'project-chat'
+            ? 'Replies after this message may have changed project files. Edit it on the computer, where those changes can be rolled back.'
+            : 'That message cannot be edited.'
+        )
+      }
+      try {
+        // A plain save, not a remote merge: a merge keeps every stored turn, and
+        // removing turns is the point.
+        conversationStore.save(outcome.conversation)
+        broadcastToOtherClients(
+          resolveClientChannel(event),
+          IpcChannel.Conversations.changed,
+          conversationId
+        )
+        return ok({ remainingMessages: outcome.conversation.messages.length })
+      } catch (error) {
+        return err(
+          'conversations.edit-failed',
+          'Could not edit that message.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
 
   ipcMain.handle(
     IpcChannel.Conversations.attachmentPreview,
