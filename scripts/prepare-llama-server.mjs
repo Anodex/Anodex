@@ -93,11 +93,7 @@ await mkdir(extracted, { recursive: true })
 try {
   const url = `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE}/${asset}`
   process.stdout.write(`Downloading ${asset}...\n`)
-  const response = await fetch(url, { redirect: 'follow' })
-  if (!response.ok || !response.body) {
-    throw new Error(`llama.cpp download failed with HTTP ${response.status}.`)
-  }
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(archive))
+  await downloadWithRetry(url, archive)
   const digest = await sha256File(archive)
   if (digest !== assetConfig.sha256) {
     throw new Error(`llama.cpp archive checksum mismatch for ${asset}.`)
@@ -193,5 +189,37 @@ function assertInsideResourceRoot(path) {
   const rootWithSeparator = RESOURCE_ROOT.endsWith(sep) ? RESOURCE_ROOT : `${RESOURCE_ROOT}${sep}`
   if (!path.startsWith(rootWithSeparator)) {
     throw new Error(`Refusing to replace an unsafe llama-server target: ${path}`)
+  }
+}
+
+/**
+ * Fetch the release archive, retrying what a retry can fix.
+ *
+ * GitHub's release CDN answers with a 5xx now and then. 0.9.2's packaging failed on
+ * macOS and Linux with a 504 while Windows, a minute apart, downloaded the same
+ * release fine — so a single attempt turned a passing blip into a failed release.
+ * Four attempts, a widening wait, and only for failures that can pass on their own.
+ */
+async function downloadWithRetry(url, destination) {
+  const attempts = 4
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(url, { redirect: 'follow' })
+      if (!response.ok || !response.body) {
+        const error = new Error(`llama.cpp download failed with HTTP ${response.status}.`)
+        error.retryable = response.status >= 500 || response.status === 429
+        throw error
+      }
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(destination))
+      return
+    } catch (error) {
+      const retryable = error?.retryable ?? true
+      if (!retryable || attempt >= attempts) throw error
+      const waitMs = 5_000 * attempt
+      process.stdout.write(
+        `${error.message} Retrying in ${waitMs / 1000}s (attempt ${attempt + 1} of ${attempts})...\n`
+      )
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
   }
 }
