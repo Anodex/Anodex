@@ -546,7 +546,15 @@ class LlamaService extends EventEmitter {
     // it undefined and nothing is claimed.
     this.recommendedContextSize = await this.recommendContextSize(info)
     const nlc = await this.getModule()
-    const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc)
+    // The model loaded now is unloaded before the new one loads, so the memory it
+    // holds counts as free. Without this a reload of the same model — to change its
+    // context size, GPU layers or parallel jobs — needed room for two copies, and a
+    // 27B model holding 19 GB was refused its own reload with 22 GB free.
+    const reclaimableBytes =
+      this.currentModel && this.status === 'ready'
+        ? this.currentModel.sizeBytes + (this.currentModel.visionProjectorSizeBytes ?? 0)
+        : 0
+    const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc, reclaimableBytes)
     if (memoryIssue) {
       log.warn('Refusing to load model:', memoryIssue)
       // Recorded WITHOUT touching status/model/error. This runs before
@@ -3030,12 +3038,14 @@ const MIN_FREE_RAM_MULTIPLIER = 1.15
  * any reason (e.g. an unusual or corrupt file), so this check never becomes
  * *less* safe than it was before.
  */
-async function describeInsufficientMemory(
+export async function describeInsufficientMemory(
   info: ModelInfo,
   contextSize: number,
-  nlc: LlamaModule
+  nlc: Pick<LlamaModule, 'readGgufFileInfo' | 'GgufInsights'>,
+  /** Memory the currently loaded model gives back when it is unloaded first. */
+  reclaimableBytes = 0
 ): Promise<string | null> {
-  const free = freemem()
+  const free = freemem() + reclaimableBytes
   const projectorBytes = info.visionProjectorSizeBytes ?? 0
 
   try {
