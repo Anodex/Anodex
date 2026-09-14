@@ -138,12 +138,17 @@ class UpdateService extends EventEmitter {
    * the install by pressing Restart & install; the upgrade keeps the existing
    * per-user installation and its folder either way.
    */
-  installAndRestart(): void {
-    if (this.status.state !== 'downloaded') return
-    // Silent means nothing on screen while it installs, so say it is happening.
-    showUpdateProgressWindow({ version: this.status.version, exePath: app.getPath('exe') })
+  async installAndRestart(): Promise<void> {
+    if (this.status.state !== 'downloaded' || this.installing) return
+    // A second press while the window is starting must not start a second install.
+    this.installing = true
+    // Silent means nothing on screen while it installs, so say it is happening —
+    // waiting until the window is up, so Anodex never vanishes with nothing in its place.
+    await showUpdateProgressWindow({ version: this.status.version, exePath: app.getPath('exe') })
     autoUpdater.quitAndInstall(true, true)
   }
+
+  private installing = false
 
   private setStatus(status: UpdateStatus): void {
     this.status = status
