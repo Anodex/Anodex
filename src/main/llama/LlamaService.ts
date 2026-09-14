@@ -1,6 +1,8 @@
+import { app } from 'electron'
+import { PromptPrefixStore } from './promptWarmup'
 import { EventEmitter } from 'node:events'
 import { freemem, totalmem } from 'node:os'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import type {
   Llama,
   LlamaModel,
@@ -165,6 +167,14 @@ export interface GenerateParams {
   /** Assistant message id, used to route tool activity to the right turn. */
   messageId: string
   systemPrompt?: string
+  /**
+   * Context that changes every message — the date, and the workspace, memory and
+   * past chats chosen for it. Already placed at the start of `prompt` for the
+   * stateless transports; see `composeCacheablePrompt`.
+   */
+  turnContext?: string
+  /** The user's own words, when `prompt` also carries the turn context. */
+  userPrompt?: string
   /** Persisted context snapshot for older turns, when one exists. */
   context?: ConversationContext | null
   history: ChatHistoryTurn[]
@@ -378,7 +388,8 @@ class LlamaService extends EventEmitter {
     (message) => {
       this.setState({ status: 'error', error: message })
     },
-    () => this.currentModel
+    () => this.currentModel,
+    new PromptPrefixStore(() => join(app.getPath('userData'), 'prompt-prefix.json'))
   )
   private modulePromise: Promise<LlamaModule> | null = null
   private loadedModule?: LlamaModule
@@ -525,10 +536,28 @@ class LlamaService extends EventEmitter {
     }
     this.loadingModel = true
     const release = await this.modelLock.acquireExclusive()
+    let state: EngineState
     try {
-      return await this.loadModelInternal(options, info)
+      state = await this.loadModelInternal(options, info)
     } finally {
       this.loadingModel = false
+      release()
+    }
+    if (this.visionService.active) void this.warmUpPromptCache(info.path)
+    return state
+  }
+
+  /**
+   * Have the freshly loaded model read the usual start of a request, in the
+   * background, so the first message does not pay for it. Runs as a job on the
+   * gate, so it never races a reply or a load.
+   */
+  private async warmUpPromptCache(modelPath: string): Promise<void> {
+    const release = await this.modelLock.acquire()
+    try {
+      if (this.currentModel?.path !== modelPath || !this.visionService.active) return
+      await this.visionService.warmUp(modelPath, this.modelLock.capacity)
+    } finally {
       release()
     }
   }
@@ -806,6 +835,18 @@ class LlamaService extends EventEmitter {
 
     if (this.generating) {
       throw new Error('Internal: a generation is already in progress on this engine.')
+    }
+
+    // The node-llama-cpp session keeps its own history and prompt handling, and its
+    // cache follows the session rather than a byte-identical request. It receives the
+    // turn context in the system prompt, as before, and the user's words as the prompt.
+    if (params.turnContext) {
+      params = {
+        ...params,
+        systemPrompt: [params.systemPrompt, params.turnContext].filter(Boolean).join('\n\n'),
+        prompt: params.userPrompt ?? params.prompt,
+        turnContext: undefined
+      }
     }
 
     // Take the lock before any awaited setup touches the shared context/session.
