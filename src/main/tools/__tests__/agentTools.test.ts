@@ -644,3 +644,47 @@ describe('finish_goal on a run that can only look', () => {
     expect(await tool.handler({ summary: 'Fixed the bug.' })).toContain('cannot be accepted')
   })
 })
+
+describe('finish_goal on a goal that only asks to look', () => {
+  // Seen on the user's machine: "Count the files at the project root. Do not change
+  // anything." in a run whose tools could change things. It counted the files on turn
+  // 2, was refused for changing nothing on every turn after, and was stopped on turn 5.
+  function turn(ledger: ToolRuntimeContext['ledger'], observed: boolean): ToolRuntimeContext {
+    const ctx = context()
+    ctx.ledger = ledger
+    ctx.progress.observed = observed
+    return ctx
+  }
+
+  function finish(ctx: ToolRuntimeContext): Promise<string> {
+    const tool = finishGoalTool(createMockDefine(), ctx) as unknown as {
+      handler: FinishGoalHandler
+    }
+    return tool.handler({ summary: 'There are 5 files at the root. Nothing was changed.' })
+  }
+
+  it('refuses the first claim, and says a look-only goal is accepted on the next turn', async () => {
+    const result = await finish(turn(createTaskLedger(), true))
+    expect(result).toContain('Nothing has been done yet this turn')
+    expect(result).toContain('it will be accepted')
+  })
+
+  it('accepts the claim on a later turn that looked at something', async () => {
+    const ledger = createTaskLedger()
+    await finish(turn(ledger, true))
+    expect(await finish(turn(ledger, true))).toContain('Run finished.')
+  })
+
+  it('still refuses a repeat from the same turn', async () => {
+    const ledger = createTaskLedger()
+    const same = turn(ledger, true)
+    await finish(same)
+    expect(await finish(same)).toContain('Nothing has been done yet this turn')
+  })
+
+  it('still refuses a later claim with nothing looked at behind it', async () => {
+    const ledger = createTaskLedger()
+    await finish(turn(ledger, true))
+    expect(await finish(turn(ledger, false))).toContain('Nothing has been done yet this turn')
+  })
+})
