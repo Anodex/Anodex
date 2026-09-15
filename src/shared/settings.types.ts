@@ -193,6 +193,12 @@ export interface ToolSettings {
    * scheduled runs keep using their own explicit allowlists instead.
    */
   disabledTools: string[]
+  /**
+   * Ask a project chat that changed files to check them before it finishes: a build,
+   * test or lint run, a syntax check, or a look at a changed page. Once per reply.
+   * Missing (settings written before this existed) reads as on.
+   */
+  checkBeforeFinishing?: boolean
 }
 
 /**

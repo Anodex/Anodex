@@ -7,6 +7,8 @@ import { findChatPersonality } from '@shared/chatPersonality'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useModelStore } from '../../stores/modelStore'
 import { modelSharingNote } from './modelSharing'
+import { anodex } from '../../lib/anodex'
+import { CONTINUE_MESSAGE, canContinueReply, webPageToOpen } from './replyActions'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
@@ -107,6 +109,25 @@ function MessageBubbleImpl({
   // Deliberately not gated on having produced any content: a reply that
   // stalled out empty is exactly the one worth asking again for.
   const showRegenerate = !isUser && !message.streaming && Boolean(regenerateTarget)
+  const sendMessage = useChatStore((s) => s.sendMessage)
+  const showContinue = canContinueReply(message, regenerateTarget?.laterTurnCount === 0)
+  // A reply that changed a web page can open it, served from its project. See
+  // `projectPageUrl` in main for why it is served rather than opened from disk.
+  const projectId = useChatStore(
+    (s) =>
+      s.conversations?.find((conversation) => conversation.id === s.activeId)?.projectId ?? null
+  )
+  const pageToOpen =
+    !isUser && !message.streaming && projectId
+      ? webPageToOpen(message.checkpoint?.changedFiles)
+      : null
+  const openPage = async (): Promise<void> => {
+    if (!projectId || !pageToOpen) return
+    const opened = await anodex.projects.openInBrowser(projectId, pageToOpen)
+    if (!opened.ok) {
+      notify({ kind: 'error', title: 'Could not open the page', message: opened.error.message })
+    }
+  }
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -250,7 +271,13 @@ function MessageBubbleImpl({
     return undefined
   }, [lightPhase, showInitialActivity, hasSegments])
   const showFooter =
-    isUser || (message.stats && !message.streaming) || showCopy || showSkillDraft || showCheckpoint
+    isUser ||
+    (message.stats && !message.streaming) ||
+    showCopy ||
+    showSkillDraft ||
+    showCheckpoint ||
+    showContinue ||
+    Boolean(pageToOpen)
 
   return (
     <div className={`${styles.row} ${isUser ? styles.user : styles.assistant}`}>
@@ -423,6 +450,33 @@ function MessageBubbleImpl({
             >
               <Icon name="rotate-ccw" size={12} />
               Regenerate
+            </button>
+          )}
+          {showContinue && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={() =>
+                void sendMessage(CONTINUE_MESSAGE, undefined, activeConversationId ?? undefined)
+              }
+              disabled={conversationStreaming}
+              aria-label="Continue this reply"
+              title="Carry on from where this reply stopped, keeping what it already did"
+            >
+              <Icon name="chevron-right" size={12} />
+              Continue
+            </button>
+          )}
+          {pageToOpen && (
+            <button
+              type="button"
+              className={styles.copyButton}
+              onClick={() => void openPage()}
+              aria-label={`Open ${pageToOpen} in the browser`}
+              title={`Open ${pageToOpen} in your browser`}
+            >
+              <Icon name="globe" size={12} />
+              Open in browser
             </button>
           )}
           {showSkillDraft && (

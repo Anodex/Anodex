@@ -816,6 +816,13 @@ export function validatePatch(patch: SettingsPatch): void {
     }
   }
 
+  if (
+    patch.tools?.checkBeforeFinishing !== undefined &&
+    typeof patch.tools.checkBeforeFinishing !== 'boolean'
+  ) {
+    throw new Error('tools.checkBeforeFinishing must be a boolean')
+  }
+
   if (patch.appearance?.soundTheme !== undefined) {
     if (!['soft', 'crisp', 'glass', 'retro', 'sciFi'].includes(patch.appearance.soundTheme)) {
       throw new Error('appearance.soundTheme must be "soft", "crisp", "glass", "retro", or "sciFi"')

@@ -6434,6 +6434,66 @@
       }
     },
     {
+      "channel": "projects:open-in-browser",
+      "kind": "invoke",
+      "api": "projects.openInBrowser",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        {
+          "name": "relativePath",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "projects:restore",
       "kind": "invoke",
       "api": "projects.restore",
@@ -23792,6 +23852,23 @@
             "of": {
               "kind": "string"
             }
+          }
+        },
+        "checkBeforeFinishing": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              },
+              {
+                "kind": "boolean"
+              }
+            ]
           }
         }
       }

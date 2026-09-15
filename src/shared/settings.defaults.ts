@@ -91,7 +91,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     tools: {
       enabled: true,
-      disabledTools: []
+      disabledTools: [],
+      checkBeforeFinishing: true
     },
     computerControl: {
       desktopControlEnabled: false
