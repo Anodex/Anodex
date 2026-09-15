@@ -39,6 +39,7 @@ import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../tools/mutationTools'
 import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
 import { isContextOverflowError, isDroppedStreamError } from './droppedStreamError'
+import { createBudgetMessageFilter, withoutBudgetMessage } from './budgetMessageFilter'
 import {
   isTruncatedToolCallError,
   truncatedArgumentsLength,
@@ -724,6 +725,8 @@ export class LlamaVisionService {
       }
       const pendingCalls = new Map<number, PendingToolCall>()
       let reportedPromptTokens: number | undefined
+      // llama-server sometimes sends its reasoning-budget note as reply text.
+      const visibleText = createBudgetMessageFilter()
       try {
         const stream = await client.chat.completions.create(
           {
@@ -760,9 +763,10 @@ export class LlamaVisionService {
           if (!choice) continue
           finishReason = choice.finish_reason ?? finishReason
           const delta = choice.delta
-          if (delta.content) {
-            roundContent += delta.content
-            params.onToken(delta.content)
+          const shown = delta.content ? visibleText.push(delta.content) : ''
+          if (shown) {
+            roundContent += shown
+            params.onToken(shown)
           }
           const reasoning = (delta as typeof delta & { reasoning_content?: string })
             .reasoning_content
@@ -784,7 +788,13 @@ export class LlamaVisionService {
             pendingCalls.set(call.index, existing)
           }
         }
+        const heldBack = visibleText.flush()
+        if (heldBack) {
+          roundContent += heldBack
+          params.onToken(heldBack)
+        }
       } catch (error) {
+        roundContent += visibleText.flush()
         // Folded before anything below reads `content`. While streaming wrote
         // straight into `content`, a round that produced text before failing
         // was self-evidently worth keeping; once the fold moved to the round
@@ -1255,7 +1265,7 @@ export class LlamaVisionService {
     const message = response.choices[0]?.message
     const reasoning = (message as (typeof message & { reasoning_content?: string }) | undefined)
       ?.reasoning_content
-    return message?.content || reasoning || ''
+    return withoutBudgetMessage(message?.content ?? '') || reasoning || ''
   }
 
   private buildToolFunctions(
