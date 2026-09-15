@@ -293,6 +293,8 @@ export const IpcChannel = {
     pickFolder: 'tools:pick-folder',
     /** renderer → main: user's answer to a confirmation prompt. */
     confirmResponse: 'tools:confirm-response',
+    /** client → main: the prompts still waiting for an answer, for a client that just connected. */
+    pendingConfirmations: 'tools:pending-confirmations',
     /** main → renderer: a tool call started/updated. */
     activity: 'tools:activity',
     /** main → renderer: approval is required before a write/command runs. */
