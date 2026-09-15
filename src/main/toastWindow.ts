@@ -36,13 +36,19 @@ const FALLBACK_CLOSE_MS = 7000
 /** Only one toast at a time — a new one replaces whatever is still showing. */
 let activeToast: BrowserWindow | null = null
 
+/** Toasts closed to make way for a newer one — see `reportLoadFailure`. */
+const replacedToasts = new WeakSet<BrowserWindow>()
+
 /** Close the active toast, if any — called on app quit. */
 export function closeToast(): void {
   if (activeToast && !activeToast.isDestroyed()) activeToast.close()
 }
 
 export function showToastWindow(content: ToastContent): void {
-  if (activeToast && !activeToast.isDestroyed()) activeToast.close()
+  if (activeToast && !activeToast.isDestroyed()) {
+    replacedToasts.add(activeToast)
+    activeToast.close()
+  }
 
   const toast = new BrowserWindow({
     width: TOAST_WIDTH,
@@ -74,15 +80,22 @@ export function showToastWindow(content: ToastContent): void {
     body: content.body,
     ...(content.conversationId ? { conversationId: content.conversationId } : {})
   }
+  // A toast replaced by the next one while it was still loading is closed, which
+  // abandons its load. That is not a failure, and logging it as one put an error in
+  // Diagnostics for every run that finished two turns in quick succession.
+  const reportLoadFailure = (what: string) => (error: unknown) => {
+    if (toast.isDestroyed() || replacedToasts.has(toast)) return
+    log.error(what, error)
+  }
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
     toast
       .loadURL(`${devServerUrl}?${new URLSearchParams(query).toString()}`)
-      .catch((error) => log.error('Failed to load toast dev server URL:', error))
+      .catch(reportLoadFailure('Failed to load toast dev server URL:'))
   } else {
     toast
       .loadFile(join(__dirname, '../renderer/index.html'), { query })
-      .catch((error) => log.error('Failed to load toast index.html:', error))
+      .catch(reportLoadFailure('Failed to load toast index.html:'))
   }
 
   let fallbackTimer: ReturnType<typeof setTimeout> | undefined
