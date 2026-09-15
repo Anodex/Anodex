@@ -11,7 +11,7 @@ import { ok, err, toErrorMessage } from '@shared/result'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { settingsStore } from '../settings/SettingsStore'
 import type { ClientChannel } from '../clients/ClientChannel'
-import { activeRemoteClients, onRemoteClientAttached } from '../clients/clientRegistry'
+import { activeRemoteClients } from '../clients/clientRegistry'
 import { notifyRemoteClients } from '../notify'
 
 /** Approval prompts awaiting a renderer response, keyed by request id. */
@@ -252,11 +252,16 @@ export function resetToolApprovalStateForTests(): void {
   rememberedToolApprovals.clear()
 }
 
-/** Catch a phone that has just connected up on every prompt still waiting for an answer. */
-export function replayPendingConfirmations(client: ClientChannel): void {
-  for (const request of pendingRequests.values()) {
-    client.send(IpcChannel.Tools.confirmRequest, forAPhone(request))
-  }
+/**
+ * Every prompt still waiting for an answer, as the client asking would be sent it.
+ *
+ * Asked for by a phone once it is listening, rather than pushed at it as it connects:
+ * the bridge attaches a client before it sends the welcome, and a phone only starts
+ * listening for events after the welcome, so anything pushed at attach was dropped.
+ */
+export function pendingConfirmationsFor(client: ClientChannel | undefined): ToolConfirmRequest[] {
+  const remote = client ? isRemoteClient(client) : false
+  return [...pendingRequests.values()].map((request) => (remote ? forAPhone(request) : request))
 }
 
 /** Test seam: how many prompts are still waiting for an answer. */
@@ -280,8 +285,12 @@ async function pickDirectory(event: IpcMainInvokeEvent): Promise<string | null> 
 
 /** Which screen answered, so it is not told to drop the card it just answered. */
 function answererId(event: unknown): string | undefined {
+  return clientOf(event)?.id
+}
+
+function clientOf(event: unknown): ClientChannel | undefined {
   try {
-    return resolveClientChannel(event).id
+    return resolveClientChannel(event)
   } catch {
     return undefined
   }
@@ -289,7 +298,9 @@ function answererId(event: unknown): string | undefined {
 
 /** IPC handlers for linking project folders and approval responses. */
 export function registerToolHandlers(): void {
-  onRemoteClientAttached(replayPendingConfirmations)
+  ipcMain.handle(IpcChannel.Tools.pendingConfirmations, (event) =>
+    pendingConfirmationsFor(clientOf(event))
+  )
 
   ipcMain.handle(
     IpcChannel.Tools.confirmResponse,

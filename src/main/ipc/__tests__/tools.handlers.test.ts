@@ -6,7 +6,7 @@ import { attachRemoteClient, detachAllRemoteClients } from '../../clients/client
 import {
   CONFIRMATION_TIMEOUT_MS,
   pendingConfirmationCountForTests,
-  replayPendingConfirmations,
+  pendingConfirmationsFor,
   requestToolConfirmation,
   resetToolApprovalStateForTests,
   resolvePendingConfirmationForTests
@@ -197,7 +197,7 @@ describe('tool approval handling', () => {
     expect(desktop.cancelled).toEqual([])
   })
 
-  it('shows a waiting prompt to a phone that connects after it was asked', async () => {
+  it('tells a phone that connects after it was asked what is still waiting', async () => {
     // Seen on the emulator: the phone app restarted mid-turn, "Anodex needs an answer"
     // arrived, and there was nothing in the app to answer until the turn timed out.
     const desktop = createSender('window')
@@ -206,9 +206,10 @@ describe('tool approval handling', () => {
 
     const phone = createSender('phone')
     attachRemoteClient(phone)
-    replayPendingConfirmations(phone)
 
-    expect(phone.sent.map((sent) => sent.id)).toEqual(['asked-before-connect'])
+    expect(pendingConfirmationsFor(phone).map((waiting) => waiting.id)).toEqual([
+      'asked-before-connect'
+    ])
 
     // And it can answer: a phone that connected late settles it, and the desktop's
     // card goes.
@@ -216,9 +217,7 @@ describe('tool approval handling', () => {
     await expect(result).resolves.toEqual({ approved: true })
     expect(desktop.cancelled).toEqual(['asked-before-connect'])
 
-    const later = createSender('phone-2')
-    replayPendingConfirmations(later)
-    expect(later.sent).toEqual([])
+    expect(pendingConfirmationsFor(phone)).toEqual([])
   })
 
   it('denies a prompt nobody answers, rather than waiting forever', async () => {

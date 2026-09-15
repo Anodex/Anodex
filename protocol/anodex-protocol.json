@@ -7681,6 +7681,18 @@
       }
     },
     {
+      "channel": "tools:pending-confirmations",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "ToolConfirmRequest"
+        }
+      }
+    },
+    {
       "channel": "tools:pick-folder",
       "kind": "invoke",
       "api": "tools.pickFolder",
