@@ -115,6 +115,12 @@ export interface EngineState {
   generating: boolean
   /** How many replies the loaded model can run at once right now. */
   parallelJobs?: number
+  /**
+   * How many replies the loaded model is running right now. More than one means
+   * each is sharing it, and running slower for it — which a reply's status says,
+   * because nothing else did and two jobs at once simply felt slow.
+   */
+  activeReplies?: number
 }
 
 /**

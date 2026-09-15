@@ -17,7 +17,7 @@ import styles from './ToolsSkillsSettings.module.css'
 
 const PERMISSION_OPTIONS = [
   { label: 'Ask every time', value: 'ask' },
-  { label: 'Allow writes, ask commands', value: 'full' },
+  { label: 'Edits: allow file edits and checks, ask commands', value: 'full' },
   { label: 'Untethered', value: 'untethered' }
 ]
 
@@ -352,6 +352,10 @@ export function ToolsSkillsSettings(): JSX.Element {
 
 function permissionHint(mode: 'ask' | 'full' | 'untethered'): string {
   if (mode === 'ask') return 'Prompt before writes and shell commands.'
-  if (mode === 'full') return 'Allow file edits; still ask before sensitive commands.'
+  if (mode === 'full')
+    return (
+      'Edit files and run read-only checks (listing, reading, git status, node --check) ' +
+      'without asking, once a turn has started. Still asks before any other command.'
+    )
   return 'Allow safe and sensitive operations; destructive actions still require confirmation.'
 }

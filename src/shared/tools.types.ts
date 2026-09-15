@@ -174,6 +174,13 @@ export interface ToolConfirmRequest {
    * (`headlessConfirm`) can refuse it without knowing which tools those are.
    */
   requiresHumanApproval?: boolean
+  /**
+   * How long until this prompt declines itself, measured when it was sent. A phone
+   * shows the countdown from this. Counting from when the card appeared, a prompt
+   * reopened minutes later showed nearly five minutes left while the computer had far
+   * less. A duration rather than a time of day, so the two clocks need not agree.
+   */
+  expiresInMs?: number
 }
 
 /** The user's answer to a `ToolConfirmRequest`. */
@@ -630,6 +637,15 @@ export function buildRunToolNames(): string[] {
       !NOT_IN_A_BUILD_RUN.has(tool.name) &&
       !isOffTopicForABuild(tool.name)
   ).map((tool) => tool.name)
+}
+
+/** Whether a run with these tools can change anything, rather than only look. */
+export function toolsCanChangeFiles(names: readonly string[]): boolean {
+  const kinds = new Map(TOOL_CATALOG.map((tool) => [tool.name, tool.kind]))
+  return names.some((name) => {
+    const kind = kinds.get(name)
+    return kind !== undefined && kind !== 'read' && kind !== 'web'
+  })
 }
 
 /** Everything that only looks: for a run meant to investigate, not change. */

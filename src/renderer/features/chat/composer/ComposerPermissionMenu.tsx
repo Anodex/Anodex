@@ -5,6 +5,12 @@ import styles from '../ChatComposer.module.css'
 
 const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
 
+const PERMISSION_ACTIVE_CLASS: Record<PermissionMode, string> = {
+  ask: 'permActiveAsk',
+  full: 'permActiveFull',
+  untethered: 'permActiveUntethered'
+}
+
 function permissionIcon(mode: PermissionMode): IconName {
   if (mode === 'untethered') return 'unlock-keyhole'
   if (mode === 'full') return 'shield-check'
@@ -13,13 +19,15 @@ function permissionIcon(mode: PermissionMode): IconName {
 
 function permissionLabel(mode: PermissionMode): string {
   if (mode === 'untethered') return 'Untethered'
-  if (mode === 'full') return 'Full'
+  // Stored as `full`. Shown as Edits because that is what it allows: "Full" read as
+  // everything allowed, the one thing this mode is not, so it went unused.
+  if (mode === 'full') return 'Edits'
   return 'Ask'
 }
 
 function permissionDescription(mode: PermissionMode): string {
   if (mode === 'untethered') return 'auto-runs safe and sensitive actions'
-  if (mode === 'full') return 'auto-runs safe edits and asks before risky actions'
+  if (mode === 'full') return 'edits files and runs read-only checks, asks before other commands'
   return 'asks before writes and shell commands'
 }
 
@@ -54,7 +62,7 @@ export function ComposerPermissionMenu({
     <div className={styles.permMenu} ref={menuRef}>
       <button
         type="button"
-        className={`${styles.permTrigger} ${styles[`permActive${permissionLabel(mode)}`]}`}
+        className={`${styles.permTrigger} ${styles[PERMISSION_ACTIVE_CLASS[mode]]}`}
         onClick={() => setOpen((value) => !value)}
         title={`Permission mode: ${permissionLabel(mode)} — ${permissionDescription(mode)}`}
         aria-label={`Permission mode: ${permissionLabel(mode)}`}

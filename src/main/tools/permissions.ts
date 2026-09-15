@@ -1,5 +1,6 @@
 import type { PermissionMode } from '@shared/settings.types'
 import type { ToolRisk } from '@shared/tools.types'
+import { isReadOnlyCommand } from './readOnlyCommand'
 
 /** Whether a guarded tool call should be auto-run or confirmed with the user. */
 export type PermissionDecision = 'auto' | 'confirm'
@@ -9,7 +10,8 @@ export type PermissionDecision = 'auto' | 'confirm'
  * or be confirmed, under the active permission mode.
  *
  * - `ask`: confirm everything except trivial, no-risk actions (e.g. `mkdir`).
- * - `full`: safe mutations run automatically; sensitive/destructive actions are confirmed.
+ * - `full` (shown as Edits): file edits and read-only commands run automatically; other
+ *   commands and destructive actions are confirmed.
  * - `untethered`: safe and sensitive actions run automatically; destructive actions are
  *   still confirmed, so the assistant can't be talked into wiping the disk unattended.
  */
@@ -99,9 +101,13 @@ const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
   /\bdd\b[^\r\n|;&]*\sof=\/dev\//i
 ]
 
-/** Classify a shell command's risk for the permission system. */
+/**
+ * Classify a shell command's risk for the permission system.
+ *
+ * A command that only reads is `safe`, the tier file edits are in: Edits mode runs it
+ * without asking, and Ask mode still asks. See `isReadOnlyCommand`.
+ */
 export function classifyCommandRisk(command: string): ToolRisk {
-  return DESTRUCTIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(command))
-    ? 'destructive'
-    : 'sensitive'
+  if (DESTRUCTIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(command))) return 'destructive'
+  return isReadOnlyCommand(command) ? 'safe' : 'sensitive'
 }

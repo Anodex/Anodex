@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_BUILD_MAX_DURATION_MINUTES,
+  DEFAULT_BUILD_MAX_TOKENS,
+  DEFAULT_BUILD_MAX_TURNS,
+  DEFAULT_MAX_DURATION_MINUTES,
+  DEFAULT_MAX_TOKENS,
   DEFAULT_MAX_TURNS,
+  MAX_MAX_DURATION_MINUTES,
+  MAX_MAX_TOKENS,
   MAX_MAX_TURNS,
   TURN_BUDGET_REFERENCE_CONTEXT,
   defaultMaxTurnsFor,
+  defaultRunBudgets,
   maxTurnsCeilingFor
 } from '../agentRun.types'
+import { buildRunToolNames, readOnlyRunToolNames, toolsCanChangeFiles } from '../tools.types'
 
 describe('turn budgets scale with the window a turn actually has', () => {
   // The reference pair is the one the existing constants were chosen against,
@@ -49,5 +58,45 @@ describe('turn budgets scale with the window a turn actually has', () => {
       expect(Number.isInteger(maxTurnsCeilingFor(size))).toBe(true)
       expect(Number.isInteger(defaultMaxTurnsFor(size))).toBe(true)
     }
+  })
+})
+
+describe('what a new run starts with', () => {
+  // Measured: a website build finished in 14 turns, 85k tokens and 58 minutes, and a
+  // second one stopped at 8 of 8 turns having only read the files it meant to change.
+  it('gives a run that can change files room to finish a build', () => {
+    const build = defaultRunBudgets(true, TURN_BUDGET_REFERENCE_CONTEXT)
+    expect(build).toEqual({
+      maxTurns: DEFAULT_BUILD_MAX_TURNS,
+      maxTokens: DEFAULT_BUILD_MAX_TOKENS,
+      maxDurationMinutes: DEFAULT_BUILD_MAX_DURATION_MINUTES
+    })
+    expect(build.maxTurns).toBeGreaterThanOrEqual(28)
+    expect(build.maxTokens).toBeGreaterThanOrEqual(170_000)
+    expect(build.maxDurationMinutes).toBeGreaterThanOrEqual(116)
+  })
+
+  it('keeps a look-only run to the small budget', () => {
+    expect(defaultRunBudgets(false, TURN_BUDGET_REFERENCE_CONTEXT)).toEqual({
+      maxTurns: DEFAULT_MAX_TURNS,
+      maxTokens: DEFAULT_MAX_TOKENS,
+      maxDurationMinutes: DEFAULT_MAX_DURATION_MINUTES
+    })
+  })
+
+  it('stays within what a run may be configured with, on any window', () => {
+    for (const size of [4096, 8192, 65536, 200000]) {
+      const build = defaultRunBudgets(true, size)
+      expect(build.maxTurns).toBeLessThanOrEqual(maxTurnsCeilingFor(size))
+      expect(build.maxTokens).toBeLessThanOrEqual(MAX_MAX_TOKENS)
+      expect(build.maxDurationMinutes).toBeLessThanOrEqual(MAX_MAX_DURATION_MINUTES)
+    }
+  })
+
+  it('tells a run that can change files from one that only looks', () => {
+    expect(toolsCanChangeFiles(buildRunToolNames())).toBe(true)
+    expect(toolsCanChangeFiles(readOnlyRunToolNames())).toBe(false)
+    expect(toolsCanChangeFiles([])).toBe(false)
+    expect(toolsCanChangeFiles(['no_such_tool'])).toBe(false)
   })
 })

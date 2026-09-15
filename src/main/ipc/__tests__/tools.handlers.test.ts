@@ -220,6 +220,30 @@ describe('tool approval handling', () => {
     expect(pendingConfirmationsFor(phone)).toEqual([])
   })
 
+  it("tells a phone how long a waiting prompt has left, not the prompt's full time", async () => {
+    // A card reopened on the phone counted down from five minutes while the computer
+    // had far less left.
+    vi.useFakeTimers()
+    try {
+      const desktop = createSender('window')
+      const phone = createSender('phone')
+      attachRemoteClient(phone)
+      const pending = request('half-gone', 'edit_file', 'sensitive')
+      const result = requestToolConfirmation(desktop, pending)
+      expect(phone.sent[0].expiresInMs).toBe(CONFIRMATION_TIMEOUT_MS)
+      // The desktop's own card has no countdown to feed.
+      expect(desktop.sent[0].expiresInMs).toBeUndefined()
+
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000)
+
+      expect(pendingConfirmationsFor(phone)[0].expiresInMs).toBe(CONFIRMATION_TIMEOUT_MS - 120_000)
+      resolvePendingConfirmationForTests(pending.id, { approved: false }, phone.id)
+      await result
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('denies a prompt nobody answers, rather than waiting forever', async () => {
     // A phone that leaves Wi-Fi mid-prompt takes the answer with it. Without a
     // deadline the promise never settles, wedging that generation for the rest of

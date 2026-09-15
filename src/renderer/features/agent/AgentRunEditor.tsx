@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
-  defaultMaxTurnsFor,
+  defaultRunBudgets,
   maxTurnsCeilingFor,
-  DEFAULT_MAX_TOKENS,
   MAX_MAX_TOKENS,
-  DEFAULT_MAX_DURATION_MINUTES,
   MAX_MAX_DURATION_MINUTES,
   type AgentRunAttachmentRequest
 } from '@shared/agentRun.types'
 import {
   buildRunToolNames,
   readOnlyRunToolNames,
+  toolsCanChangeFiles,
   TOOL_CATALOG,
   type ToolKind
 } from '@shared/tools.types'
@@ -134,15 +133,21 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   // last, and the ceiling moves when the provider select changes.
   const runWindow = agentRunContextSize(settings, provider, model)
   const turnCeiling = maxTurnsCeilingFor(runWindow)
+  // A new run starts able to build (see `enabledTools` below), so it starts with a
+  // build's budget. See `defaultRunBudgets`.
+  const defaults = defaultRunBudgets(
+    toolsCanChangeFiles(seed?.enabledTools ?? buildRunToolNames()),
+    runWindow
+  )
   const [maxTurns, setMaxTurns] = useState(
-    clamp(seed?.maxTurns ?? defaultMaxTurnsFor(runWindow), 1, turnCeiling)
+    clamp(seed?.maxTurns ?? defaults.maxTurns, 1, turnCeiling)
   )
   const [maxTokens, setMaxTokens] = useState(
-    clamp(seed?.maxTokens ?? DEFAULT_MAX_TOKENS, TOKEN_STEP, MAX_MAX_TOKENS)
+    clamp(seed?.maxTokens ?? defaults.maxTokens, TOKEN_STEP, MAX_MAX_TOKENS)
   )
   const [maxDurationMinutes, setMaxDurationMinutes] = useState(
     clamp(
-      seed?.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
+      seed?.maxDurationMinutes ?? defaults.maxDurationMinutes,
       DURATION_STEP,
       MAX_MAX_DURATION_MINUTES
     )
