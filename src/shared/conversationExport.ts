@@ -12,9 +12,17 @@ import type { ChatMessage } from './chat.types'
  * destination and writes; this only decides what the bytes say.
  */
 
-/** Filesystem-safe, reasonably short filename stem for a conversation. */
-export function exportFileStem(conversation: Pick<Conversation, 'title' | 'updatedAt'>): string {
-  const date = new Date(conversation.updatedAt).toISOString().slice(0, 10)
+/**
+ * Filesystem-safe, reasonably short filename stem for a conversation.
+ *
+ * Dated by the user's own calendar. It used the UTC date, so a chat exported on
+ * the evening of the 14th in Colorado was named for the 15th.
+ */
+export function exportFileStem(
+  conversation: Pick<Conversation, 'title' | 'updatedAt'>,
+  timeZone?: string
+): string {
+  const date = localDate(new Date(conversation.updatedAt), timeZone)
   const title = conversation.title
     .trim()
     .replace(/[\\/:*?"<>|]/g, '')
@@ -22,6 +30,13 @@ export function exportFileStem(conversation: Pick<Conversation, 'title' | 'updat
     .slice(0, 60)
     .replace(/-+$/, '')
   return title ? `${date}-${title}` : date
+}
+
+/** `YYYY-MM-DD` in the given time zone, or the host's. */
+export function localDate(when: Date, timeZone?: string): string {
+  const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' }
+  if (timeZone) options.timeZone = timeZone
+  return new Intl.DateTimeFormat('en-CA', options).format(when).replace(/\//g, '-')
 }
 
 function roleHeading(message: ChatMessage): string {
