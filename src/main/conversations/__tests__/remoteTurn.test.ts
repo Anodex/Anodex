@@ -135,6 +135,26 @@ describe('remoteTurnConversation', () => {
     expect(remoteQuestionConversation(existing, request(), 4)).toBeNull()
   })
 
+  it('keeps which files the turn changed, so the window can offer Review and Open in browser', () => {
+    const checkpoint = { conversationId: 'c1', messageId: 'm1:reply', changedFiles: ['blog.html'] }
+    const saved = remoteTurnConversation(
+      undefined,
+      request(),
+      { content: 'Done.', stats, checkpoint },
+      1
+    )
+
+    expect(saved?.messages[1].checkpoint).toEqual(checkpoint)
+
+    const nothingChanged = remoteTurnConversation(
+      undefined,
+      request(),
+      { content: 'Done.', stats, checkpoint: { ...checkpoint, changedFiles: [] } },
+      1
+    )
+    expect(nothingChanged?.messages[1]).not.toHaveProperty('checkpoint')
+  })
+
   it('writes nothing for an answer that carries nothing', () => {
     expect(remoteTurnConversation(undefined, request(), { content: '   ', stats }, 1)).toBeNull()
   })

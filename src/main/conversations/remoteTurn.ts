@@ -31,7 +31,7 @@ const MAX_TITLE_CHARS = 60
 export function remoteTurnConversation(
   existing: Conversation | null | undefined,
   request: ChatRequest,
-  result: Pick<RunGenerationResult, 'content' | 'stats' | 'thinking'> & {
+  result: Pick<RunGenerationResult, 'content' | 'stats' | 'thinking' | 'checkpoint'> & {
     stopReason?: RunGenerationResult['stopReason']
   },
   now: number
@@ -42,7 +42,11 @@ export function remoteTurnConversation(
     content: result.content,
     createdAt: now,
     stats: result.stats,
-    ...(result.thinking ? { thinking: result.thinking } : {})
+    ...(result.thinking ? { thinking: result.thinking } : {}),
+    // Which files the turn changed. Without it the window drew no Review button for a
+    // phone's turn and no Open in browser, though the checkpoint was saved — seen when
+    // the same edit sent from the window offered both and the phone's offered neither.
+    ...(result.checkpoint?.changedFiles.length ? { checkpoint: result.checkpoint } : {})
   }
   if (carriesNothing(reply)) return null
 
