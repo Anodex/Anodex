@@ -1,4 +1,5 @@
 import OpenAI, { APIUserAbortError } from 'openai'
+import { contextPerJob } from '@shared/contextShare'
 import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageFunctionToolCall,
@@ -37,7 +38,7 @@ import {
 import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../tools/mutationTools'
 import { MAX_REASONING_OVERRUNS, reasoningOverrunGuidance } from './reasoningOverrun'
 import { DIRECT_ANSWER_TEMPLATE_KWARGS } from './directAnswer'
-import { isDroppedStreamError } from './droppedStreamError'
+import { isContextOverflowError, isDroppedStreamError } from './droppedStreamError'
 import {
   isTruncatedToolCallError,
   truncatedArgumentsLength,
@@ -366,7 +367,9 @@ export class LlamaVisionService {
   }
 
   async load(options: ModelLoadOptions): Promise<void> {
-    this.contextSize = options.contextSize ?? 8192
+    // llama-server gets the whole pool; each reply is planned against its share of
+    // it, so jobs running side by side cannot outgrow it together.
+    this.contextSize = contextPerJob(options.contextSize ?? 8192, options.parallelJobs ?? 1)
     await this.runtime.start(options)
   }
 
@@ -857,6 +860,17 @@ export class LlamaVisionService {
         // stream — must not take the text and completed tool work of the rounds
         // that succeeded with it. Round 0 has nothing to lose and the described
         // message is the whole value of the turn, so that still throws.
+        // The context filled while the turn was running — seen when two long jobs
+        // shared the pool before each was held to its share. With work already done
+        // it is the in-turn exhaustion the runner carries on from over compacted
+        // history, not a failure that ends the reply.
+        if (isContextOverflowError(error) && (content || roundContent || hadAnyToolAttempt)) {
+          contextExhausted = 'in-turn'
+          log.warn('The runtime ran out of context mid-turn; continuing from a compacted context', {
+            round
+          })
+          break
+        }
         const described = await this.describeGenerationError(error)
         if (!content && !hadAnyToolAttempt) throw described
         providerError = toStopDetail(described) ?? 'The local runtime gave no reason.'
