@@ -6,16 +6,30 @@ import {
   type OpenDialogOptions
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
-import { isRemoteClient } from '../clients/clientRegistry'
+import { isRemoteClient, resolveClientChannel } from '../clients/clientRegistry'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import { settingsStore } from '../settings/SettingsStore'
 import type { ClientChannel } from '../clients/ClientChannel'
-import { activeRemoteClients } from '../clients/clientRegistry'
+import { activeRemoteClients, onRemoteClientAttached } from '../clients/clientRegistry'
 import { notifyRemoteClients } from '../notify'
 
 /** Approval prompts awaiting a renderer response, keyed by request id. */
-const pendingConfirmations = new Map<string, (response: ToolConfirmResponse) => void>()
+const pendingConfirmations = new Map<
+  string,
+  (response: ToolConfirmResponse, answeredBy?: string) => boolean
+>()
+
+/**
+ * The prompts themselves, for a phone that connects while one is waiting.
+ *
+ * A prompt went only to the clients connected when it was asked. A phone that
+ * reconnected — or whose app restarted, as installing an update does — never heard
+ * of it, and the turn sat on a question the only person who could answer it could
+ * not see, until it was declined after five minutes. Seen on the emulator during a
+ * stress test: "Anodex needs an answer" in the shade, and nothing to answer in the app.
+ */
+const pendingRequests = new Map<string, ToolConfirmRequest>()
 
 /**
  * How long an approval prompt waits before denying itself.
@@ -142,9 +156,10 @@ export function requestToolConfirmation(
       return
     }
     /** Returns whether this call actually settled the request (false if it was already answered). */
-    const settle = (response: ToolConfirmResponse): boolean => {
+    const settle = (response: ToolConfirmResponse, answeredBy?: string): boolean => {
       if (!pendingConfirmations.has(request.id)) return false
       pendingConfirmations.delete(request.id)
+      pendingRequests.delete(request.id)
       // Declared below and closed over: `settle` is only ever reached asynchronously,
       // so the timer exists by the time any caller can get here. Clearing it here
       // means every route out — a click, an abort, the timeout itself — stops it.
@@ -152,23 +167,31 @@ export function requestToolConfirmation(
       if (response.approved && response.remember && request.risk !== 'destructive') {
         rememberedToolApprovals.add(approvalKey(request.toolName, request.conversationId))
       }
+      // Every other screen still showing this prompt drops it, however it was settled.
+      // Answered at the computer, a phone's card used to stay up with buttons that
+      // settled nothing. The screen that answered has already removed its own card.
+      for (const client of settledAudience()) {
+        if (client.id !== answeredBy) client.send(IpcChannel.Tools.confirmCancelled, request.id)
+      }
       resolve(response)
       return true
     }
+    /** Whoever was asked, and any phone that has connected since. */
+    const settledAudience = (): ClientChannel[] => {
+      const everyone = new Map(audience.map((client) => [client.id, client]))
+      for (const client of activeRemoteClients()) everyone.set(client.id, client)
+      return [...everyone.values()].filter((client) => client.isAlive())
+    }
     pendingConfirmations.set(request.id, settle)
+    pendingRequests.set(request.id, request)
 
     const expiry = setTimeout(() => {
-      const settledHere = settle({
+      // Every client showing the card is told by `settle`: its buttons would now do
+      // nothing, because the id has already gone.
+      settle({
         approved: false,
         reason: 'Nobody answered this in time, so it was declined.'
       })
-      // Same reasoning as the abort path below: every client is now showing a card
-      // whose buttons would silently do nothing, because the id has already gone.
-      if (settledHere) {
-        for (const client of audience) {
-          client.send(IpcChannel.Tools.confirmCancelled, request.id)
-        }
-      }
     }, CONFIRMATION_TIMEOUT_MS)
 
     // Node holds the process open for a pending timer, so a five-minute one would
@@ -178,22 +201,12 @@ export function requestToolConfirmation(
     signal?.addEventListener(
       'abort',
       () => {
-        const settledHere = settle({
+        // The main side answers on the user's behalf, and `settle` tells every card
+        // to go: a later click on Approve or Deny would otherwise silently no-op.
+        settle({
           approved: false,
           reason: 'The generation was cancelled.'
         })
-        // The renderer's own card for this request is now showing a dead
-        // prompt — the main side has already answered on its behalf, so a
-        // later click on "Approve"/"Deny" would silently no-op (the id is
-        // gone from `pendingConfirmations` above). Tell it to drop the card
-        // instead of leaving it sitting there forever. Only when this abort
-        // is what actually settled it — if the user already answered before
-        // the abort fired, their own click already removed the card client-side.
-        if (settledHere) {
-          for (const client of audience) {
-            client.send(IpcChannel.Tools.confirmCancelled, request.id)
-          }
-        }
       },
       { once: true }
     )
@@ -227,14 +240,23 @@ export function requestToolConfirmation(
 
 export function resolvePendingConfirmationForTests(
   id: string,
-  response: ToolConfirmResponse
+  response: ToolConfirmResponse,
+  answeredBy?: string
 ): void {
-  pendingConfirmations.get(id)?.(response)
+  pendingConfirmations.get(id)?.(response, answeredBy)
 }
 
 export function resetToolApprovalStateForTests(): void {
   pendingConfirmations.clear()
+  pendingRequests.clear()
   rememberedToolApprovals.clear()
+}
+
+/** Catch a phone that has just connected up on every prompt still waiting for an answer. */
+export function replayPendingConfirmations(client: ClientChannel): void {
+  for (const request of pendingRequests.values()) {
+    client.send(IpcChannel.Tools.confirmRequest, forAPhone(request))
+  }
 }
 
 /** Test seam: how many prompts are still waiting for an answer. */
@@ -256,12 +278,23 @@ async function pickDirectory(event: IpcMainInvokeEvent): Promise<string | null> 
   return picked.filePaths[0]
 }
 
+/** Which screen answered, so it is not told to drop the card it just answered. */
+function answererId(event: unknown): string | undefined {
+  try {
+    return resolveClientChannel(event).id
+  } catch {
+    return undefined
+  }
+}
+
 /** IPC handlers for linking project folders and approval responses. */
 export function registerToolHandlers(): void {
+  onRemoteClientAttached(replayPendingConfirmations)
+
   ipcMain.handle(
     IpcChannel.Tools.confirmResponse,
-    (_event, id: string, response: ToolConfirmResponse) => {
-      pendingConfirmations.get(id)?.(response)
+    (event, id: string, response: ToolConfirmResponse) => {
+      pendingConfirmations.get(id)?.(response, answererId(event))
     }
   )
 

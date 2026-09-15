@@ -210,11 +210,29 @@ describe('chat IPC handlers', () => {
 
     beforeEach(() => mocks.saveConversation.mockReset())
 
-    it('is recorded into a conversation', async () => {
+    it('is recorded into a conversation, the question as soon as it starts', async () => {
+      // A conversation that existed only in the phone's memory until its first reply
+      // finished could not be opened from an approval notification after the app
+      // restarted.
       registerChatHandlers()
+      let savedBeforeGenerating: unknown[] = []
+      mocks.generate.mockImplementationOnce(() => {
+        savedBeforeGenerating = mocks.saveConversation.mock.calls.map((call) => call[0])
+        return Promise.resolve({
+          content: 'hello',
+          stats: { tokens: 1, durationMs: 1, tokensPerSecond: 1 }
+        })
+      })
+
       await mocks.handlers.get(IpcChannel.Chat.send)?.(phone, turn())
 
-      expect(mocks.saveConversation).toHaveBeenCalledTimes(1)
+      expect(savedBeforeGenerating).toEqual([
+        expect.objectContaining({
+          id: 'c-phone',
+          messages: [expect.objectContaining({ id: 'm1', role: 'user', content: 'hi' })]
+        })
+      ])
+      expect(mocks.saveConversation).toHaveBeenCalledTimes(2)
     })
 
     it('is not recorded when the chat is temporary', async () => {

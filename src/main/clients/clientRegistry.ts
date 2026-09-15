@@ -79,8 +79,20 @@ export function webContentsChannel(sender: WebContents): ClientChannel {
  */
 const remoteClients = new Set<ClientChannel>()
 
+const attachListeners = new Set<(client: ClientChannel) => void>()
+
 export function attachRemoteClient(client: ClientChannel): void {
   remoteClients.add(client)
+  for (const listener of attachListeners) listener(client)
+}
+
+/**
+ * Hear about each phone as it connects — to catch it up on something it was not
+ * connected to receive. Returns the unsubscribe.
+ */
+export function onRemoteClientAttached(listener: (client: ClientChannel) => void): () => void {
+  attachListeners.add(listener)
+  return () => attachListeners.delete(listener)
 }
 
 export function detachRemoteClient(client: ClientChannel): void {

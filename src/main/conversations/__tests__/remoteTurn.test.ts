@@ -4,7 +4,7 @@ import type { Conversation } from '@shared/conversation.types'
 
 vi.mock('../ConversationStore', () => ({ conversationStore: {} }))
 
-import { remoteTurnConversation } from '../remoteTurn'
+import { remoteQuestionConversation, remoteTurnConversation } from '../remoteTurn'
 
 const stats = { tokens: 3, durationMs: 900, tokensPerSecond: 3.3 }
 
@@ -97,6 +97,42 @@ describe('remoteTurnConversation', () => {
       1
     )
     expect(saved?.title).toBe('Build the nebula')
+  })
+
+  it("writes a phone's new conversation as its question, before any answer", () => {
+    const started = remoteQuestionConversation(undefined, request({ projectId: 'p1' }), 4)
+
+    expect(started).toEqual({
+      id: 'c1',
+      projectId: 'p1',
+      title: 'Which of my 4 unread emails need a reply?',
+      createdAt: 4,
+      updatedAt: 4,
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'Which of my 4 unread emails need a reply?',
+          createdAt: 4
+        }
+      ]
+    })
+    // The finished turn then lands on it, adding the reply under the same ids.
+    const finished = remoteTurnConversation(started, request(), { content: 'Neither.', stats }, 9)
+    expect(finished?.messages.map((message) => message.id)).toEqual(['m1', 'm1:reply'])
+    expect(finished?.createdAt).toBe(4)
+  })
+
+  it('writes no question for a conversation that already exists', () => {
+    const existing: Conversation = {
+      id: 'c1',
+      projectId: null,
+      title: 'Inbox Triage',
+      createdAt: 1,
+      updatedAt: 2,
+      messages: []
+    }
+    expect(remoteQuestionConversation(existing, request(), 4)).toBeNull()
   })
 
   it('writes nothing for an answer that carries nothing', () => {

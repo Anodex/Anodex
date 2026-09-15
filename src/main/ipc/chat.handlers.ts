@@ -32,7 +32,7 @@ import { rehydrateUploadedImage } from '../remote/uploadStore'
 import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
 import { settingsStore } from '../settings/SettingsStore'
-import { remoteTurnConversation } from '../conversations/remoteTurn'
+import { remoteQuestionConversation, remoteTurnConversation } from '../conversations/remoteTurn'
 import { startWorkingHeartbeat } from '../chat/workingHeartbeat'
 
 const log = createLogger('ipc:chat')
@@ -108,6 +108,9 @@ export function registerChatHandlers(): void {
       waitingForModel: () =>
         settingsStore.get().provider.active === 'local' && llamaService.hasQueuedModelWork()
     })
+
+    // A temporary chat is the phone asking for nothing to be written.
+    if (remote && !request.temporary) recordRemoteQuestion(request)
 
     try {
       const result = await runBoundedChatGeneration(request, {
@@ -280,6 +283,22 @@ export function registerChatHandlers(): void {
  * Never allowed to fail the turn: the reply is already generated and on its way back,
  * and a save that cannot happen here is still attempted by the phone afterwards.
  */
+/** Write a phone's new conversation as its first turn starts. See `remoteQuestionConversation`. */
+function recordRemoteQuestion(request: ChatRequest): void {
+  try {
+    const conversation = remoteQuestionConversation(
+      conversationStore.get(request.conversationId),
+      request,
+      Date.now()
+    )
+    if (!conversation) return
+    conversationStore.save(conversation, { fromRemote: true })
+    broadcastToWindows(IpcChannel.Conversations.changed, conversation.id)
+  } catch (error) {
+    log.warn('Could not record a remote question on the computer:', request.conversationId, error)
+  }
+}
+
 function recordRemoteTurn(
   request: ChatRequest,
   result: Awaited<ReturnType<typeof runBoundedChatGeneration>>
