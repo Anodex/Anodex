@@ -750,4 +750,26 @@ describe('conversations read when they are needed', () => {
     expect(saved.messages.find((m) => m.id === 'ck-a')?.checkpoint).toEqual(checkpoint)
     expect(saved.messages).toHaveLength(2)
   })
+
+  it("finds a phone turn's reply by its checkpoint, saved under the question's id", () => {
+    // A phone's turn saves its checkpoint under the question id `m1`; the reply is `m1:reply`.
+    const phoneTurn = whole('ph')
+    phoneTurn.messages[1] = {
+      ...phoneTurn.messages[1],
+      id: 'm1:reply',
+      checkpoint: { conversationId: 'ph', messageId: 'm1', changedFiles: ['blog.html'] }
+    }
+    useChatStore.setState({ conversations: [phoneTurn], activeId: 'ph' })
+    const undone = {
+      conversationId: 'ph',
+      messageId: 'm1',
+      changedFiles: ['blog.html'],
+      restoredAt: 5
+    }
+
+    useChatStore.getState().syncCheckpointSummary('ph', 'm1', undone)
+
+    const reply = useChatStore.getState().conversations[0].messages[1]
+    expect(reply.checkpoint).toEqual(undone)
+  })
 })
