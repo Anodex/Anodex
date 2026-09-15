@@ -313,6 +313,41 @@ describe('messageBlocks', () => {
   it('returns an empty array for a message with no content and no tool calls', () => {
     expect(messageBlocks(message({}))).toEqual([])
   })
+
+  // Seen on the desktop: a reply sent from the phone, and every turn of an agent run,
+  // is saved with its thinking but without blocks, and showed no thinking at all.
+  it('shows the thinking of a turn saved without blocks, before its tools and text', () => {
+    const toolCalls = [call({ kind: 'read' })]
+    const result = messageBlocks(
+      message({ thinking: 'Check the file first.', toolCalls, content: 'Done.' })
+    )
+    expect(result).toEqual([
+      { type: 'thinking', text: 'Check the file first.' },
+      { type: 'tool', call: toolCalls[0] },
+      { type: 'text', text: 'Done.' }
+    ])
+  })
+
+  it('adds saved thinking to blocks that are missing it, and never twice', () => {
+    const withoutThinking: MessageBlock[] = [textBlock('Done.')]
+    expect(
+      messageBlocks(message({ thinking: 'Plan it.', blocks: withoutThinking, content: 'Done.' }))
+    ).toEqual([{ type: 'thinking', text: 'Plan it.' }, textBlock('Done.')])
+
+    const withThinking: MessageBlock[] = [
+      { type: 'thinking', text: 'Plan it.' },
+      textBlock('Done.')
+    ]
+    expect(
+      messageBlocks(message({ thinking: 'Plan it.', blocks: withThinking, content: 'Done.' }))
+    ).toEqual(withThinking)
+  })
+
+  it('ignores thinking that is only whitespace', () => {
+    expect(messageBlocks(message({ thinking: '  \n', content: 'Done.' }))).toEqual([
+      { type: 'text', text: 'Done.' }
+    ])
+  })
 })
 
 /**
