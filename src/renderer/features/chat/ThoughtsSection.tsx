@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import styles from './ThoughtsSection.module.css'
 
 /**
@@ -13,7 +13,7 @@ import styles from './ThoughtsSection.module.css'
  * not a polished answer, and treating it as markdown risks misrendering
  * stray `#`/`*` characters the model never meant as formatting.
  */
-export function ThoughtsSection({
+export const ThoughtsSection = memo(function ThoughtsSection({
   thinking,
   streaming
 }: {
@@ -59,4 +59,4 @@ export function ThoughtsSection({
       </div>
     </div>
   )
-}
+})
