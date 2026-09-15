@@ -105,6 +105,9 @@ const PHONE_ONLY = new Set([
   'Chat.setLiveTokens',
   // The same, for thinking. The renderer always shows it live.
   'Chat.setLiveThinking',
+  // A phone that has just connected asking what is waiting on an answer. The window
+  // is there from the start and hears every prompt as it is asked.
+  'Tools.pendingConfirmations',
   // A phone is sent transcripts without thinking and reads one reply's when it is
   // opened. The renderer loads whole conversations, thinking included.
   'Conversations.thinking',
