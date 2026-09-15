@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { PersonalityAvatar } from '../../components/ui/PersonalityAvatar'
@@ -44,7 +44,7 @@ import styles from './MessageBubble.module.css'
  * draft skill, stats, timestamps for user turns) live in a hover-revealed
  * footer instead of permanent chrome.
  */
-export function MessageBubble({
+function MessageBubbleImpl({
   message,
   previousUserContent,
   conversationStreaming,
@@ -472,6 +472,44 @@ export function MessageBubble({
       )}
     </div>
   )
+}
+
+/**
+ * Memoized so a streamed token re-renders only the reply it belongs to.
+ *
+ * Every flush replaces the conversation's message list, and `MessageList` used to
+ * re-render every bubble in it, each re-parsing its text and rebuilding its
+ * timeline: the cost of one token grew with the length of the conversation. The
+ * store replaces only the message that changed, so every other bubble gets the same
+ * `message` object back. `regenerateTarget` and `visualComparison` are rebuilt on
+ * every list render, so they are compared by what they say rather than by identity.
+ */
+export const MessageBubble = memo(MessageBubbleImpl, (before, after) => {
+  return (
+    before.message === after.message &&
+    before.previousUserContent === after.previousUserContent &&
+    before.conversationStreaming === after.conversationStreaming &&
+    before.firstLight === after.firstLight &&
+    sameRegenerateTarget(before.regenerateTarget, after.regenerateTarget) &&
+    sameVisualComparison(before.visualComparison, after.visualComparison)
+  )
+})
+
+function sameRegenerateTarget(
+  a: RegenerateTarget | null | undefined,
+  b: RegenerateTarget | null | undefined
+): boolean {
+  if (!a || !b) return (a ?? null) === (b ?? null)
+  return a.sourceUserMessageId === b.sourceUserMessageId && a.laterTurnCount === b.laterTurnCount
+}
+
+function sameVisualComparison(
+  a: VisualComparisonPair | null | undefined,
+  b: VisualComparisonPair | null | undefined
+): boolean {
+  if (a === undefined || b === undefined) return a === b
+  if (!a || !b) return a === b
+  return a.afterCallId === b.afterCallId && a.before === b.before && a.after === b.after
 }
 
 function checkpointTitle(message: ChatMessage): string {

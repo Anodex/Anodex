@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
 import type { WebSource } from '@shared/webSources.types'
 import { citedSourceMap, type CitedSource } from './citedSources'
 import { CodeBlock } from './CodeBlock'
@@ -132,7 +132,11 @@ function renderTextSegment(
     ))
 }
 
-export function MessageContent({
+/**
+ * Memoized: a reply's earlier text blocks keep the same strings while later ones
+ * stream, and a tool card's elapsed-time tick re-renders the list around them.
+ */
+export const MessageContent = memo(function MessageContent({
   content,
   sources
 }: {
@@ -154,4 +158,4 @@ export function MessageContent({
       )}
     </div>
   )
-}
+})
