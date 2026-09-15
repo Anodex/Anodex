@@ -1610,7 +1610,7 @@ export const useChatStore = create<ChatState>()(
         const updatedAt = Date.now()
         set((state) => {
           const convo = state.conversations.find((item) => item.id === conversationId)
-          const assistant = convo?.messages.find((item) => item.id === messageId)
+          const assistant = convo?.messages.find((item) => holdsCheckpoint(item, messageId))
           if (!convo || !assistant?.checkpoint) return
           assistant.checkpoint = result.value.checkpoint
           convo.updatedAt = updatedAt
@@ -1647,7 +1647,7 @@ export const useChatStore = create<ChatState>()(
       const updatedAt = Date.now()
       set((state) => {
         const conversation = state.conversations.find((item) => item.id === conversationId)
-        const message = conversation?.messages.find((item) => item.id === messageId)
+        const message = conversation?.messages.find((item) => holdsCheckpoint(item, messageId))
         if (!conversation || !message) return
         message.checkpoint = checkpoint
         conversation.updatedAt = updatedAt
@@ -1659,6 +1659,17 @@ export const useChatStore = create<ChatState>()(
     }
   }))
 )
+
+/**
+ * Whether a message is the one a checkpoint keyed by `messageId` belongs to.
+ *
+ * A checkpoint is saved under the id of the request that made it. For a turn from this
+ * window that is the reply's own id; for a turn sent from a phone it is the question's,
+ * and the reply is saved as `<id>:reply`, so the reply is found by its checkpoint too.
+ */
+function holdsCheckpoint(message: ChatMessage, messageId: string): boolean {
+  return message.id === messageId || message.checkpoint?.messageId === messageId
+}
 
 function ensureChatReady(): boolean {
   const engine = useModelStore.getState().engine
