@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { RenderSegment } from './taskPhase'
 import { Icon } from '../../components/Icon'
 import { formatDuration } from '../../lib/format'
@@ -117,28 +117,47 @@ export function TurnRecap({
 
       <div className={`${styles.panel} ${expanded ? styles.panelExpanded : ''}`}>
         <div className={styles.panelInner}>
-          <div className={styles.steps}>
-            {resolvedComparison && <VisualComparison pair={resolvedComparison} />}
-            {segments.map((segment, index) => {
-              if (segment.type === 'thinking') {
-                return (
-                  <ThoughtsSection
-                    key={`thinking-${index}`}
-                    thinking={segment.text}
-                    streaming={streaming && index === segments.length - 1}
-                  />
-                )
-              }
-              // Narration the model wrote between calls. Rendered as the prose
-              // it is, so expanding a folded reply reads the way it did live.
-              if (segment.type === 'text') {
-                return <MessageContent key={`text-${index}`} content={segment.text} />
-              }
-              return segment.calls.map((call) => <ToolCallCard key={call.id} call={call} />)
-            })}
-          </div>
+          <TurnSteps segments={segments} streaming={streaming} comparison={resolvedComparison} />
         </div>
       </div>
     </div>
   )
 }
+
+/**
+ * The run's steps, apart from its header so the header's quarter-second elapsed
+ * tick redraws one label rather than every step of a long run. On a stress-test
+ * reply of 91 steps, each tick re-rendered all of them.
+ */
+const TurnSteps = memo(function TurnSteps({
+  segments,
+  streaming,
+  comparison
+}: {
+  segments: WorkSegment[]
+  streaming: boolean
+  comparison: VisualComparisonPair | null
+}): JSX.Element {
+  return (
+    <div className={styles.steps}>
+      {comparison && <VisualComparison pair={comparison} />}
+      {segments.map((segment, index) => {
+        if (segment.type === 'thinking') {
+          return (
+            <ThoughtsSection
+              key={`thinking-${index}`}
+              thinking={segment.text}
+              streaming={streaming && index === segments.length - 1}
+            />
+          )
+        }
+        // Narration the model wrote between calls. Rendered as the prose
+        // it is, so expanding a folded reply reads the way it did live.
+        if (segment.type === 'text') {
+          return <MessageContent key={`text-${index}`} content={segment.text} />
+        }
+        return segment.calls.map((call) => <ToolCallCard key={call.id} call={call} />)
+      })}
+    </div>
+  )
+})
