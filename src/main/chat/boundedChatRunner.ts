@@ -14,7 +14,7 @@ import { createTaskLedger } from '../tools/taskLedger'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import { findUnverifiedPathClaims } from '../tools/pathClaimVerification'
 import { findUnverifiedMeasurements } from '../tools/measurementClaimVerification'
-import { describeTurnOutcome, isDurableChange } from './turnSummary'
+import { describeTurnOutcome, hasUncheckedFileChange, isDurableChange } from './turnSummary'
 import { observationalCommandIdentity } from '../tools/commandEffect'
 import { isReadLikeCall } from '../tools/turnProgress'
 import { buildContinuationBrief } from './continuationBrief'
@@ -46,6 +46,23 @@ const log = createLogger('chat:cycle')
  * progress (tool results, partial prose) already streamed into this same
  * reply before the model hit a bounded stop.
  */
+/**
+ * One more cycle for a workspace chat that changed files and never checked them.
+ *
+ * An agent run cannot finish without evidence (`finish_goal`'s gate), and it showed:
+ * in a website build the run checked its work with a test runner and screenshots and
+ * shipped a site whose tests all passed, while the same build in a workspace chat
+ * ended with CSS class names that matched nothing in the HTML, and said it was done.
+ * Nothing had asked the chat to look. Spent once per reply; see
+ * `ToolSettings.checkBeforeFinishing`.
+ */
+const CHECK_CHANGES_PROMPT =
+  'You changed files in this project in this reply, and nothing has checked them yet. Check your ' +
+  "work before you finish: run the project's build, tests or lint if it has them, a syntax check " +
+  'such as `node --check` for a script you changed, or open a changed page with inspect_visual. ' +
+  'Fix anything the check shows, then finish your answer and say what you checked. If there is no ' +
+  'way to check this change, say so in one sentence and stop.'
+
 const CHAT_CONTINUE_PROMPT =
   'Continue exactly where you left off. Do not repeat work already done above — reuse the tool ' +
   'results and text already produced in this reply. If the task is already fully complete, say so ' +
@@ -360,6 +377,8 @@ export async function runBoundedChatGeneration(
   let spentProactiveCheckpointRescue = false
   /** Extra cycles spent resuming a turn that stopped with plan steps still open. */
   let planContinuations = 0
+  /** Whether this reply has already been asked to check the files it changed. */
+  let spentChangeCheck = false
   /**
    * Why a *chat* turn stopped continuing, when it wanted to and could not.
    *
@@ -614,9 +633,22 @@ export async function runBoundedChatGeneration(
       startedContextEpoch &&
       result.contextEpochCause === 'proactive' &&
       !spentProactiveCheckpointRescue
+    // Finished, in a project chat, having changed files nothing has checked. Only when
+    // no other reason to continue applies: an unfinished plan comes first, and the
+    // check waits for the work to be done.
+    const checkChangesNow =
+      !result.stopped &&
+      goal === null &&
+      io.surface === 'chat' &&
+      workspaceRoot !== null &&
+      !spentChangeCheck &&
+      !recoveredStop &&
+      !stalledWithOpenPlan &&
+      settingsStore.get().tools.checkBeforeFinishing !== false &&
+      hasUncheckedFileChange([...completedToolCalls.values()])
     const canContinue =
-      (recoveredStop || goalStillOpen || stalledWithOpenPlan) &&
-      (madeProgressThisCycle || proactiveCheckpointRescue) &&
+      (recoveredStop || goalStillOpen || stalledWithOpenPlan || checkChangesNow) &&
+      (madeProgressThisCycle || proactiveCheckpointRescue || checkChangesNow) &&
       cycle < cycleCeiling - 1 &&
       withinGoalDeadline &&
       withinTurnDeadline &&
@@ -643,11 +675,13 @@ export async function runBoundedChatGeneration(
         ? null
         : proactiveCheckpointRescue
           ? 'proactive-checkpoint'
-          : recoveredStop
-            ? 'recoverable-stop'
-            : goalStillOpen
-              ? 'goal-open'
-              : 'open-plan'
+          : checkChangesNow
+            ? 'unchecked-change'
+            : recoveredStop
+              ? 'recoverable-stop'
+              : goalStillOpen
+                ? 'goal-open'
+                : 'open-plan'
     })
 
     if (!canContinue) {
@@ -684,6 +718,7 @@ export async function runBoundedChatGeneration(
     // Spent only on a cycle that actually continued because of it: a turn that
     // stopped for some other reason keeps its allowance for a later checkpoint.
     if (proactiveCheckpointRescue) spentProactiveCheckpointRescue = true
+    if (checkChangesNow) spentChangeCheck = true
 
     // Without `toolCalls` here, a session rebuild between cycles (proactive
     // or reactive mid-turn compaction, or simply a different conversationId
@@ -709,7 +744,9 @@ export async function runBoundedChatGeneration(
       ? goalContinuePrompt(goal)
       : startedContextEpoch
         ? epochContinuePrompt(request.prompt)
-        : CHAT_CONTINUE_PROMPT
+        : checkChangesNow
+          ? CHECK_CHANGES_PROMPT
+          : CHAT_CONTINUE_PROMPT
   }
 
   // The loop always runs at least once, so `last` is always assigned —

@@ -125,6 +125,16 @@ export function ToolsSkillsSettings(): JSX.Element {
           }
         />
         <SettingRow
+          label="Check before finishing"
+          description="When a chat in a project changes files, ask it to check its work (run the tests or a build, a syntax check, or look at the page) before it gives its final answer."
+          control={
+            <ToggleControl
+              checked={settings.tools.checkBeforeFinishing !== false}
+              onChange={(value) => void update({ tools: { checkBeforeFinishing: value } })}
+            />
+          }
+        />
+        <SettingRow
           label="Confirm destructive actions"
           description="Show a confirmation before delete, overwrite, reset, or destructive tool operations."
           control={

@@ -5,6 +5,8 @@ import { resolveClientChannel } from '../clients/clientRegistry'
 import { hasInflightGeneration } from '../chat/inflightGenerations'
 import type { CreateProjectRequest, UpdateProjectRequest } from '@shared/project.types'
 import { projectStore } from '../projects/ProjectStore'
+import { projectPageUrl } from '../projects/projectPagePreview'
+import { err, ok, toErrorMessage } from '@shared/result'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:projects')
@@ -92,6 +94,21 @@ export function registerProjectHandlers(): void {
       throw new Error('Could not set active project.')
     }
   })
+
+  ipcMain.handle(
+    IpcChannel.Projects.openInBrowser,
+    async (_event, id: string, relativePath: string) => {
+      const project = projectStore.getState().projects.find((p) => p.id === id)
+      if (!project) return err('projects.not-found', 'That project is no longer available.')
+      try {
+        await shell.openExternal(await projectPageUrl(project.folderPath, relativePath))
+        return ok(undefined)
+      } catch (error) {
+        log.warn('Failed to open project page in browser:', id, relativePath, error)
+        return err('projects.open-page-failed', toErrorMessage(error), relativePath)
+      }
+    }
+  )
 
   ipcMain.handle(IpcChannel.Projects.openFolder, async (_event, id: string) => {
     try {
