@@ -77,15 +77,32 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
                 'about, then call finish_goal with what you found.'
             )
           }
-          if (!lookOnly && !ctx.progress.madeChange) {
+          // A goal that only asks to look ("count the files, change nothing") run with
+          // tools that could change things can never make a change, and was refused on
+          // every turn until it ran out of turns: seen on the user's machine, a run
+          // counted the files on turn 2, said so four times, and was stopped on turn 5.
+          //
+          // So the refusal is a question asked once, in the same shape as the open-steps
+          // guard below: a later turn that looked at something this turn and still
+          // claims completion is accepted. A claim with nothing behind it at all is
+          // still refused every time, and a fabricated one is still flagged by the
+          // turn's claim check.
+          const reconsidering =
+            ctx.progress.observed &&
+            unchangedFinishRefusedIn.has(ctx.ledger) &&
+            unchangedFinishRefusedIn.get(ctx.ledger) !== ctx
+          if (!lookOnly && !ctx.progress.madeChange && !reconsidering) {
+            unchangedFinishRefusedIn.set(ctx.ledger, ctx)
             throw new Error(
               'Nothing has been done yet this turn, so this cannot be accepted as the goal ' +
                 'being complete — a claim of completion needs real action behind it. Reading ' +
                 'files and writing or updating the plan do not count: they describe the work ' +
                 'rather than carry it out. Do the thing the goal asks for (create or edit a ' +
                 'file, run a command, send an email, and so on), then call finish_goal again. ' +
-                'If the goal is already satisfied or you genuinely cannot make further ' +
-                'progress, explain why in your reply instead of calling finish_goal.'
+                'If the goal only asks you to look and report — and changes nothing — read or ' +
+                'list what it asks about on your next turn and call finish_goal then; it will ' +
+                'be accepted. If you genuinely cannot make further progress, explain why in ' +
+                'your reply instead of calling finish_goal.'
             )
           }
           // A run that inspected something visually and then changed it again
@@ -211,6 +228,13 @@ function openPlanSteps(plan: Plan | null): string[] {
  * becomes impossible is ending a run by accident in a single batch.
  */
 const openStepsToldIn = new WeakMap<object, object>()
+
+/**
+ * For each run, the generation in which `finish_goal` was last refused because
+ * nothing had been changed. A later generation that observed something may claim
+ * completion again and be accepted — see the guard's comment.
+ */
+const unchangedFinishRefusedIn = new WeakMap<object, object>()
 
 /**
  * The generation in which `finish_goal` has already been accepted.
