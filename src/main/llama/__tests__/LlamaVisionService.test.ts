@@ -1300,6 +1300,25 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.contextEpochCause).toBe('in-turn')
   })
 
+  it("keeps llama-server's reasoning-budget note out of the reply as it streams", async () => {
+    // Seen in a phone chat: the note arrived as reply text, split across tokens.
+    mocks.rounds.push({
+      chunks: [
+        textChunk('Got it.\n\nI have used my '),
+        textChunk('thinking budget. I will stop planning here and make the next tool call now, '),
+        textChunk('with what I have already worked out.\n\nA lighthouse is a tower.')
+      ]
+    })
+    const tokens: string[] = []
+
+    const outcome = await (
+      await service()
+    ).generate(params({ onToken: (token) => tokens.push(token) }))
+
+    expect(tokens.join('')).toBe('Got it.\n\nA lighthouse is a tower.')
+    expect(outcome.content).toBe('Got it.\n\nA lighthouse is a tower.')
+  })
+
   it('still throws when the first round fails with nothing to keep', async () => {
     mocks.rounds.push({ error: new Error('terminated') })
 
