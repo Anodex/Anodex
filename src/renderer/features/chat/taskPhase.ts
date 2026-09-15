@@ -302,19 +302,25 @@ function joinText(left: string, right: string): string {
 }
 
 /**
- * The ordered blocks to render for a message. Messages persisted before the
- * `blocks` field existed fall back to the previous "tools first, then text"
- * layout rather than rendering nothing — every message created from here on
- * has `blocks` populated live as it streams in, so this fallback is a
- * one-time compatibility path for old conversation history, not the norm.
+ * The ordered blocks to render for a message.
+ *
+ * `blocks` is filled in live only by a turn this window streamed. A turn saved
+ * without them (one sent from the phone, an agent run's turns, history from
+ * before the field existed) falls back to thinking, then tools, then text —
+ * the order a turn happens in. The thinking used to be left out, so those turns
+ * showed none on the desktop even though it was saved with them.
  */
 export function messageBlocks(message: ChatMessage): MessageBlock[] {
   const normalized = sanitizeMessageTranscript(message, { preserveImageData: true }).message
-  if (normalized.blocks && normalized.blocks.length > 0) return normalized.blocks
-  const fallback: MessageBlock[] = (message.toolCalls ?? []).map((call) => ({
-    type: 'tool',
-    call
-  }))
+  const thinking = normalized.thinking?.trim() ? normalized.thinking : null
+  if (normalized.blocks && normalized.blocks.length > 0) {
+    if (!thinking || normalized.blocks.some((block) => block.type === 'thinking')) {
+      return normalized.blocks
+    }
+    return [{ type: 'thinking', text: thinking }, ...normalized.blocks]
+  }
+  const fallback: MessageBlock[] = thinking ? [{ type: 'thinking', text: thinking }] : []
+  for (const call of message.toolCalls ?? []) fallback.push({ type: 'tool', call })
   if (normalized.content) fallback.push({ type: 'text', text: normalized.content })
   return fallback
 }
