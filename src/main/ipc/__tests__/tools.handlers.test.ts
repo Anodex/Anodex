@@ -6,6 +6,7 @@ import { attachRemoteClient, detachAllRemoteClients } from '../../clients/client
 import {
   CONFIRMATION_TIMEOUT_MS,
   pendingConfirmationCountForTests,
+  replayPendingConfirmations,
   requestToolConfirmation,
   resetToolApprovalStateForTests,
   resolvePendingConfirmationForTests
@@ -180,6 +181,46 @@ describe('tool approval handling', () => {
     }
   })
 
+  it('tells the phone to drop its card when the prompt is answered at the computer', async () => {
+    // The phone's card used to stay up after an answer at the desk, with buttons that
+    // settled nothing.
+    const desktop = createSender('window')
+    const phone = createSender('phone')
+    attachRemoteClient(phone)
+
+    const pending = request('answered-at-desk', 'edit_file', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending)
+    resolvePendingConfirmationForTests(pending.id, { approved: true }, desktop.id)
+    await result
+
+    expect(phone.cancelled).toEqual(['answered-at-desk'])
+    expect(desktop.cancelled).toEqual([])
+  })
+
+  it('shows a waiting prompt to a phone that connects after it was asked', async () => {
+    // Seen on the emulator: the phone app restarted mid-turn, "Anodex needs an answer"
+    // arrived, and there was nothing in the app to answer until the turn timed out.
+    const desktop = createSender('window')
+    const pending = request('asked-before-connect', 'edit_file', 'sensitive')
+    const result = requestToolConfirmation(desktop, pending)
+
+    const phone = createSender('phone')
+    attachRemoteClient(phone)
+    replayPendingConfirmations(phone)
+
+    expect(phone.sent.map((sent) => sent.id)).toEqual(['asked-before-connect'])
+
+    // And it can answer: a phone that connected late settles it, and the desktop's
+    // card goes.
+    resolvePendingConfirmationForTests(pending.id, { approved: true }, phone.id)
+    await expect(result).resolves.toEqual({ approved: true })
+    expect(desktop.cancelled).toEqual(['asked-before-connect'])
+
+    const later = createSender('phone-2')
+    replayPendingConfirmations(later)
+    expect(later.sent).toEqual([])
+  })
+
   it('denies a prompt nobody answers, rather than waiting forever', async () => {
     // A phone that leaves Wi-Fi mid-prompt takes the answer with it. Without a
     // deadline the promise never settles, wedging that generation for the rest of
@@ -213,7 +254,7 @@ describe('tool approval handling', () => {
       const pending = request('answered-in-time', 'edit_file', 'sensitive')
       const result = requestToolConfirmation(desktop, pending)
 
-      resolvePendingConfirmationForTests(pending.id, { approved: true })
+      resolvePendingConfirmationForTests(pending.id, { approved: true }, desktop.id)
       await expect(result).resolves.toEqual({ approved: true })
 
       await vi.advanceTimersByTimeAsync(CONFIRMATION_TIMEOUT_MS + 1000)
@@ -250,7 +291,7 @@ describe('tool approval handling', () => {
     const controller = new AbortController()
     const pending = request('already-answered', 'edit_file', 'sensitive')
     const result = requestToolConfirmation(sender, pending, controller.signal)
-    resolvePendingConfirmationForTests(pending.id, { approved: true })
+    resolvePendingConfirmationForTests(pending.id, { approved: true }, sender.id)
     await result
 
     controller.abort()

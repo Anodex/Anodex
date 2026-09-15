@@ -80,6 +80,36 @@ export function remoteTurnConversation(
   }
 }
 
+/**
+ * A phone's new conversation as it starts: the question, before any answer.
+ *
+ * The computer used to write a phone's turn only once it finished, so for as long as
+ * the first reply was being written the conversation existed nowhere but in the
+ * phone's memory. When the phone app restarted in that time — installing an update
+ * does it — a notification that the turn needed an approval opened "It is not on your
+ * computer any more", and the approval could not be answered from the phone. The
+ * window, which writes its own question before it asks, never had the problem, and
+ * did not show the phone's conversation until it was done.
+ *
+ * Null for a conversation that already exists: its turns arrive through the phone's
+ * save and `remoteTurnConversation` as before.
+ */
+export function remoteQuestionConversation(
+  existing: Conversation | null | undefined,
+  request: ChatRequest,
+  now: number
+): Conversation | null {
+  if (existing) return null
+  return {
+    id: request.conversationId,
+    projectId: request.projectId ?? null,
+    title: titleFrom(request.prompt),
+    createdAt: now,
+    updatedAt: now,
+    messages: [{ id: request.messageId, role: 'user', content: request.prompt, createdAt: now }]
+  }
+}
+
 function titleFrom(prompt: string): string {
   const line = firstPlainLine(prompt)
   if (!line) return 'New chat'
