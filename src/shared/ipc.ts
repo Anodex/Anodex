@@ -346,7 +346,9 @@ export const IpcChannel = {
      * swapping the workspace under whoever is sitting at it (§10.1).
      */
     changed: 'projects:changed',
-    openFolder: 'projects:open-folder'
+    openFolder: 'projects:open-folder',
+    /** Open a page from a project in the user's browser, served so it can load its own files. */
+    openInBrowser: 'projects:open-in-browser'
   },
   Backup: {
     /** Save one conversation to a file the user picks. */
@@ -870,6 +872,8 @@ export interface AnodexApi {
     deletePermanent(id: string): Promise<void>
     setActive(id: string | null): Promise<ProjectsState>
     openFolder(id: string): Promise<void>
+    /** Open a project's page in the browser. `relativePath` is inside the project. */
+    openInBrowser(id: string, relativePath: string): Promise<Result<void>>
     /** Fires when the active project changes, including from a paired phone. */
     onChanged(listener: (state: ProjectsState) => void): () => void
   }
