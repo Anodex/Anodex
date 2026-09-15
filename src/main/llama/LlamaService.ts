@@ -1,4 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import { contextPerJob, jobsThatFit } from '@shared/contextShare'
 import { app } from 'electron'
 import { PromptPrefixStore } from './promptWarmup'
 import { EventEmitter } from 'node:events'
@@ -635,19 +636,28 @@ class LlamaService extends EventEmitter {
 
     try {
       if (options.visionProjectorPath) {
-        const parallelJobs = clampParallelJobs(options.parallelJobs)
+        // No more jobs than can each have a usable share of the context.
+        const parallelJobs = jobsThatFit(clampParallelJobs(options.parallelJobs), requestedSize)
         await this.visionService.load({ ...options, contextSize: requestedSize, parallelJobs })
         // llama-server was started with this many slots, so this many replies may
         // run on it at once. Set while the load still holds the gate exclusively.
         this.modelLock.setCapacity(parallelJobs)
-        this.contextSize = requestedSize
+        // Each reply is planned against its share of the pool, and everything that
+        // sizes a conversation against the engine — compaction, the context meter —
+        // reads the same number. See `contextShare.ts`.
+        const perJobContext = contextPerJob(requestedSize, parallelJobs)
+        this.contextSize = perJobContext
         this.gpuLayersUsed =
           options.gpuLayers === 'auto' || options.gpuLayers === undefined
             ? undefined
             : options.gpuLayers
         this.gpuLayersTotal = undefined
-        this.setState({ status: 'ready', error: undefined, contextSize: requestedSize })
-        log.info('Vision model ready:', info.name, `(ctx ${this.contextSize})`)
+        this.setState({ status: 'ready', error: undefined, contextSize: perJobContext })
+        log.info(
+          'Vision model ready:',
+          info.name,
+          `(ctx ${requestedSize}, ${parallelJobs} job(s), ${perJobContext} each)`
+        )
         return this.getState()
       }
 

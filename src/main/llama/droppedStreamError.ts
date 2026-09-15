@@ -26,6 +26,18 @@ export function isDroppedStreamMessage(message: string): boolean {
 }
 
 /**
+ * llama-server's report that the context pool had no room for the next token.
+ *
+ * Not a runtime fault: the turn's context filled up while it ran. On a later round
+ * that is exactly what compacting and carrying on in a fresh context handles, so it
+ * is told apart from a crash rather than ending the reply as a provider failure.
+ */
+export function isContextOverflowError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  return message.toLowerCase().includes('context size has been exceeded')
+}
+
+/**
  * Error form: checks the error's own message and `undici`'s wrapped `.cause`
  * (where the underlying socket error — code and message — actually lives).
  */

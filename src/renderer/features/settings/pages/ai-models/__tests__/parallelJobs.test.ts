@@ -13,7 +13,14 @@ describe('parallelJobsDescription', () => {
     expect(text).toMatch(/no extra memory/)
   })
 
-  it('says how many run and what they share when on', () => {
-    expect(parallelJobsDescription(3, undefined, 16384)).toMatch(/Up to 3 jobs run at once/)
+  it('says how many run and the share each gets when on', () => {
+    const text = parallelJobsDescription(2, undefined, 65536)
+    expect(text).toMatch(/Up to 2 jobs run at once, each with 32,768 of the 65,536-token context/)
+  })
+
+  it('says when the context has room for fewer jobs than were asked for', () => {
+    expect(parallelJobsDescription(3, true, 16384)).toMatch(
+      /only has room for 2 job\(s\).*8,192 tokens each/
+    )
   })
 })

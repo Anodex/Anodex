@@ -1,3 +1,4 @@
+import { contextPerJob, jobsThatFit, MIN_CONTEXT_PER_JOB } from '@shared/contextShare'
 /**
  * What running jobs side by side means for the model that is loaded.
  *
@@ -20,12 +21,21 @@ export function parallelJobsDescription(
   }
   if (jobs <= 1) {
     return (
-      'Lets a chat run while an agent works, instead of waiting for it. Jobs share the ' +
-      `${context}-token context and use no extra memory, but each runs a little slower.`
+      'Lets a chat run while an agent works, instead of waiting for it. Jobs split the ' +
+      `${context}-token context evenly and use no extra memory, but each runs a little slower.`
+    )
+  }
+  const fitting = jobsThatFit(jobs, contextSize)
+  const each = contextPerJob(contextSize, fitting).toLocaleString()
+  if (fitting < jobs) {
+    return (
+      `The ${context}-token context only has room for ${fitting} job(s) of at least ` +
+      `${MIN_CONTEXT_PER_JOB.toLocaleString()} tokens, so ${fitting} run at once, ` +
+      `${each} tokens each. A larger context allows more.`
     )
   }
   return (
-    `Up to ${jobs} jobs run at once and share the ${context}-token context, so a long job ` +
-    'leaves less room for the others. No extra memory is used; each runs a little slower.'
+    `Up to ${jobs} jobs run at once, each with ${each} of the ${context}-token context, so ` +
+    'long conversations are summarized sooner. No extra memory is used; each runs a little slower.'
   )
 }
