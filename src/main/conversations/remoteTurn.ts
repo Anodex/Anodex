@@ -4,6 +4,9 @@ import { firstPlainLine } from '@shared/titleText'
 import type { RunGenerationResult } from '../chat/runGeneration'
 import { carriesNothing } from './backgroundTurn'
 
+/** What an empty conversation is called until its first turn. */
+const PLACEHOLDER_TITLE = 'New chat'
+
 /** The fallback title's length, matching what the phone writes for a new chat. */
 const MAX_TITLE_CHARS = 60
 
@@ -57,6 +60,11 @@ export function remoteTurnConversation(
   if (existing) {
     return {
       ...existing,
+      // An empty chat made at the desk reads "New chat" until its first turn, which the
+      // window replaces when it sends one. A first turn sent from a phone kept it.
+      ...(existing.title === PLACEHOLDER_TITLE && existing.messages.length === 0
+        ? { title: titleFrom(request.prompt) }
+        : {}),
       updatedAt: now,
       messages: [question, reply]
     }

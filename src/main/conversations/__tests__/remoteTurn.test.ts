@@ -55,6 +55,40 @@ describe('remoteTurnConversation', () => {
     expect(saved?.updatedAt).toBe(9)
   })
 
+  it('titles an empty "New chat" made at the desk from its first question', () => {
+    // Seen on the emulator: a chat created in a project at the desk and first used on
+    // the phone kept "New chat" after its reply.
+    const empty: Conversation = {
+      id: 'c1',
+      projectId: 'p1',
+      title: 'New chat',
+      createdAt: 1,
+      updatedAt: 2,
+      messages: []
+    }
+
+    const saved = remoteTurnConversation(empty, request(), { content: 'Neither.', stats }, 9)
+
+    expect(saved?.title).toBe('Which of my 4 unread emails need a reply?')
+    expect(saved?.projectId).toBe('p1')
+    expect(saved?.createdAt).toBe(1)
+  })
+
+  it('keeps "New chat" as the name of a conversation that already has turns', () => {
+    const named: Conversation = {
+      id: 'c1',
+      projectId: null,
+      title: 'New chat',
+      createdAt: 1,
+      updatedAt: 2,
+      messages: [{ id: 'm0', role: 'user', content: 'Earlier', createdAt: 1 }]
+    }
+
+    const saved = remoteTurnConversation(named, request(), { content: 'Neither.', stats }, 9)
+
+    expect(saved?.title).toBe('New chat')
+  })
+
   it('takes a plain first line for the title of a pasted prompt', () => {
     const saved = remoteTurnConversation(
       undefined,
