@@ -161,4 +161,21 @@ describe('forRemote', () => {
     expect(JSON.stringify(sent)).not.toContain('Weighing')
     expect(sent.messages[1]).not.toHaveProperty('hasThinking')
   })
+
+  it('says a reply stopped partway, so the phone can offer to continue it', () => {
+    const sent = forRemote(
+      conversation([
+        message('a', {
+          error: 'This reply stopped early — the conversation ran out of context space.'
+        }),
+        message('b'),
+        message('c', { role: 'user', error: 'Upload failed' })
+      ])
+    )
+
+    expect(sent.messages[0].endedEarly).toBe(true)
+    expect(JSON.stringify(sent)).not.toContain('ran out of context')
+    expect(sent.messages[1]).not.toHaveProperty('endedEarly')
+    expect(sent.messages[2]).not.toHaveProperty('endedEarly')
+  })
 })

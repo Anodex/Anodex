@@ -46,6 +46,12 @@ export interface RemoteMessage {
    * longer than the reply — and is read with `conversations:thinking` when opened.
    */
   hasThinking?: true
+  /**
+   * True when the reply ended in an error after it started — out of room, out of time,
+   * the model failed. The phone offers Continue on it. The error text itself stays
+   * here; the phone words it for itself.
+   */
+  endedEarly?: true
 }
 
 export interface RemoteAttachment {
@@ -143,7 +149,8 @@ function trim(
         content: full,
         ...(message.persona ? { persona: message.persona } : {}),
         ...attachmentsOf(message),
-        ...thinkingFlagOf(message)
+        ...thinkingFlagOf(message),
+        ...endedEarlyOf(message)
       },
       wasCut: false
     }
@@ -167,13 +174,19 @@ function trim(
       content: `${head}\n\n… ${trimmedKb}KB more. Open this conversation on the computer to read the rest.`,
       ...(message.persona ? { persona: message.persona } : {}),
       ...attachmentsOf(message),
-      ...thinkingFlagOf(message)
+      ...thinkingFlagOf(message),
+      ...endedEarlyOf(message)
     },
     wasCut: true
   }
 }
 
 const byteLength = (text: string): number => Buffer.byteLength(text, 'utf8')
+
+/** Whether a reply stopped partway, so a phone can offer to continue it. */
+function endedEarlyOf(message: ChatMessage): { endedEarly?: true } {
+  return message.role === 'assistant' && message.error?.trim() ? { endedEarly: true } : {}
+}
 
 /** Whether a phone can ask for this message's thinking. */
 function thinkingFlagOf(message: ChatMessage): { hasThinking?: true } {
