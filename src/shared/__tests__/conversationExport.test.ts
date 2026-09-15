@@ -20,18 +20,25 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 describe('exportFileStem', () => {
+  it("is dated by the user's calendar, not UTC's", () => {
+    // Exported at 6:18 PM on the 14th in Colorado, which is already the 15th in UTC.
+    const evening = conversation({ updatedAt: Date.UTC(2026, 8, 15, 0, 18) })
+    expect(exportFileStem(evening, 'America/Denver')).toBe('2026-09-14-Deploy-notes')
+    expect(exportFileStem(evening, 'UTC')).toBe('2026-09-15-Deploy-notes')
+  })
+
   it('leads with the date so exports sort chronologically', () => {
-    expect(exportFileStem(conversation())).toBe('2026-07-30-Deploy-notes')
+    expect(exportFileStem(conversation(), 'UTC')).toBe('2026-07-30-Deploy-notes')
   })
 
   it('strips characters no filesystem will take', () => {
-    const stem = exportFileStem(conversation({ title: 'a/b\\c:d*e?f"g<h>i|j' }))
+    const stem = exportFileStem(conversation({ title: 'a/b\\c:d*e?f"g<h>i|j' }), 'UTC')
     expect(stem).toBe('2026-07-30-abcdefghij')
   })
 
   it('falls back to the date alone when the title has nothing usable', () => {
-    expect(exportFileStem(conversation({ title: '   ' }))).toBe('2026-07-30')
-    expect(exportFileStem(conversation({ title: '///' }))).toBe('2026-07-30')
+    expect(exportFileStem(conversation({ title: '   ' }), 'UTC')).toBe('2026-07-30')
+    expect(exportFileStem(conversation({ title: '///' }), 'UTC')).toBe('2026-07-30')
   })
 
   it('bounds a very long title instead of producing an unopenable path', () => {

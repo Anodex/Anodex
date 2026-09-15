@@ -440,7 +440,8 @@ export function MessageBubble({
           )}
           {!isUser && message.stats && !message.streaming && (
             <span className={styles.stats}>
-              {message.stats.tokens} tokens · {message.stats.tokensPerSecond} tok/s
+              {message.stats.tokens} tokens · {formatTokensPerSecond(message.stats.tokensPerSecond)}{' '}
+              tok/s
             </span>
           )}
         </div>
@@ -485,4 +486,12 @@ function checkpointButtonLabel(message: ChatMessage): string {
   if (checkpoint.restoredAt) return 'Restored'
   const remaining = checkpoint.changedFiles.length - (checkpoint.restoredFiles?.length ?? 0)
   return `Review ${remaining}`
+}
+
+/**
+ * Speed to one decimal place. Every provider but the built-in node engine reported
+ * it unrounded, so a reply read "21.98980960042907 tok/s".
+ */
+function formatTokensPerSecond(tokensPerSecond: number): string {
+  return Number.isFinite(tokensPerSecond) ? tokensPerSecond.toFixed(1) : '0.0'
 }

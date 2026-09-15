@@ -3,16 +3,19 @@ import { cp, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Conversation } from '@shared/conversation.types'
 import type { BackupResult, ConversationExportFormat } from '@shared/backup.types'
-import { conversationToMarkdown, exportFileStem } from '@shared/conversationExport'
+import { conversationToMarkdown, exportFileStem, localDate } from '@shared/conversationExport'
 import { classifyExclusion, shouldBackUp, type BackupExclusion } from './backupPaths'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('backup')
 
-/** `YYYY-MM-DD-HHmm`, so successive backups sort and never collide. */
-function timestampFolderName(now = new Date()): string {
-  const iso = now.toISOString()
-  return `anodex-backup-${iso.slice(0, 10)}-${iso.slice(11, 13)}${iso.slice(14, 16)}`
+/**
+ * `YYYY-MM-DD-HHmm` on the user's own clock, so successive backups sort and never
+ * collide, and the name says when the user made it rather than the time in UTC.
+ */
+export function timestampFolderName(now = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `anodex-backup-${localDate(now)}-${pad(now.getHours())}${pad(now.getMinutes())}`
 }
 
 /**
