@@ -18,7 +18,10 @@ vi.mock('../runGeneration', () => ({
 // imports initialize and can't touch them at all.
 // Real defaults, so the deadline is computed from the shipped 15-minute limit
 // rather than a number invented here. A test may reassign the field.
-const settings = { generation: { turnTimeLimitMinutes: 15 as number | null } }
+const settings = {
+  generation: { turnTimeLimitMinutes: 15 as number | null },
+  tools: {} as { checkBeforeFinishing?: boolean }
+}
 
 vi.mock('../../settings/SettingsStore', () => ({
   settingsStore: { get: () => settings }
@@ -2617,5 +2620,107 @@ describe('a reply cut short by the gathering ladder says so', () => {
     const outcome = await runBoundedChatGeneration(baseRequest(), io)
 
     expect(outcome.content).not.toContain('Ended early')
+  })
+})
+
+/**
+ * A project chat that changed files is asked once to check them before it finishes.
+ * Measured: the same website build checked itself as an agent run and shipped passing
+ * tests, and as a workspace chat ended with CSS that matched nothing in the HTML.
+ */
+describe('checking changed files before a chat finishes', () => {
+  const chatIo = (): RunGenerationIo => baseIo({ surface: 'chat' })
+  const write = (id: string): ToolCall => ({
+    id,
+    name: 'write_file',
+    kind: 'write',
+    title: `Write ${id}.css`,
+    status: 'success',
+    touchedPaths: [`${id}.css`],
+    diff: { path: `${id}.css`, before: '', after: 'a{}' }
+  })
+  const syntaxCheck: ToolCall = {
+    id: 'check-1',
+    name: 'run_command',
+    kind: 'command',
+    title: 'Run: node --check site.js',
+    status: 'success',
+    detail: 'exit 0'
+  }
+
+  function reply(calls: ToolCall[], content: string): void {
+    mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {
+      for (const call of calls) io.onActivity?.(call)
+      return Promise.resolve(result({ content }))
+    })
+  }
+
+  beforeEach(() => {
+    mockedRunGeneration.mockReset()
+    settings.tools = {}
+  })
+
+  it('asks once, and the check comes after the change', async () => {
+    reply([write('styles')], 'Updated the stylesheet.')
+    reply([], 'Checked it: the page renders.')
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), chatIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+    expect(mockedRunGeneration.mock.calls[1][0].prompt).toContain('nothing has checked them yet')
+    expect(outcome.content).toContain('Checked it')
+  })
+
+  it('does not ask again when the check itself changes more files', async () => {
+    reply([write('styles')], 'Updated the stylesheet.')
+    reply([write('fix')], 'Fixed what I found.')
+
+    await runBoundedChatGeneration(baseRequest(), chatIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not ask when the reply already checked its change', async () => {
+    reply([write('styles'), syntaxCheck], 'Updated and checked.')
+
+    await runBoundedChatGeneration(baseRequest(), chatIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not ask for a change that is not a file, like a remembered name', async () => {
+    reply(
+      [
+        {
+          id: 'mem',
+          name: 'remember_fact',
+          kind: 'write',
+          title: 'Remember fact',
+          status: 'success'
+        }
+      ],
+      'Got it.'
+    )
+
+    await runBoundedChatGeneration(baseRequest(), chatIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not ask when it is turned off', async () => {
+    settings.tools = { checkBeforeFinishing: false }
+    reply([write('styles')], 'Updated the stylesheet.')
+
+    await runBoundedChatGeneration(baseRequest(), chatIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
+  })
+
+  it('does not ask outside a chat, where agent runs have their own evidence gate', async () => {
+    reply([write('styles')], 'Updated the stylesheet.')
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(mockedRunGeneration).toHaveBeenCalledOnce()
   })
 })

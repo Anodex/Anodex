@@ -127,6 +127,8 @@ const api: AnodexApi = {
     deletePermanent: (id) => ipcRenderer.invoke(IpcChannel.Projects.deletePermanent, id),
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Projects.setActive, id),
     openFolder: (id) => ipcRenderer.invoke(IpcChannel.Projects.openFolder, id),
+    openInBrowser: (id, relativePath) =>
+      ipcRenderer.invoke(IpcChannel.Projects.openInBrowser, id, relativePath),
     onChanged: (listener) => subscribe<ProjectsState>(IpcChannel.Projects.changed, listener)
   },
   backup: {

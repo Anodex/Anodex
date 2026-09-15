@@ -303,6 +303,21 @@ export function hasVerificationOfChange(calls: ToolCall[]): boolean {
   )
 }
 
+/**
+ * Whether this reply changed files in the project and nothing has checked them since.
+ *
+ * Only writes that touched a file count as the change: `remember_fact` and project
+ * notes are `write`-kind too, and a friendly reply that saved a name is not work to
+ * verify. What counts as a check is `hasVerificationOfChange`'s rule.
+ */
+export function hasUncheckedFileChange(calls: ToolCall[]): boolean {
+  const fileWork = calls.filter(
+    (call) => call.kind !== 'write' || Boolean(call.diff) || Boolean(call.touchedPaths?.length)
+  )
+  const changedAFile = fileWork.some((call) => call.kind === 'write' && isDurableChange(call))
+  return changedAFile && !hasVerificationOfChange(fileWork)
+}
+
 /** A successful build/test/type-check/lint run, as opposed to any other command. */
 function isCheckCommand(call: ToolCall): boolean {
   const verification = parseRunCommandVerification(call)
