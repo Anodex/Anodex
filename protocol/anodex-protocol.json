@@ -17726,6 +17726,20 @@
               }
             ]
           }
+        },
+        "activeReplies": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
         }
       }
     },
@@ -23700,6 +23714,20 @@
               },
               {
                 "kind": "boolean"
+              }
+            ]
+          }
+        },
+        "expiresInMs": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
               }
             ]
           }

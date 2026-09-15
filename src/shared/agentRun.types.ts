@@ -82,8 +82,49 @@ export function maxTurnsCeilingFor(contextSize: number | undefined): number {
 }
 
 /** The turn budget a new run starts with on this window. See {@link maxTurnsCeilingFor}. */
-export function defaultMaxTurnsFor(contextSize: number | undefined): number {
-  return Math.max(DEFAULT_MAX_TURNS, Math.round(DEFAULT_MAX_TURNS * turnWorkRatio(contextSize)))
+export function defaultMaxTurnsFor(
+  contextSize: number | undefined,
+  base: number = DEFAULT_MAX_TURNS
+): number {
+  return Math.max(base, Math.round(base * turnWorkRatio(contextSize)))
+}
+
+/**
+ * What a run that can change files starts with, instead of the look-only defaults.
+ *
+ * Eight turns, 50,000 tokens and half an hour suit a run that reads and reports. A
+ * build does not fit: measured on the user's machine, a run that built a multi-page
+ * website finished in 14 turns, 85,000 tokens and 58 minutes, and a second one
+ * stopped at 8 of 8 turns having only read the files it was about to change. These
+ * are about twice that finished build, and the token and time ceilings still bound a
+ * runaway.
+ */
+export const DEFAULT_BUILD_MAX_TURNS = 30
+export const DEFAULT_BUILD_MAX_TOKENS = 300_000
+export const DEFAULT_BUILD_MAX_DURATION_MINUTES = 120
+
+export interface RunBudgets {
+  maxTurns: number
+  maxTokens: number
+  maxDurationMinutes: number
+}
+
+/** The budgets a new run starts with: build-sized when it can change files. */
+export function defaultRunBudgets(
+  canChangeFiles: boolean,
+  contextSize: number | undefined
+): RunBudgets {
+  return canChangeFiles
+    ? {
+        maxTurns: defaultMaxTurnsFor(contextSize, DEFAULT_BUILD_MAX_TURNS),
+        maxTokens: DEFAULT_BUILD_MAX_TOKENS,
+        maxDurationMinutes: DEFAULT_BUILD_MAX_DURATION_MINUTES
+      }
+    : {
+        maxTurns: defaultMaxTurnsFor(contextSize),
+        maxTokens: DEFAULT_MAX_TOKENS,
+        maxDurationMinutes: DEFAULT_MAX_DURATION_MINUTES
+      }
 }
 
 /**

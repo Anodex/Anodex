@@ -505,6 +505,7 @@ class LlamaService extends EventEmitter {
       vision: this.visionService.active,
       generating: this.generating || this.visionJobs > 0,
       parallelJobs: this.modelLock.capacity,
+      activeReplies: this.visionJobs + (this.generating ? 1 : 0),
       contextTokensUsed: this.contextSequence?.nextTokenIndex,
       contextTokensConversationId: this.activeConversationId
     }
