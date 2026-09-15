@@ -4,13 +4,12 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ChatAttachment } from '@shared/chat.types'
 import {
-  defaultMaxTurnsFor,
+  defaultRunBudgets,
   maxTurnsCeilingFor,
-  DEFAULT_MAX_TOKENS,
   MAX_MAX_TOKENS,
-  DEFAULT_MAX_DURATION_MINUTES,
   MAX_MAX_DURATION_MINUTES
 } from '@shared/agentRun.types'
+import { toolsCanChangeFiles } from '@shared/tools.types'
 import { agentRunContextSize } from '@shared/agentRunProviders'
 import { describeRunProvenance } from './runProvenance'
 import { settingsStore } from '../settings/SettingsStore'
@@ -84,6 +83,12 @@ class AgentRunStore {
     prepared: { id?: string; attachments?: ChatAttachment[] } = {}
   ): AgentRun {
     const now = Date.now()
+    // What a run asked for nothing specific gets. A phone never asks, so this is the
+    // whole budget of every run started from one.
+    const defaults = defaultRunBudgets(
+      toolsCanChangeFiles(request.enabledTools),
+      runContextSize(request)
+    )
     const run: AgentRun = {
       id: prepared.id ?? generateAgentRunId(),
       goal: request.goal.trim(),
@@ -102,15 +107,15 @@ class AgentRunStore {
       // constants exactly; on a smaller one they are larger, because a turn
       // there holds a fraction of the work.
       maxTurns: Math.min(
-        request.maxTurns ?? defaultMaxTurnsFor(runContextSize(request)),
+        request.maxTurns ?? defaults.maxTurns,
         maxTurnsCeilingFor(runContextSize(request))
       ),
       turnsUsed: 0,
       flaggedTurns: 0,
-      maxTokens: Math.min(request.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS),
+      maxTokens: Math.min(request.maxTokens ?? defaults.maxTokens, MAX_MAX_TOKENS),
       tokensUsed: 0,
       maxDurationMinutes: Math.min(
-        request.maxDurationMinutes ?? DEFAULT_MAX_DURATION_MINUTES,
+        request.maxDurationMinutes ?? defaults.maxDurationMinutes,
         MAX_MAX_DURATION_MINUTES
       ),
       activeMs: 0,
