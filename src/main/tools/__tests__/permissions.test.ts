@@ -67,8 +67,18 @@ describe('classifyCommandRisk', () => {
 
   it('treats ordinary commands as sensitive, not destructive', () => {
     expect(classifyCommandRisk('npm test')).toBe('sensitive')
-    expect(classifyCommandRisk('git status')).toBe('sensitive')
+    expect(classifyCommandRisk('git commit -m "wip"')).toBe('sensitive')
     expect(classifyCommandRisk('npm install lodash')).toBe('sensitive')
+  })
+
+  it('treats a command that only reads as safe, the tier file edits are in', () => {
+    // Seen in a website build: counting the lines in the project's files stopped the
+    // turn for an approval in Edits mode, and it stalled until declined.
+    expect(classifyCommandRisk('git status')).toBe('safe')
+    expect(classifyCommandRisk('Get-ChildItem -Recurse -Filter *.js | Measure-Object')).toBe('safe')
+    expect(classifyCommandRisk('node --check blog.js')).toBe('safe')
+    // Running a file is not reading one.
+    expect(classifyCommandRisk('node .anodex/node-test-runner.js')).toBe('sensitive')
   })
 
   // Every spelling below is the same command. `sensitive` auto-runs in
@@ -153,7 +163,7 @@ describe('destructive commands the list had missed', () => {
       'git status',
       'git diff'
     ]) {
-      expect(classifyCommandRisk(command), command).toBe('sensitive')
+      expect(classifyCommandRisk(command), command).not.toBe('destructive')
     }
   })
 

@@ -29,7 +29,7 @@ const pendingConfirmations = new Map<
  * not see, until it was declined after five minutes. Seen on the emulator during a
  * stress test: "Anodex needs an answer" in the shade, and nothing to answer in the app.
  */
-const pendingRequests = new Map<string, ToolConfirmRequest>()
+const pendingRequests = new Map<string, { request: ToolConfirmRequest; expiresAt: number }>()
 
 /**
  * How long an approval prompt waits before denying itself.
@@ -183,7 +183,7 @@ export function requestToolConfirmation(
       return [...everyone.values()].filter((client) => client.isAlive())
     }
     pendingConfirmations.set(request.id, settle)
-    pendingRequests.set(request.id, request)
+    pendingRequests.set(request.id, { request, expiresAt: Date.now() + CONFIRMATION_TIMEOUT_MS })
 
     const expiry = setTimeout(() => {
       // Every client showing the card is told by `settle`: its buttons would now do
@@ -213,7 +213,9 @@ export function requestToolConfirmation(
     for (const client of audience) {
       client.send(
         IpcChannel.Tools.confirmRequest,
-        isRemoteClient(client) ? forAPhone(request) : request
+        isRemoteClient(client)
+          ? { ...forAPhone(request), expiresInMs: CONFIRMATION_TIMEOUT_MS }
+          : request
       )
     }
 
@@ -261,7 +263,10 @@ export function resetToolApprovalStateForTests(): void {
  */
 export function pendingConfirmationsFor(client: ClientChannel | undefined): ToolConfirmRequest[] {
   const remote = client ? isRemoteClient(client) : false
-  return [...pendingRequests.values()].map((request) => (remote ? forAPhone(request) : request))
+  const now = Date.now()
+  return [...pendingRequests.values()].map(({ request, expiresAt }) =>
+    remote ? { ...forAPhone(request), expiresInMs: Math.max(0, expiresAt - now) } : request
+  )
 }
 
 /** Test seam: how many prompts are still waiting for an answer. */

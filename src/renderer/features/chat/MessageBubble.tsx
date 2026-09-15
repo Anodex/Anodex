@@ -5,6 +5,8 @@ import { PersonalityAvatar } from '../../components/ui/PersonalityAvatar'
 import { personalityDisplayName } from '../../components/ui/personalityIdentity'
 import { findChatPersonality } from '@shared/chatPersonality'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useModelStore } from '../../stores/modelStore'
+import { modelSharingNote } from './modelSharing'
 import { Icon } from '../../components/Icon'
 import { formatClock } from '../../lib/format'
 import { savePendingSkillEditorDraft } from '../../lib/skillEditorDraftHandoff'
@@ -214,11 +216,20 @@ function MessageBubbleImpl({
     message.streaming && !toolRunning && lastSegment?.type !== 'text'
       ? readingLabel(readingProgress)
       : null
+  // Two replies on the local model at once each run slower. Said here, since nothing
+  // else said it. See `modelSharingNote`.
+  const replyIsLocal = useSettingsStore((state) => state.settings?.provider?.active === 'local')
+  const sharing = useModelStore((state) =>
+    message.streaming ? modelSharingNote(state.engine, replyIsLocal) : null
+  )
+  const withSharing = (label: string): string => (sharing ? `${label} · ${sharing}` : label)
   const tailActivityLabel =
     message.streaming && lastSegment
-      ? lastSegment.type === 'text'
-        ? 'Writing response'
-        : (reading ?? liveActivityLabel(message.toolCalls ?? [], false))
+      ? withSharing(
+          lastSegment.type === 'text'
+            ? 'Writing response'
+            : (reading ?? liveActivityLabel(message.toolCalls ?? [], false))
+        )
       : null
 
   // First light: 'waiting' until this mount sees the thinking indicator,
@@ -295,7 +306,7 @@ function MessageBubbleImpl({
           )}
           {showInitialActivity ? (
             <LiveActivityIndicator
-              label={reading ?? liveActivityLabel(message.toolCalls ?? [], false)}
+              label={withSharing(reading ?? liveActivityLabel(message.toolCalls ?? [], false))}
               progress={reading && readingProgress ? readingPercent(readingProgress) : undefined}
             />
           ) : (
