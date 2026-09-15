@@ -114,7 +114,8 @@ function MessageBubbleImpl({
   // A reply that changed a web page can open it, served from its project. See
   // `projectPageUrl` in main for why it is served rather than opened from disk.
   const projectId = useChatStore(
-    (s) => s.conversations?.find((conversation) => conversation.id === s.activeId)?.projectId ?? null
+    (s) =>
+      s.conversations?.find((conversation) => conversation.id === s.activeId)?.projectId ?? null
   )
   const pageToOpen =
     !isUser && !message.streaming && projectId
