@@ -1278,6 +1278,28 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.stopDetail).toBeTruthy()
   })
 
+  it('carries on from a compacted context when the runtime runs out of context mid-turn', async () => {
+    // Two long jobs sharing one pool outgrew it together and both replies failed
+    // with "Context size has been exceeded", mid-build, after writing real files.
+    mocks.toolFunctions = {
+      write_file: {
+        description: 'Write.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('ok')
+      }
+    }
+    mocks.rounds.push({
+      chunks: [textChunk('Wrote the stylesheet. '), toolCallChunk('write_file', '{}')]
+    })
+    mocks.rounds.push({ error: new Error('400 Context size has been exceeded.') })
+
+    const outcome = await (await service()).generate(params({ tools: withTools }))
+
+    expect(outcome.content).toBe('Wrote the stylesheet.')
+    expect(outcome.stopReason).toBe('context-limit')
+    expect(outcome.contextEpochCause).toBe('in-turn')
+  })
+
   it('still throws when the first round fails with nothing to keep', async () => {
     mocks.rounds.push({ error: new Error('terminated') })
 
