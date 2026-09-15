@@ -514,7 +514,9 @@ function MessageBubbleImpl({
       {checkpointOpen && activeConversationId && (
         <CheckpointDialog
           conversationId={activeConversationId}
-          messageId={message.id}
+          // The id the checkpoint was saved under: a phone's turn saves it under the
+          // question's id, and its reply is `<id>:reply`.
+          messageId={message.checkpoint?.messageId ?? message.id}
           onClose={() => setCheckpointOpen(false)}
         />
       )}
