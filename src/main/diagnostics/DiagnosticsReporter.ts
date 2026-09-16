@@ -28,6 +28,7 @@ import {
   formatLogLine,
   severityForConnection,
   severityForLevel,
+  subsystemOf,
   suggestedFixFor,
   truncate
 } from './diagnosticsFormat'
@@ -54,20 +55,6 @@ const SAME_EVENT_MS = 1000
  * unrelated places, and merging the wrong pair loses a real failure.
  */
 const MIN_MATCH_CHARS = 12
-
-/**
- * The subsystem a scope belongs to, with the logger's `ipc:` prefix taken off.
- *
- * Handlers log under `ipc:email` and `ipc:mcp` while the services behind them
- * log under `email` and `mcp`, so a plain prefix match resolved the service's
- * failures and left the handlers' sitting there — and the handlers are where
- * most of them come from: twenty failure sites under `ipc:email` alone against
- * the service's own. Same subsystem, same success, so the same signal settles
- * both.
- */
-function subsystemOf(scope: string | undefined): string | undefined {
-  return scope?.startsWith('ipc:') ? scope.slice('ipc:'.length) : scope
-}
 
 export interface ReportInput {
   severity: DiagnosticEntry['severity']

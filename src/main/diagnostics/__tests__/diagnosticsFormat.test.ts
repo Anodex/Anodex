@@ -6,6 +6,7 @@ import {
   formatLogLine,
   severityForConnection,
   severityForLevel,
+  subsystemOf,
   suggestedFixFor,
   truncate
 } from '../diagnosticsFormat'
@@ -204,5 +205,35 @@ describe('formatLogLine', () => {
     expect(formatLogLine(0, 'warn', 'email', { message: 'Retrying' })).toBe(
       '[1970-01-01T00:00:00.000Z] [WARN] [email] Retrying\n'
     )
+  })
+})
+
+describe('a handler and the service behind it are one subsystem', () => {
+  it('files an IPC failure where its subsystem lives, not under runtime', () => {
+    // These pairs are the same event seen from two sides. Filed apart, the
+    // Integration filter hid most mail failures and clearing it left them
+    // behind — and the handlers are where most failures are logged.
+    expect(categoryForScope('ipc:email')).toBe(categoryForScope('email'))
+    expect(categoryForScope('ipc:mcp')).toBe(categoryForScope('mcp'))
+    expect(categoryForScope('ipc:conversations')).toBe(categoryForScope('conversations'))
+    expect(categoryForScope('ipc:models')).toBe('model')
+  })
+
+  it('leaves an IPC scope naming no subsystem of its own as runtime', () => {
+    expect(categoryForScope('ipc:git')).toBe('runtime')
+  })
+
+  it('does not change how a plain scope or a failure code classifies', () => {
+    expect(categoryForScope('llama')).toBe('model')
+    expect(categoryForScope('models.load-failed')).toBe('model')
+    expect(categoryForScope('email:imap')).toBe('integration')
+    expect(categoryForScope('window')).toBe('runtime')
+    expect(categoryForScope('something-nobody-listed')).toBe('general')
+  })
+
+  it('strips the ipc prefix and nothing else', () => {
+    expect(subsystemOf('ipc:email')).toBe('email')
+    expect(subsystemOf('email')).toBe('email')
+    expect(subsystemOf(undefined)).toBeUndefined()
   })
 })
