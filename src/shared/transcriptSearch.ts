@@ -50,7 +50,7 @@ export function searchTranscripts(
   query: string,
   options: SearchTranscriptsOptions = {}
 ): TranscriptRecallResult[] {
-  const queryWords = contentWords(wordSet(query))
+  const queryWords = searchWords(query)
   if (queryWords.size === 0) return []
   const queryPhrase = query.trim().toLowerCase()
   const maxExcerpts = options.maxExcerptsPerConversation ?? MAX_EXCERPTS_PER_CONVERSATION
@@ -224,6 +224,18 @@ const QUERY_STOP_WORDS = new Set([
   'yours',
   'yourself'
 ])
+
+/**
+ * The words a search is actually made of: long enough to mean something, and not
+ * a function word — see [QUERY_STOP_WORDS].
+ *
+ * Exported because a caller that holds the transcripts decides which of them to
+ * open, and this is the only honest basis for that decision. See
+ * `conversationWordDigest.ts`.
+ */
+export function searchWords(query: string): Set<string> {
+  return contentWords(wordSet(query))
+}
 
 /** The query's words that can carry a match — see [QUERY_STOP_WORDS]. */
 function contentWords(words: Set<string>): Set<string> {

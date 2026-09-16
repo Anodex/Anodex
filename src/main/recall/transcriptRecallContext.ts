@@ -1,7 +1,7 @@
 import type { Conversation } from '@shared/conversation.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
 import type { TranscriptRecallSettings } from '@shared/settings.types'
-import { searchTranscripts } from '@shared/transcriptSearch'
+import { searchTranscripts, searchWords } from '@shared/transcriptSearch'
 import { conversationStore } from '../conversations/ConversationStore'
 
 export interface BuildTranscriptRecallContextOptions {
@@ -46,7 +46,7 @@ export function buildTranscriptRecallContext(
 ): TranscriptRecallContext | null {
   if (!options.settings.enabled || !options.allowedForProvider) return null
 
-  const candidates = gatherCandidates(options.projectId, options.settings)
+  const candidates = gatherCandidates(options.projectId, options.settings, options.query)
   const results = searchTranscripts(candidates, options.query, {
     excludeConversationId: options.conversationId
   })
@@ -56,16 +56,24 @@ export function buildTranscriptRecallContext(
   return { text: blocks.join('\n'), results, blocks }
 }
 
+/**
+ * The conversations worth scoring for this query.
+ *
+ * Every turn asks this, and the store keeps older chats on disk — so it opens the
+ * ones whose words could match and no others. With archived chats included that is
+ * the difference between reading 140MB per turn and reading almost nothing.
+ */
 function gatherCandidates(
   projectId: string | null,
-  settings: TranscriptRecallSettings
+  settings: TranscriptRecallSettings,
+  query: string
 ): Conversation[] {
-  if (settings.crossScopeEnabled) {
-    return settings.archivedEnabled ? conversationStore.listAll() : conversationStore.list()
-  }
-  return settings.archivedEnabled
-    ? conversationStore.listAll().filter((c) => c.projectId === projectId)
-    : conversationStore.listByProject(projectId)
+  return conversationStore.searchable(searchWords(query), {
+    archived: settings.archivedEnabled,
+    matching: settings.crossScopeEnabled
+      ? undefined
+      : (conversation) => conversation.projectId === projectId
+  })
 }
 
 /** One recalled conversation: its dated heading and the excerpts under it. */
