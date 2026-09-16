@@ -62,8 +62,11 @@ describe('whether a chat is worth opening', () => {
     expect(couldMatch(digest, searchWords('marzipan recipe'))).toBe(true)
   })
 
-  it('is not fooled by a word that merely contains the query', () => {
-    expect(couldMatch(digestFor('marzipanning'), searchWords('marzipan'))).toBe(false)
+  it('opens a chat that only ever said the longer word', () => {
+    // Searching for "checkpoint" surfaces a chat that said "checkpoints": the
+    // verbatim-phrase part of the score is a substring match, so a whole-word test
+    // here would skip a chat the search does find.
+    expect(couldMatch(digestFor('marzipanning'), searchWords('marzipan'))).toBe(true)
   })
 
   it('refuses a query with nothing in it to match on', () => {
