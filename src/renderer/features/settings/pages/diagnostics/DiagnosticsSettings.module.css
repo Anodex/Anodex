@@ -239,6 +239,22 @@
   border-left-color: var(--info);
 }
 
+/*
+ * A failure whose operation has since succeeded. Still listed, and still opens
+ * to its full stack - it is the record of a real thing that happened - but the
+ * severity stripe goes quiet and the row steps back, so what is actually wrong
+ * now is what the eye lands on.
+ */
+.entry.settled {
+  border-left-color: var(--border-strong);
+  opacity: 0.72;
+}
+
+.entry.settled:hover,
+.entry.settled:focus-within {
+  opacity: 1;
+}
+
 .entry details > summary {
   display: grid;
   grid-template-columns: 82px minmax(0, 1fr) auto 16px;

@@ -107,6 +107,7 @@ import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import { createTurnProgress, type TurnProgressSeed } from '../tools/turnProgress'
 import { guardToolHandlers } from './guardedToolDefine'
+import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 import {
   buildCompactionSummaryPrompt,
   buildCompactionUpdatePrompt,
@@ -708,6 +709,8 @@ class LlamaService extends EventEmitter {
       }
       this.setState({ status: 'ready', error: undefined })
       log.info('Model ready:', info.name, `(ctx ${this.contextSize})`)
+      // A model that loads on the second go settles whatever the first go said.
+      diagnosticsReporter.resolved('llama', 'model')
       return this.getState()
     } catch (error) {
       const message = describeLoadError(error, info, this.nativeLog.lines())

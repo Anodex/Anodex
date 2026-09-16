@@ -77,9 +77,14 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
   }, [entries.length])
 
   const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.severity === filter)
-  const errorCount = entries.filter((entry) => entry.severity === 'error').length
-  const warningCount = entries.filter((entry) => entry.severity === 'warning').length
+  // A failure whose operation has since succeeded stays in the list but stops
+  // being counted: the headline is about what is wrong now, and a mailbox that
+  // reconnected a minute later is not.
+  const outstanding = entries.filter((entry) => entry.resolvedAt === undefined)
+  const errorCount = outstanding.filter((entry) => entry.severity === 'error').length
+  const warningCount = outstanding.filter((entry) => entry.severity === 'warning').length
   const infoCount = entries.filter((entry) => entry.severity === 'info').length
+  const resolvedCount = entries.length - outstanding.length
   const status = errorCount > 0 ? 'attention' : warningCount > 0 ? 'warning' : 'healthy'
 
   const handleExport = (): void => {
@@ -171,7 +176,9 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
               ? `${errorCount} unresolved error${errorCount === 1 ? '' : 's'}`
               : warningCount > 0
                 ? `${warningCount} warning${warningCount === 1 ? '' : 's'} to review`
-                : 'No errors or warnings'
+                : resolvedCount > 0
+                  ? `${resolvedCount} fixed ${resolvedCount === 1 ? 'itself' : 'themselves'}`
+                  : 'No errors or warnings'
           }
           tone={status}
         />
@@ -366,7 +373,12 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
         ) : (
           <ul className={styles.list}>
             {filtered.map((entry, index) => (
-              <li key={entry.id} className={`${styles.entry} ${styles[entry.severity]}`}>
+              <li
+                key={entry.id}
+                className={`${styles.entry} ${styles[entry.severity]} ${
+                  entry.resolvedAt === undefined ? '' : styles.settled
+                }`}
+              >
                 <details open={index === 0}>
                   <summary>
                     <span className={styles.severity}>
@@ -379,6 +391,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
                         {CATEGORY_LABELS[entry.category]}
                         {entry.scope && ` · ${entry.scope}`}
                         {entry.source === 'main' && ' · background service'}
+                        {entry.resolvedAt !== undefined && ' · fixed itself'}
                       </small>
                     </span>
                     <time>{new Date(entry.timestamp).toLocaleString()}</time>
@@ -551,6 +564,11 @@ function detailReport(entry: DiagnosticEntry): string {
       entry.source === 'main' ? ' — background service' : ''
     }`
   ]
+  if (entry.resolvedAt !== undefined) {
+    lines.push(
+      `Resolved: ${new Date(entry.resolvedAt).toLocaleString()} — the operation succeeded later`
+    )
+  }
   if (entry.detail) lines.push('', entry.detail)
   if (entry.suggestedFix) lines.push('', `Suggested fix: ${entry.suggestedFix}`)
   return lines.join('\n')

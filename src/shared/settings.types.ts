@@ -380,6 +380,15 @@ export interface DiagnosticEntry {
   /** Logger scope for a `main` entry, e.g. `llama` or `email:imap`. */
   scope?: string
   /**
+   * When the operation behind this entry later succeeded.
+   *
+   * A background failure that has since fixed itself — the mailbox that
+   * reconnected, the model that loaded on the second go — stays in the list as a
+   * record of what happened, but stops counting as something to attend to. Only
+   * absence of this field means "still wrong".
+   */
+  resolvedAt?: number
+  /**
    * The version of Anodex this happened on.
    *
    * Entries are kept in the window's own storage, so they outlive the update that

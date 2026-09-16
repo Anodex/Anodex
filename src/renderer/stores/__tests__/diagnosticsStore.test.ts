@@ -90,6 +90,26 @@ describe('diagnosticsStore.ingest', () => {
     ])
   })
 
+  it('takes the newer copy of an entry it already has, so a resolution lands', () => {
+    const entry = makeMainEntry('model failed to load', 2000)
+    useDiagnosticsStore.getState().ingest([entry])
+
+    // The same entry, sent again because the model loaded on the second go.
+    useDiagnosticsStore.getState().ingest([{ ...entry, resolvedAt: 9000 }])
+
+    const [only] = useDiagnosticsStore.getState().entries
+    expect(useDiagnosticsStore.getState().entries).toHaveLength(1)
+    expect(only.resolvedAt).toBe(9000)
+  })
+
+  it('keeps a resolved entry out of the export as still-standing', () => {
+    useDiagnosticsStore
+      .getState()
+      .ingest([{ ...makeMainEntry('could not reach the mailbox', 2000), resolvedAt: 9000 }])
+
+    expect(useDiagnosticsStore.getState().exportText()).toContain('Resolved:')
+  })
+
   it('keeps the technical detail even with verbose logging off', () => {
     configureDiagnostics({ maxEntries: 250, clearOnRestart: false, verbose: false })
 
