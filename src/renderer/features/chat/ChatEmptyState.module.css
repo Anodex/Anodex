@@ -120,18 +120,19 @@
   color: var(--text-muted);
 }
 
+/*
+ * "No model loaded" is the one thing standing between a new install and a
+ * usable app, and its button is the only thing to press on the screen — the
+ * composer behind it has nothing to send yet. So it carries the mark, on the
+ * same terms as every other button that holds a surface's answer.
+ */
 .calloutButton {
+  composes: brandFill from '../../components/ui/BrandFill.module.css';
   flex-shrink: 0;
   padding: var(--space-2) var(--space-3);
   font-weight: 500;
-  color: var(--text-on-accent);
-  background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
-}
-
-.calloutButton:hover {
-  background: var(--accent-hover);
 }
 
 .recommendCard {
