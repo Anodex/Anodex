@@ -234,7 +234,8 @@ const api: AnodexApi = {
     revealLogFile: () => ipcRenderer.invoke(IpcChannel.Diagnostics.revealLogFile),
     getSupportBundlePreview: () =>
       ipcRenderer.invoke(IpcChannel.Diagnostics.getSupportBundlePreview),
-    saveSupportBundle: () => ipcRenderer.invoke(IpcChannel.Diagnostics.saveSupportBundle)
+    saveSupportBundle: () => ipcRenderer.invoke(IpcChannel.Diagnostics.saveSupportBundle),
+    getMemoryUsage: () => ipcRenderer.invoke(IpcChannel.Diagnostics.getMemoryUsage)
   },
   stats: {
     getUsageProfile: () => ipcRenderer.invoke(IpcChannel.Stats.getUsageProfile),

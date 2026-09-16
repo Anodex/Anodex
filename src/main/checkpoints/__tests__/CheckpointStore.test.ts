@@ -96,6 +96,11 @@ describe('CheckpointStore', () => {
       after: null
     })
 
+    // A turn that changed nothing has no checkpoint, which is an answer rather than a
+    // failure: a phone asks after every turn it sends, and each one used to log a warning.
+    expect(checkpointStore.inspectIfPresent(root, 'c1', 'never-ran')).toBeNull()
+    expect(checkpointStore.inspectIfPresent(root, 'c1', 'm1')).not.toBeNull()
+
     const preview = checkpointStore.inspect(root, 'c1', 'm1')
 
     expect(preview.files).toMatchObject([

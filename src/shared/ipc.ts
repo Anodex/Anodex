@@ -35,6 +35,7 @@ import type {
   AppSettings,
   DiagnosticEntry,
   DiagnosticLogFile,
+  MemoryUsageReport,
   ProfileSettings,
   SettingsPatch
 } from './settings.types'
@@ -502,7 +503,9 @@ export const IpcChannel = {
     /** Build a redacted, local support-report preview. */
     getSupportBundlePreview: 'diagnostics:get-support-bundle-preview',
     /** Open a save dialog and write a fresh redacted support report. */
-    saveSupportBundle: 'diagnostics:save-support-bundle'
+    saveSupportBundle: 'diagnostics:save-support-bundle',
+    /** What Anodex is holding in memory, and what it is. */
+    getMemoryUsage: 'diagnostics:get-memory-usage'
   },
   Stats: {
     getUsageProfile: 'stats:get-usage-profile',
@@ -854,7 +857,8 @@ export interface AnodexApi {
     /** List a project's checkpoints, newest first. */
     list(projectId: string): Promise<Result<CheckpointHistoryEntry[]>>
     /** Inspect changed files and detect edits made after a checkpoint was captured. */
-    inspect(request: CheckpointRequest): Promise<Result<CheckpointPreview>>
+    /** Null when that turn changed nothing, and so has no checkpoint. */
+    inspect(request: CheckpointRequest): Promise<Result<CheckpointPreview | null>>
     /** Restore the files changed by one assistant message back to their before-state. */
     restore(request: RestoreCheckpointRequest): Promise<Result<RestoreCheckpointResult>>
     /** Reapply the AI turn after a checkpoint restore. */
@@ -1037,6 +1041,8 @@ export interface AnodexApi {
     getSupportBundlePreview(): Promise<Result<SupportBundlePreview>>
     /** Writes a fresh redacted report only after the user chooses a location. */
     saveSupportBundle(): Promise<Result<SupportBundleExportResult>>
+    /** What Anodex is holding in memory, for the Diagnostics page. */
+    getMemoryUsage(): Promise<MemoryUsageReport>
   }
   stats: {
     /** All-time token-generation activity, independent of individual conversations. */
