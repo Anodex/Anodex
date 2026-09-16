@@ -13,6 +13,7 @@ import { forRemote } from '../conversations/remoteTranscript'
 import { attachmentPreview } from '../conversations/attachmentPreview'
 import { branchForEdit } from '../conversations/branchForEdit'
 import { searchConversationBodies } from '../conversations/conversationBodySearch'
+import { searchWords } from '@shared/transcriptSearch'
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import { createLogger } from '../utils/logger'
 
@@ -43,13 +44,18 @@ export function registerConversationHandlers(): void {
 
   // The desktop sidebar searches here too, now that the window no longer holds every
   // conversation's messages — from the first character, as it did in the window.
-  ipcMain.handle(IpcChannel.Conversations.search, (event, query: string) =>
-    searchConversationBodies(
-      conversationStore.list().filter((conversation) => !conversation.archived),
-      typeof query === 'string' ? query : '',
+  //
+  // Only the chats whose words could answer the query are opened: at a character a
+  // keystroke, reading all of them was 120ms of the main process and put every chat
+  // back in memory for two minutes.
+  ipcMain.handle(IpcChannel.Conversations.search, (event, query: string) => {
+    const text = typeof query === 'string' ? query : ''
+    return searchConversationBodies(
+      conversationStore.searchable(searchWords(text), { archived: false }),
+      text,
       isRemoteCall(event) ? undefined : 1
     )
-  )
+  })
 
   ipcMain.handle(IpcChannel.Conversations.get, (event, conversationId: string, limit?: number) => {
     const conversation = conversationStore.get(conversationId)
