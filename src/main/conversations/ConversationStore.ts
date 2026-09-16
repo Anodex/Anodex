@@ -188,20 +188,6 @@ class ConversationStore {
   }
 
   /**
-   * Every conversation that is not archived, whole, newest first.
-   *
-   * Reads an older one's messages from disk — see `RECENT_CHATS_HELD`. Callers that
-   * only need titles and counts should use `listShallow`, which touches no disk.
-   */
-  list(): Conversation[] {
-    return [...this.ensureCache().values()]
-      .filter((entry) => !entry.conversation.archived)
-      .map((entry) => this.readable(entry))
-      .filter((conversation): conversation is Conversation => conversation !== null)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }
-
-  /**
    * Every conversation that is not archived, without reading a thing: an older one
    * comes back without its messages, and `messageCount` says how many it has.
    *
@@ -264,13 +250,6 @@ class ConversationStore {
       .map((entry) => entry.filePath)
   }
 
-  /** Return archived conversations, sorted by archivedAt/updatedAt descending. */
-  listArchived(): Conversation[] {
-    return this.archivedEntries()
-      .map((entry) => this.readable(entry))
-      .filter((conversation): conversation is Conversation => conversation !== null)
-  }
-
   /**
    * Archived conversations without their messages, and how many each has — all a
    * list of them shows, read without touching the disk.
@@ -280,19 +259,6 @@ class ConversationStore {
       conversation: entry.conversation,
       messageCount: entry.messageCount
     }))
-  }
-
-  /** Return every persisted conversation, sorted by updatedAt descending. */
-  listAll(): Conversation[] {
-    return [...this.ensureCache().values()]
-      .map((entry) => this.readable(entry))
-      .filter((conversation): conversation is Conversation => conversation !== null)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }
-
-  /** Return conversations for a specific project (or general chats). */
-  listByProject(projectId: string | null): Conversation[] {
-    return this.list().filter((c) => c.projectId === projectId)
   }
 
   /**

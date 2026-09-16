@@ -229,7 +229,7 @@ describe('ConversationStore persistence', () => {
 
     expect(existsSync(filePathFor('general', 'chat-1'))).toBe(false)
     expect(existsSync(filePathFor('proj1', 'chat-1'))).toBe(true)
-    expect(conversationStore.list()).toHaveLength(1)
+    expect(conversationStore.listShallow()).toHaveLength(1)
   })
 
   it('keeps the original file when the write for a project move fails', () => {
@@ -244,7 +244,7 @@ describe('ConversationStore persistence', () => {
     // The conversation must survive: removing the old file before the new one
     // is safely written would have destroyed it outright.
     expect(existsSync(filePathFor('general', 'chat-1'))).toBe(true)
-    expect(conversationStore.list().map((entry) => entry.id)).toEqual(['chat-1'])
+    expect(conversationStore.listShallow().map((row) => row.conversation.id)).toEqual(['chat-1'])
   })
 
   it('does not cache conversation state that failed to persist', () => {
@@ -272,7 +272,7 @@ describe('ConversationStore persistence', () => {
 
     conversationStore.init()
 
-    expect(conversationStore.list().map((entry) => entry.id)).toEqual(['good'])
+    expect(conversationStore.listShallow().map((row) => row.conversation.id)).toEqual(['good'])
     expect(h.warn).toHaveBeenCalledTimes(4)
   })
 
@@ -324,7 +324,7 @@ describe('ConversationStore persistence', () => {
 
     conversationStore.init()
 
-    const message = conversationStore.list()[0].messages[1]
+    const message = conversationStore.listShallow()[0].conversation.messages[1]
     expect(message.streaming).toBe(false)
     expect(message.error).toBe(INTERRUPTED_GENERATION_MESSAGE)
     expect(message.toolCalls?.[0]).toMatchObject({
@@ -367,8 +367,9 @@ describe('ConversationStore holding archived conversations', () => {
 
     // Every read that promises a conversation still gets all of it.
     expect(conversationStore.get('old')?.messages).toHaveLength(3)
-    expect(conversationStore.listArchived()[0].messages).toHaveLength(3)
-    expect(conversationStore.listAll().find((c) => c.id === 'old')?.messages).toHaveLength(3)
+    expect(
+      conversationStore.searchable(new Set(['old']), { archived: true })[0].messages
+    ).toHaveLength(3)
   })
 
   it('restores an archived conversation with every message', () => {
@@ -379,7 +380,7 @@ describe('ConversationStore holding archived conversations', () => {
     conversationStore.restore('old')
     relaunch()
 
-    expect(conversationStore.list()[0].messages.map((m) => m.id)).toEqual([
+    expect(conversationStore.get('old')?.messages.map((m) => m.id)).toEqual([
       'old-m0',
       'old-m1',
       'old-m2',
@@ -448,7 +449,11 @@ describe('ConversationStore holding only recent chats', () => {
     saveMany(30)
 
     expect(conversationStore.get('chat-0')?.messages).toHaveLength(1)
-    expect(conversationStore.list().find((c) => c.id === 'chat-0')?.messages).toHaveLength(1)
+    expect(
+      conversationStore
+        .searchable(new Set(['message']), { archived: false })
+        .find((c) => c.id === 'chat-0')?.messages
+    ).toHaveLength(1)
   })
 
   it('holds a chat it saves, so a conversation in use is never read per turn', () => {
@@ -534,26 +539,28 @@ describe('ConversationStore archiving', () => {
 
     conversationStore.archive('chat-1')
 
-    expect(conversationStore.list()).toHaveLength(0)
-    expect(conversationStore.listArchived().map((entry) => entry.id)).toEqual(['chat-1'])
+    expect(conversationStore.listShallow()).toHaveLength(0)
+    expect(
+      conversationStore.listArchivedWithoutMessages().map((row) => row.conversation.id)
+    ).toEqual(['chat-1'])
     expect(conversationStore.getState().activeConversationId).toBeNull()
     expect(h.abortGeneration).toHaveBeenCalledWith('chat-1')
 
     conversationStore.restore('chat-1')
 
-    const [restored] = conversationStore.list()
-    expect(restored.id).toBe('chat-1')
-    expect(restored.archived).toBe(false)
-    expect(restored.archivedAt).toBeUndefined()
-    expect(conversationStore.listArchived()).toHaveLength(0)
+    const [restored] = conversationStore.listShallow()
+    expect(restored.conversation.id).toBe('chat-1')
+    expect(restored.conversation.archived).toBe(false)
+    expect(restored.conversation.archivedAt).toBeUndefined()
+    expect(conversationStore.listArchivedWithoutMessages()).toHaveLength(0)
   })
 
   it('stamps archivedAt and updatedAt with a single instant', () => {
     conversationStore.save(conversation({ id: 'chat-1' }))
     conversationStore.archive('chat-1')
 
-    const [archived] = conversationStore.listArchived()
-    expect(archived.archivedAt).toBe(archived.updatedAt)
+    const [archived] = conversationStore.listArchivedWithoutMessages()
+    expect(archived.conversation.archivedAt).toBe(archived.conversation.updatedAt)
   })
 
   it('refuses to permanently delete conversations that are not archived', () => {
@@ -563,8 +570,8 @@ describe('ConversationStore archiving', () => {
 
     conversationStore.deleteArchived(['old', 'live'])
 
-    expect(conversationStore.list().map((entry) => entry.id)).toEqual(['live'])
-    expect(conversationStore.listArchived()).toHaveLength(0)
+    expect(conversationStore.listShallow().map((row) => row.conversation.id)).toEqual(['live'])
+    expect(conversationStore.listArchivedWithoutMessages()).toHaveLength(0)
     expect(h.warn).toHaveBeenCalledWith(expect.stringContaining('not archived'), 'live')
   })
 })
@@ -577,7 +584,7 @@ describe('ConversationStore project deletion', () => {
     conversationStore.deleteByProjectPermanent('proj1')
 
     expect(conversationStore.getState().activeConversationId).toBeNull()
-    expect(conversationStore.listAll()).toHaveLength(0)
+    expect(conversationStore.listShallow()).toHaveLength(0)
     expect(h.abortGeneration).toHaveBeenCalledWith('chat-1')
   })
 
@@ -587,7 +594,7 @@ describe('ConversationStore project deletion', () => {
 
     conversationStore.deleteByProjectPermanent('proj1')
 
-    expect(conversationStore.listAll().map((entry) => entry.id)).toEqual(['keep'])
+    expect(conversationStore.listShallow().map((row) => row.conversation.id)).toEqual(['keep'])
     expect(existsSync(filePathFor('proj2', 'keep'))).toBe(true)
   })
 })
