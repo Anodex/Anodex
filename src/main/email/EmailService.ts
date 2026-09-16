@@ -41,6 +41,7 @@ import { MicrosoftAdapter } from './providers/MicrosoftAdapter'
 import { ImapSmtpAdapter } from './providers/ImapSmtpAdapter'
 import type { EmailAttachmentContent, EmailProviderAdapter } from './providers/types'
 import { createLogger } from '../utils/logger'
+import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 
 const log = createLogger('email')
 
@@ -228,6 +229,7 @@ class EmailService {
     try {
       await ADAPTERS.imap.verify(account)
       log.info(`Connected IMAP account ${address}.`)
+      diagnosticsReporter.resolved('email')
     } catch (error) {
       emailAccountStore.remove(account.id)
       throw new Error(
