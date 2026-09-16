@@ -55,6 +55,20 @@ const SAME_EVENT_MS = 1000
  */
 const MIN_MATCH_CHARS = 12
 
+/**
+ * The subsystem a scope belongs to, with the logger's `ipc:` prefix taken off.
+ *
+ * Handlers log under `ipc:email` and `ipc:mcp` while the services behind them
+ * log under `email` and `mcp`, so a plain prefix match resolved the service's
+ * failures and left the handlers' sitting there — and the handlers are where
+ * most of them come from: twenty failure sites under `ipc:email` alone against
+ * the service's own. Same subsystem, same success, so the same signal settles
+ * both.
+ */
+function subsystemOf(scope: string | undefined): string | undefined {
+  return scope?.startsWith('ipc:') ? scope.slice('ipc:'.length) : scope
+}
+
 export interface ReportInput {
   severity: DiagnosticEntry['severity']
   category: DiagnosticEntry['category']
@@ -221,7 +235,7 @@ class DiagnosticsReporter {
       if (entry.resolvedAt !== undefined) continue
       // `info` is already not counted as a fault; leave it as plain history.
       if (entry.severity === 'info') continue
-      const scope = entry.scope
+      const scope = subsystemOf(entry.scope)
       if (!scope || !operations.some((op) => scope === op || scope.startsWith(op))) continue
       entry.resolvedAt = at
       broadcastToWindows(IpcChannel.Diagnostics.entry, entry)
