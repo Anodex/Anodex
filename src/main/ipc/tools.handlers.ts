@@ -269,6 +269,11 @@ export function pendingConfirmationsFor(client: ClientChannel | undefined): Tool
   )
 }
 
+/** Whether anybody is being asked to approve something right now. */
+export function hasWaitingConfirmation(): boolean {
+  return pendingConfirmations.size > 0
+}
+
 /** Test seam: how many prompts are still waiting for an answer. */
 export function pendingConfirmationCountForTests(): number {
   return pendingConfirmations.size

@@ -198,6 +198,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     scheduler: {
       keepAwake: false
     },
+    updates: {
+      automatic: false
+    },
     keyboard: {
       shortcuts: DEFAULT_KEYBOARD_SHORTCUTS
     },

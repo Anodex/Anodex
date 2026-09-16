@@ -9711,6 +9711,12 @@
             "$ref": "SchedulerSettings"
           }
         },
+        "updates": {
+          "optional": false,
+          "type": {
+            "$ref": "UpdateSettings"
+          }
+        },
         "keyboard": {
           "optional": false,
           "type": {
@@ -24265,6 +24271,28 @@
           }
         },
         "archived": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "boolean"
+              },
+              {
+                "kind": "boolean"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "UpdateSettings": {
+      "kind": "object",
+      "properties": {
+        "automatic": {
           "optional": true,
           "type": {
             "kind": "union",

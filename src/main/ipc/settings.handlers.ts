@@ -3,6 +3,7 @@ import { IpcChannel } from '@shared/ipc'
 import type { SettingsPatch } from '@shared/settings.types'
 import { settingsStore } from '../settings/SettingsStore'
 import { forgetPersonalityImage, pickPersonalityImage } from '../settings/personalityImages'
+import { updateService } from '../updates/UpdateService'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('ipc:settings')
@@ -18,7 +19,12 @@ export function registerSettingsHandlers(): void {
 
   ipcMain.handle(IpcChannel.Settings.update, (_event, patch: SettingsPatch) => {
     try {
-      return settingsStore.update(patch)
+      const settings = settingsStore.update(patch)
+      // Turning it on means it starts applying now rather than at the next launch:
+      // there may be a version waiting already, and on a machine left working
+      // nobody is coming back to press anything.
+      if (patch.updates?.automatic === true) updateService.automaticTurnedOn()
+      return settings
     } catch (error) {
       log.error('Failed to update settings:', error)
       throw new Error(error instanceof Error ? error.message : 'Could not update settings.')

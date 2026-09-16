@@ -483,6 +483,24 @@ export interface SchedulerSettings {
   keepAwake: boolean
 }
 
+export interface UpdateSettings {
+  /**
+   * Install a new version without being asked, once nothing is running.
+   *
+   * Off by default, and deliberately: installing quits Anodex and starts it
+   * again, which is not a thing to do to somebody unannounced. On, it is for a
+   * machine that is left working — four releases sat waiting on a click here
+   * overnight while the work that needed them carried on against the old build.
+   *
+   * What counts as nothing running is `nothingInFlight` in `quietMoment.ts`. The
+   * signature check that gates a manual install gates this one too: an update
+   * that fails it is never run, asked for or not.
+   *
+   * Missing (settings written before this existed) reads as off.
+   */
+  automatic?: boolean
+}
+
 export type KeyboardShortcutId =
   | 'newChat'
   | 'newProject'
@@ -570,6 +588,7 @@ export interface AppSettings {
   memory: MemorySettings
   transcriptRecall: TranscriptRecallSettings
   scheduler: SchedulerSettings
+  updates: UpdateSettings
   keyboard: KeyboardSettings
   email: EmailSettings
 }
