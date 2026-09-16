@@ -4,6 +4,7 @@ import {
   categoryForScope,
   formatLogArgs,
   formatLogLine,
+  severityForConnection,
   severityForLevel,
   suggestedFixFor,
   truncate
@@ -97,6 +98,38 @@ describe('severityForLevel', () => {
     expect(severityForLevel('warn')).toBe('warning')
     expect(severityForLevel('info')).toBeNull()
     expect(severityForLevel('debug')).toBeNull()
+  })
+})
+
+describe('severityForConnection', () => {
+  it('records the network being briefly away as something to know, not to fix', () => {
+    expect(
+      severityForConnection(
+        'warning',
+        'Failed to count unread email threads\nError: getaddrinfo ENOTFOUND imap.gmail.com',
+        'ipc:email'
+      )
+    ).toBe('info')
+    expect(severityForConnection('warning', 'read ECONNRESET', 'ipc:email')).toBe('info')
+  })
+
+  it('leaves a connection that is genuinely broken alone', () => {
+    expect(
+      severityForConnection('warning', 'Request failed with status 401 invalid_api_key', 'provider')
+    ).toBe('warning')
+    expect(
+      severityForConnection('warning', 'unable to verify the first certificate', 'ipc:email')
+    ).toBe('warning')
+  })
+
+  it('leaves the local engine alone — its connections never touch the internet', () => {
+    expect(severityForConnection('warning', 'read ECONNRESET', 'llama:vision')).toBe('warning')
+  })
+
+  it('never softens an error', () => {
+    expect(
+      severityForConnection('error', 'getaddrinfo ENOTFOUND imap.gmail.com', 'ipc:email')
+    ).toBe('error')
   })
 })
 
