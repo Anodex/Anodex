@@ -151,7 +151,12 @@ export function SettingsView(): JSX.Element {
                   update={(patch) => void update({ diagnostics: patch })}
                 />
               )}
-              {section === 'about' && <AboutSettings />}
+              {section === 'about' && (
+                <AboutSettings
+                  automaticUpdates={settings.updates?.automatic === true}
+                  setAutomaticUpdates={(automatic) => void update({ updates: { automatic } })}
+                />
+              )}
             </div>
           </div>
         </div>

@@ -5,11 +5,21 @@ import { anodex } from '../../../../lib/anodex'
 import { AnodexLogo } from '../../../../components/AnodexLogo'
 import { Icon, type IconName } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
+import { SettingRow } from '../../SettingRow'
+import { ToggleControl } from '../../controls'
 import { updateStatusText } from './updateStatusText'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './AboutSettings.module.css'
 
-export function AboutSettings(): JSX.Element {
+interface AboutSettingsProps {
+  automaticUpdates: boolean
+  setAutomaticUpdates: (automatic: boolean) => void
+}
+
+export function AboutSettings({
+  automaticUpdates,
+  setAutomaticUpdates
+}: AboutSettingsProps): JSX.Element {
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' })
@@ -76,11 +86,27 @@ export function AboutSettings(): JSX.Element {
             icon="refresh"
             tone="success"
             title="Software updates"
-            description="You control every download and restart."
+            description={
+              automaticUpdates
+                ? 'Installed for you as soon as nothing is running.'
+                : 'You control every download and restart.'
+            }
           />
 
           <UpdateStatusCard status={updateStatus} appVersion={info?.appVersion} />
           <UpdateAction status={updateStatus} />
+
+          <SettingRow
+            label="Install updates for me"
+            description="Anodex downloads a new version and installs it at the first moment nothing is running — no reply being written, no run going, nothing waiting to be approved, nothing downloading. It closes and reopens itself to do it."
+            control={
+              <ToggleControl
+                checked={automaticUpdates}
+                onChange={setAutomaticUpdates}
+                ariaLabel="Install updates for me"
+              />
+            }
+          />
         </section>
 
         <section className={styles.card}>

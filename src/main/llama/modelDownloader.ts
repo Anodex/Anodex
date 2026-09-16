@@ -21,6 +21,11 @@ export function cancelDownload(modelId: string): void {
   activeDownloads.get(modelId)?.abort()
 }
 
+/** Whether any model is being downloaded right now. */
+export function hasActiveDownload(): boolean {
+  return activeDownloads.size > 0
+}
+
 /** Abort every in-progress download — called on app quit. */
 export function cancelAllDownloads(): void {
   for (const controller of activeDownloads.values()) controller.abort()
