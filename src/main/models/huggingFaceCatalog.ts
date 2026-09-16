@@ -51,6 +51,49 @@ const MAX_TOP_MODELS = 24
 const CODING_SEARCH_TERM = 'coder'
 
 /**
+ * How a repository is asked for. A downloads sort alone answers "what has been
+ * fetched most since it existed", which is a question about the past: measured
+ * live, every publisher's top GGUF repos were between one and two years old,
+ * and the model this machine actually runs did not appear at all. Asking each
+ * publisher what is new and what is being taken up now is what puts a current
+ * generation in front of somebody opening Anodex for the first time.
+ */
+const SORTS = ['downloads', 'trendingScore', 'createdAt'] as const
+
+/**
+ * A repository needs this many downloads before its rate means anything.
+ *
+ * Rate is downloads over days, so a repository published this morning divides by
+ * one — without a floor, anything uploaded overnight outranks a model the world
+ * is actually using.
+ */
+const MIN_DOWNLOADS_TO_RANK = 2_000
+
+/** A day, for reading an age in days off two timestamps. */
+const DAY_MS = 86_400_000
+
+/**
+ * How fast a model is being taken up: downloads per day since it was published.
+ *
+ * Total downloads is a measure of age as much as of worth — on the day this was
+ * written, a July 2025 release led every publisher's list with 12.8M downloads
+ * while the August 2026 model that had already been fetched 9.4M times in its
+ * first month sat below it, and the generation in between sat above them both on
+ * nothing but having existed longer. Per-day is the same popularity, without the
+ * head start.
+ *
+ * A repository with no publication date is treated as old, because the only ones
+ * missing it are old enough to predate the field.
+ */
+export function uptakeRate(hit: { downloads?: number; createdAt?: string }, now: number): number {
+  const downloads = hit.downloads ?? 0
+  if (downloads < MIN_DOWNLOADS_TO_RANK) return 0
+  const published = hit.createdAt ? Date.parse(hit.createdAt) : NaN
+  const ageDays = Number.isNaN(published) ? 3650 : Math.max(1, (now - published) / DAY_MS)
+  return downloads / ageDays
+}
+
+/**
  * Best-effort guess at whether a live-discovered model supports tool/function
  * calling — Hugging Face has no verified field for this. Seeded with facts
  * this project already learned through real, hands-on reliability testing
@@ -88,6 +131,8 @@ interface HfSearchHit {
   likes?: number
   tags?: string[]
   pipeline_tag?: string
+  /** When the repository was published, e.g. `2026-08-13T09:02:11.000Z`. */
+  createdAt?: string
 }
 
 interface HfModelDetail {
@@ -275,6 +320,7 @@ function toRecommendedModel(
     supportsTools,
     source: 'huggingface',
     repoId: hit.id,
+    publishedAt: hit.createdAt,
     hfDownloads: hit.downloads,
     hfLikes: hit.likes
   }
@@ -380,17 +426,17 @@ export async function fetchTopModels(): Promise<Result<RecommendedModel[]>> {
 
   let hits: HfSearchHit[]
   try {
-    const queryUrl = (author: string, search?: string): string =>
+    const queryUrl = (author: string, sort: string, search?: string): string =>
       `https://huggingface.co/api/models?author=${encodeURIComponent(author)}${
         search ? `&search=${encodeURIComponent(search)}` : ''
-      }&filter=gguf&sort=downloads&direction=-1&limit=${MAX_PER_PUBLISHER}`
+      }&filter=gguf&sort=${sort}&direction=-1&limit=${MAX_PER_PUBLISHER}`
 
-    const fetchFor = (author: string, search?: string): Promise<HfSearchHit[]> =>
-      fetchJson<HfSearchHit[]>(queryUrl(author, search), SEARCH_TIMEOUT_MS).catch((error) => {
+    const fetchFor = (author: string, sort: string, search?: string): Promise<HfSearchHit[]> =>
+      fetchJson<HfSearchHit[]>(queryUrl(author, sort, search), SEARCH_TIMEOUT_MS).catch((error) => {
         log.warn(
           'Hugging Face top-models fetch failed for publisher',
           author,
-          search ?? '(general)',
+          `${sort}${search ? ` ${search}` : ''}`,
           toErrorMessage(error)
         )
         return [] as HfSearchHit[]
@@ -398,17 +444,18 @@ export async function fetchTopModels(): Promise<Result<RecommendedModel[]>> {
 
     const perPublisher = await Promise.all(
       TRUSTED_PUBLISHERS.flatMap((author) => [
-        fetchFor(author),
-        fetchFor(author, CODING_SEARCH_TERM)
+        ...SORTS.map((sort) => fetchFor(author, sort)),
+        fetchFor(author, 'downloads', CODING_SEARCH_TERM)
       ])
     )
     const byId = new Map<string, HfSearchHit>()
     for (const hit of perPublisher.flat()) {
       if (!byId.has(hit.id)) byId.set(hit.id, hit)
     }
+    const now = Date.now()
     hits = [...byId.values()]
       .filter(isChatModel)
-      .sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0))
+      .sort((a, b) => uptakeRate(b, now) - uptakeRate(a, now))
       .slice(0, MAX_TOP_MODELS)
   } catch (error) {
     log.warn('Hugging Face top-models fetch failed', toErrorMessage(error))

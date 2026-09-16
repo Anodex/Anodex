@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { HardwareInfo } from '@shared/system.types'
 import { recommendModel } from '@shared/modelRecommendation'
-import { recommendedModelFileName } from '@shared/recommendedModels'
+import {
+  RECOMMENDED_MODELS,
+  recommendedModelFileName,
+  type RecommendedModel
+} from '@shared/recommendedModels'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -9,7 +13,7 @@ import { anodex } from '../../lib/anodex'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
-import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
+import { basename, buildRecommendedSlots, mergeCatalogs } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import styles from './ChatEmptyState.module.css'
 
@@ -19,6 +23,18 @@ const SUGGESTIONS = [
   'Refactor this snippet to be more readable',
   'Summarize how async/await works'
 ]
+
+/**
+ * When the model came out, for the one card that offers a single model as the
+ * answer. A first-time user has no way to tell a current model from one two
+ * generations old, and the name alone does not say — this does.
+ */
+function releasedLabel(model: RecommendedModel): string | null {
+  if (!model.publishedAt) return null
+  const published = new Date(model.publishedAt)
+  if (Number.isNaN(published.getTime())) return null
+  return `released ${published.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`
+}
 
 /** Shown when the active conversation has no messages yet. */
 export function ChatEmptyState(): JSX.Element {
@@ -72,6 +88,11 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loadingHardware, setLoadingHardware] = useState(true)
+  // The same live pool Settings uses. Without it the very first model anybody is
+  // offered came from the built-in list alone, which is a generation behind the
+  // moment a new one ships — the one moment where being current matters most,
+  // answered from the one source that cannot be.
+  const [liveModels, setLiveModels] = useState<RecommendedModel[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +101,11 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         setHardware(info)
         setLoadingHardware(false)
       }
+    })
+    // Offline, or Hugging Face unreachable: the built-in catalog stands on its
+    // own, exactly as it did before. Nothing waits on this.
+    void anodex.models.fetchTopModels().then((result) => {
+      if (!cancelled && result.ok) setLiveModels(result.value)
     })
     return () => {
       cancelled = true
@@ -94,10 +120,14 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
       })
     : null
 
+  const catalog = useMemo(() => mergeCatalogs(RECOMMENDED_MODELS, liveModels), [liveModels])
+
   const bestOverall = useMemo(() => {
     if (loadingHardware) return null
-    return buildRecommendedSlots(hardware, recommendation).find((slot) => slot.id === 'overall')
-  }, [hardware, recommendation, loadingHardware])
+    return buildRecommendedSlots(hardware, recommendation, undefined, catalog).find(
+      (slot) => slot.id === 'overall'
+    )
+  }, [hardware, recommendation, loadingHardware, catalog])
 
   if (loadingHardware) {
     return (
@@ -161,6 +191,7 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
           <div className={styles.recommendModelName}>{bestOverall.model.name}</div>
           <div className={styles.recommendModelMeta}>
             Recommended for your hardware · needs {bestOverall.model.minRam} RAM
+            {releasedLabel(bestOverall.model) ? ` · ${releasedLabel(bestOverall.model)}` : ''}
           </div>
         </div>
         {installed && <Icon name="check" size={16} className={styles.recommendCheck} />}
