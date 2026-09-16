@@ -85,11 +85,7 @@
   background: var(--danger-hover);
 }
 
+/* Save. Discard is the danger button; closing without either is the ghost. */
 .save {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
-.save:hover {
-  background: var(--accent-hover);
+  composes: brandFill from '../../components/ui/BrandFill.module.css';
 }

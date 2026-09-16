@@ -46,6 +46,22 @@
   --accent: #4f8cff;
   --accent-hover: #3d7be8;
   --accent-soft: rgba(79, 140, 255, 0.12);
+  /*
+   * The mark's own gradient: violet into blue on the diagonal, drawn the way
+   * the app icon is drawn.
+   *
+   * The other deliberate exception to the rule above, and kept to one token so
+   * it can only ever be the exception in one shape. It belongs on the controls
+   * a person presses and holds — the switch, the send button, the primary
+   * button — and nowhere it would compete with them.
+   *
+   * Declared here rather than per-theme: the brand is the brand in light mode
+   * too, and the light palettes deliberately override only surfaces and text.
+   */
+  --accent-gradient: linear-gradient(135deg, var(--accent-violet), var(--accent) 72%);
+  /* The lift along such a control's top edge, and the glow under it. */
+  --accent-gradient-edge: color-mix(in srgb, var(--accent-violet) 58%, white);
+  --accent-gradient-glow: color-mix(in srgb, var(--accent-violet) 22%, transparent);
 
   /* Chart series — categorical identity for research charts, in fixed order.
      NOT derived from --accent: this palette is deliberately monochromatic, and

@@ -10,6 +10,7 @@
   transition:
     background var(--transition-fast),
     border-color var(--transition-fast),
+    filter var(--transition-fast),
     opacity var(--transition-fast);
 }
 
@@ -32,13 +33,10 @@
 }
 
 /* Variants */
-.primary {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
 
-.primary:not(:disabled):hover {
-  background: var(--accent-hover);
+/* Download and load, Restart & install, Ask a question. */
+.primary {
+  composes: brandFill from './BrandFill.module.css';
 }
 
 .secondary {
