@@ -79,6 +79,14 @@ export interface RecommendedModel {
   source?: 'catalog' | 'huggingface'
   /** Set when `source === 'huggingface'` — the repo this came from, e.g. `'bartowski/Llama-3.3-70B-Instruct-GGUF'`. */
   repoId?: string
+  /**
+   * When the model was published, ISO-8601, for live finds.
+   *
+   * What makes "is this current?" answerable at all. Downloads say how long a
+   * model has existed as much as how good it is, so a recommendation built on
+   * them alone drifts a generation behind and reads as confident while doing it.
+   */
+  publishedAt?: string
   /** Live popularity signals from Hugging Face, shown as a rough trust proxy since quality isn't hand-verified. */
   hfDownloads?: number
   hfLikes?: number
@@ -88,6 +96,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'llama-3.2-1b-q4',
     name: 'Llama 3.2 1B Instruct',
+    publishedAt: '2024-09-25',
     family: 'meta',
     tier: '1b',
     description: 'Minimal footprint chat model for low-memory or older machines.',
@@ -109,6 +118,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'qwen2.5-coder-3b-q4',
     name: 'Qwen2.5 Coder 3B',
+    publishedAt: '2024-11-09',
     family: 'qwen',
     tier: '3b',
     description: 'Fast, capable coding assistant that runs comfortably on modest hardware.',
@@ -130,6 +140,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'llama-3.2-3b-q4',
     name: 'Llama 3.2 3B Instruct',
+    publishedAt: '2024-09-25',
     family: 'meta',
     tier: '3b',
     description: 'Well-rounded general chat model with strong instruction following.',
@@ -151,6 +162,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'qwen3-8b-q4',
     name: 'Qwen3 8B',
+    publishedAt: '2025-05-03',
     family: 'qwen',
     tier: '7b',
     description:
@@ -173,6 +185,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'mistral-7b-instruct-v0.3-q4',
     name: 'Mistral 7B Instruct v0.3',
+    publishedAt: '2024-05-22',
     family: 'mistral',
     tier: '7b',
     description: 'Well-rounded general model with strong instruction following and long context.',
@@ -194,6 +207,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'gemma-3-4b-it-q4',
     name: 'Gemma 3 4B IT',
+    publishedAt: '2025-03-12',
     family: 'google',
     tier: '3b',
     description:
@@ -220,6 +234,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'phi-4-q4-k-s',
     name: 'Phi-4',
+    publishedAt: '2025-01-08',
     family: 'microsoft',
     tier: '14b',
     description:
@@ -242,6 +257,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'qwen2.5-coder-14b-q4',
     name: 'Qwen2.5 Coder 14B',
+    publishedAt: '2024-11-09',
     family: 'qwen',
     tier: '14b',
     description: 'The most reliable local coding model for high-memory machines.',
@@ -263,6 +279,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'deepseek-coder-v2-lite-instruct-q4',
     name: 'DeepSeek Coder V2 Lite',
+    publishedAt: '2024-06-17',
     family: 'deepseek',
     tier: '14b',
     description:
@@ -285,6 +302,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'codestral-22b-v0.1-q4',
     name: 'Codestral 22B',
+    publishedAt: '2024-05-29',
     family: 'mistral',
     tier: '14b',
     description: "Mistral's dedicated code model — strong quality, heavier than the 14B class.",
@@ -307,6 +325,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'qwen2.5-coder-32b-q4',
     name: 'Qwen2.5 Coder 32B',
+    publishedAt: '2024-11-09',
     family: 'qwen',
     tier: '32b',
     description: 'Near top-tier local coding quality for high-memory workstations.',
@@ -330,6 +349,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'llama-3.3-70b-q4',
     name: 'Llama 3.3 70B Instruct',
+    publishedAt: '2024-12-06',
     family: 'meta',
     tier: '70b',
     description:

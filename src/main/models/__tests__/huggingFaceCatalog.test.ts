@@ -10,7 +10,8 @@ import {
   pickBestGgufFile,
   pickVisionProjector,
   resetTopModelsCacheForTests,
-  searchHuggingFaceModels
+  searchHuggingFaceModels,
+  uptakeRate
 } from '../huggingFaceCatalog'
 
 describe('isSingleFileGguf', () => {
@@ -308,6 +309,32 @@ describe('searchHuggingFaceModels', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value).toHaveLength(0)
+  })
+})
+
+describe('how fast a model is being taken up', () => {
+  const now = Date.parse('2026-09-16T00:00:00Z')
+  const daysAgo = (days: number): string => new Date(now - days * 86_400_000).toISOString()
+
+  it('does not let a long life stand in for popularity', () => {
+    // Real figures from the day this was written: the older repo leads on total
+    // downloads and is a generation behind.
+    const established = { downloads: 12_817_609, createdAt: daysAgo(412) }
+    const current = { downloads: 9_456_089, createdAt: daysAgo(34) }
+
+    expect(uptakeRate(current, now)).toBeGreaterThan(uptakeRate(established, now))
+  })
+
+  it('ignores a repository nobody has downloaded yet, however new', () => {
+    expect(uptakeRate({ downloads: 40, createdAt: daysAgo(1) }, now)).toBe(0)
+  })
+
+  it('treats a repository with no date as old rather than guessing', () => {
+    const dateless = uptakeRate({ downloads: 1_000_000 }, now)
+    const dated = uptakeRate({ downloads: 1_000_000, createdAt: daysAgo(30) }, now)
+
+    expect(dateless).toBeLessThan(dated)
+    expect(dateless).toBeGreaterThan(0)
   })
 })
 
