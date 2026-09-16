@@ -9,6 +9,7 @@ import {
   isSingleFileGguf,
   pickBestGgufFile,
   pickVisionProjector,
+  isRecommendableRepo,
   resetTopModelsCacheForTests,
   searchHuggingFaceModels,
   uptakeRate
@@ -75,12 +76,31 @@ describe('pickBestGgufFile', () => {
     ).toBeNull()
   })
 
-  it('falls back to the smallest file when no recognized quant matches', () => {
+  it('falls back to the largest file when no recognized quant matches', () => {
+    // The model is the big file. What repositories publish beside it — draft
+    // heads, projectors, adapters — is always smaller, so "smallest" reliably
+    // picked something that is not the model.
     const file = pickBestGgufFile([
-      { rfilename: 'model-weird.gguf', size: 5_000_000_000 },
-      { rfilename: 'model-other.gguf', size: 3_000_000_000 }
+      { rfilename: 'model-ud-q4_k_xl.gguf', size: 5_000_000_000 },
+      { rfilename: 'model-extra.gguf', size: 3_000_000_000 }
     ])
-    expect(file?.rfilename).toBe('model-other.gguf')
+    expect(file?.rfilename).toBe('model-ud-q4_k_xl.gguf')
+  })
+
+  it('never offers a draft head as the model', () => {
+    // `unsloth/gemma-4-12B-it-qat-GGUF`, as published: Anodex offered its 242MB
+    // multi-token-prediction module as "gemma-4-12B" in 0.4 GB.
+    const file = pickBestGgufFile([
+      { rfilename: 'MTP/mtp-gemma-4-12B-it-Q4_0.gguf', size: 254_000_000 },
+      { rfilename: 'mtp-gemma-4-12B-it.gguf', size: 254_000_000 },
+      { rfilename: 'gemma-4-12B-it-qat-UD-Q4_K_XL.gguf', size: 6_716_000_000 }
+    ])
+    expect(file?.rfilename).toBe('gemma-4-12B-it-qat-UD-Q4_K_XL.gguf')
+  })
+
+  it('ignores anything filed away in a subfolder', () => {
+    expect(isSingleFileGguf('MTP/mtp-gemma-4-12B-it-Q4_0.gguf')).toBe(false)
+    expect(isSingleFileGguf('gemma-4-12B-it-qat-UD-Q4_K_XL.gguf')).toBe(true)
   })
 
   it('never selects an mmproj file as the chat model', () => {
@@ -309,6 +329,27 @@ describe('searchHuggingFaceModels', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value).toHaveLength(0)
+  })
+})
+
+describe('which repositories Anodex will recommend on its own', () => {
+  it('will not put a novelty fine-tune in front of somebody', () => {
+    // Ranking by uptake surfaced this as the best agent model for a real machine.
+    expect(isRecommendableRepo('bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF')).toBe(false)
+    expect(isRecommendableRepo('bartowski/SomeModel-abliterated-GGUF')).toBe(false)
+  })
+
+  it('keeps a lab’s own model, whoever quantized it', () => {
+    expect(isRecommendableRepo('unsloth/Qwen3.8-27B-GGUF')).toBe(true)
+    expect(isRecommendableRepo('bartowski/google_gemma-3-27b-it-GGUF')).toBe(true)
+    expect(isRecommendableRepo('Qwen/Qwen3-Coder-Next-GGUF')).toBe(true)
+  })
+
+  it('drops a stranger’s fine-tune republished by a quantizer', () => {
+    // All three arrived in one live fetch, ahead of models anyone has heard of.
+    expect(isRecommendableRepo('bartowski/endless-frontier_BigBang-v1-GGUF')).toBe(false)
+    expect(isRecommendableRepo('bartowski/XYZAILab_XYZ-Aquila-mini-GGUF')).toBe(false)
+    expect(isRecommendableRepo('bartowski/Kwaipilot_KAT-Coder-V2.5-Dev-GGUF')).toBe(false)
   })
 })
 

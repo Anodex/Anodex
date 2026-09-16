@@ -146,13 +146,29 @@ interface HfModelDetail {
 const QUANT_PREFERENCE = ['q4_k_m', 'q4_0', 'q5_k_m', 'q5_0', 'q6_k', 'q8_0', 'q3_k_m', 'q2_k']
 
 /**
+ * Parts of a repository that are not the model, whatever their quant says.
+ *
+ * `mtp-` is a multi-token-prediction module — a small draft head published
+ * beside the model it speeds up. `unsloth/gemma-4-12B-it-qat-GGUF` ships four of
+ * them, and its 242MB `MTP/mtp-gemma-4-12B-it-Q4_0.gguf` was what Anodex offered
+ * as "gemma-4-12B", a 12-billion-parameter model, in 0.4 GB. Downloading it
+ * gives you something that cannot answer anything.
+ */
+const NOT_THE_MODEL = /(^|\/)(mtp-|draft-)/i
+
+/**
  * True for a GGUF filename that's one whole piece of the model. Multi-part
  * files (`...-00001-of-00004.gguf`) need a separate merge step our downloader
  * doesn't do, so they're excluded rather than silently downloading a broken
- * partial model.
+ * partial model — as are the extra modules some repositories publish alongside
+ * the model, and anything in a subfolder, which is where they are usually kept.
  */
 export function isSingleFileGguf(filename: string): boolean {
-  return filename.toLowerCase().endsWith('.gguf') && !/-\d{5}-of-\d{5}\.gguf$/i.test(filename)
+  const name = filename.toLowerCase()
+  if (!name.endsWith('.gguf')) return false
+  if (/-\d{5}-of-\d{5}\.gguf$/i.test(name)) return false
+  if (NOT_THE_MODEL.test(name)) return false
+  return !name.includes('/')
 }
 
 /** Extracts the quant tag (e.g. `q4_k_m`) from a GGUF filename, or null if none is recognized. */
@@ -181,10 +197,15 @@ export function pickBestGgufFile(siblings: HfSibling[]): HfSibling | null {
     const match = candidates.find((file) => extractQuant(file.rfilename) === quant)
     if (match) return match
   }
-  // No recognized quant tag matched — fall back to the smallest file, since an
-  // unrecognized-but-present quant is still better than nothing, and the
-  // smallest is the safest default for an unknown compression level.
-  return [...candidates].sort((a, b) => a.size - b.size)[0]
+  // No recognized quant tag matched — take the largest, which is the model.
+  //
+  // This used to take the smallest, reasoning that an unknown compression level
+  // is safest small. What the quantizers actually publish alongside a model is
+  // smaller than the model: the smallest file in a repository is an extra, not a
+  // gentler quant, and the newest naming (`UD-Q4_K_XL` and friends) is exactly
+  // what this list does not recognise — so the rule reliably picked the wrong
+  // file on the repositories it mattered most for.
+  return [...candidates].sort((a, b) => b.size - a.size)[0]
 }
 
 /** Pick the most broadly compatible projector precision published alongside a vision GGUF. */
@@ -326,19 +347,76 @@ function toRecommendedModel(
   }
 }
 
-/** True for a chat/instruct-style text model — excludes embedding/reranker
- *  repos, which otherwise show up in a plain downloads-sorted GGUF browse. */
+/**
+ * Fine-tunes nobody should be handed as a default.
+ *
+ * A recommendation is Anodex speaking for itself. Ranking by uptake surfaced
+ * `orcarouter_Qwen3.8-27B-Uncensored-GGUF` as the best agent model for this
+ * machine — a genuinely popular repository, and not a thing to put in front of
+ * somebody who has just opened the app and asked for a model.
+ */
+const NOVELTY = /uncensored|abliterated|nsfw|roleplay|erotic|waifu|jailbreak/i
+
+/** The quantizers on {@link TRUSTED_PUBLISHERS}, who publish other people's models. */
+const QUANTIZERS = new Set(['bartowski', 'unsloth'])
+
+/**
+ * Whether a repository is one Anodex should recommend on its own initiative.
+ *
+ * Trusting the publisher was enough while the ranking was "most downloaded of
+ * all time", which only ever surfaced the famous. Asking what is being taken up
+ * now reaches further down the list, and a quantizer's list is mostly other
+ * people's fine-tunes: `endless-frontier_BigBang-v1`, `XYZAILab_XYZ-Aquila-mini`
+ * and `Kwaipilot_KAT-Coder-V2.5-Dev` all arrived in one live fetch.
+ *
+ * So a quantizer's repository has to name a model from a family Anodex knows —
+ * the same families it can show a real logo for. `google_gemma-3-27b-it` is
+ * Gemma whoever published it; `Kwaipilot_KAT-Coder-V2.5-Dev` is nothing this
+ * list is built on. A lab publishing its own GGUF is trusted as it always was,
+ * and nothing here narrows a search the user typed: what somebody asks for by
+ * name, they get.
+ */
+export function isRecommendableRepo(id: string): boolean {
+  if (NOVELTY.test(id)) return false
+  const [author, name = ''] = id.split('/')
+  if (!QUANTIZERS.has(author?.toLowerCase() ?? '')) return true
+  return inferModelFamily(name) !== 'other'
+}
+
+/**
+ * Things that are not somebody to talk to.
+ *
+ * A GGUF is a file format, not a kind of model: speech recognisers, speech
+ * synthesizers, embedders and rerankers all ship as GGUF and all turn up in a
+ * browse of them. `microsoft/VibeVoice-ASR-BitNet` — speech to text — was
+ * offered on a real machine as the model with the largest context.
+ */
+const NOT_SOMETHING_TO_TALK_TO = new Set([
+  'feature-extraction',
+  'sentence-similarity',
+  'automatic-speech-recognition',
+  'text-to-speech',
+  'text-to-audio',
+  'audio-to-audio',
+  'audio-classification',
+  'text-to-image',
+  'image-to-image',
+  'fill-mask',
+  'text-classification',
+  'token-classification',
+  'text-ranking'
+])
+
+/** True for a chat/instruct-style text model — excludes embedders and rerankers,
+ *  and the speech and image models that ship as GGUF alongside them. */
 function isChatModel(hit: HfSearchHit): boolean {
-  if (hit.pipeline_tag === 'feature-extraction' || hit.pipeline_tag === 'sentence-similarity') {
-    return false
-  }
+  if (hit.pipeline_tag && NOT_SOMETHING_TO_TALK_TO.has(hit.pipeline_tag)) return false
   const tags = hit.tags ?? []
-  if (tags.includes('sentence-transformers') || tags.includes('feature-extraction')) return false
-  // Embedding-model repos are reliably named as such (e.g.
-  // `Qwen3-Embedding-0.6B-GGUF`) even when the list endpoint omits
-  // `pipeline_tag`/tags that would otherwise flag them above.
-  if (/\bembedding\b/i.test(hit.id)) return false
-  return true
+  if (tags.some((tag) => NOT_SOMETHING_TO_TALK_TO.has(tag))) return false
+  if (tags.includes('sentence-transformers')) return false
+  // Named plainly enough to catch the ones whose listing carries no pipeline tag
+  // at all: `Qwen3-Embedding-0.6B-GGUF`, `VibeVoice-ASR-BitNet`, `...-TTS-...`.
+  return !/\bembedding\b|\b(asr|tts|stt)\b|reranker/i.test(hit.id)
 }
 
 /** Fetches full details for each hit and resolves it to a downloadable
@@ -445,7 +523,11 @@ export async function fetchTopModels(): Promise<Result<RecommendedModel[]>> {
     const perPublisher = await Promise.all(
       TRUSTED_PUBLISHERS.flatMap((author) => [
         ...SORTS.map((sort) => fetchFor(author, sort)),
-        fetchFor(author, 'downloads', CODING_SEARCH_TERM)
+        // By what is being taken up rather than by all-time downloads: a
+        // downloads sort here returns the coding model of two years ago, which
+        // is how a 2024 model came to be offered as "Best Coding" on a machine
+        // that can run this year's.
+        fetchFor(author, 'trendingScore', CODING_SEARCH_TERM)
       ])
     )
     const byId = new Map<string, HfSearchHit>()
@@ -455,6 +537,7 @@ export async function fetchTopModels(): Promise<Result<RecommendedModel[]>> {
     const now = Date.now()
     hits = [...byId.values()]
       .filter(isChatModel)
+      .filter((hit) => isRecommendableRepo(hit.id))
       .sort((a, b) => uptakeRate(b, now) - uptakeRate(a, now))
       .slice(0, MAX_TOP_MODELS)
   } catch (error) {

@@ -159,7 +159,7 @@ export function scoreRecommendedModel(
   score += (model.qualityRank ?? 3) * 4
   score += (model.speedRank ?? 3) * 2
   score += idealRatio * 12
-  score += Math.min(16, Math.max(-20, ramHeadroom * 1.5))
+  score += usesTheMachine(model, hardware)
   if (model.primaryUse === 'coding' || model.primaryUse === 'agentic-coding') score += 8
   if (model.supportsTools) score += 5
   if (model.tags.includes('coding')) score += 4
@@ -187,6 +187,47 @@ export function scoreRecommendedModel(
 }
 
 /**
+ * A model's size read off its download size, in GB. Falls back to what it asks
+ * of memory, which is always the larger number and never far off.
+ */
+function modelSizeGb(model: RecommendedModel): number {
+  const stated = /([\d.]+)\s*GB/i.exec(model.approxSize)
+  const size = stated ? Number.parseFloat(stated[1] ?? '') : NaN
+  return Number.isFinite(size) && size > 0 ? size : model.minRamGb * 0.6
+}
+
+/**
+ * How well a model uses the machine it would run on.
+ *
+ * "The best model for this computer" is not "a model this computer can open".
+ * The score used to reward headroom — how much memory was left over — which
+ * says a 1GB model on a 24GB graphics card is an excellent fit, and it was: on
+ * a machine with 63GB of memory and a 24GB card, Anodex recommended a
+ * two-billion-parameter model over the twenty-seven-billion one the machine
+ * runs every day, because the small one left more room.
+ *
+ * What counts is the memory a model can actually run *fast* in: the graphics
+ * card where there is one, shared memory on an Apple machine, and otherwise
+ * system memory, which is slower and never all available. A model should fill
+ * that and not much more — spilling past it means running partly on the CPU,
+ * which works and crawls.
+ */
+function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
+  const ramGb = bytesToGb(hardware.ramBytes)
+  const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
+  const runsFastIn = hardware.unifiedMemory ? ramGb * 0.7 : vramGb > 0 ? vramGb : ramGb * 0.6
+  if (runsFastIn <= 0) return 0
+
+  const used = modelSizeGb(model) / runsFastIn
+  let score = 24 * Math.min(1, used)
+  // Leaving three quarters of the machine idle is not a recommendation, it is a
+  // smaller model that happens to fit.
+  if (used < 0.25) score -= 10
+  if (used > 1) score -= Math.min(24, (used - 1) * 30)
+  return score
+}
+
+/**
  * What a model's age is worth, in a field where a year is a generation.
  *
  * Nothing else in this score knows the date. A hand-rated entry keeps its rank
@@ -206,10 +247,10 @@ export function freshnessAdjustment(model: RecommendedModel, now: number = Date.
 
   const months = (now - published) / (30 * 86_400_000)
   if (months <= 6) return 8
-  if (months <= 12) return 4
-  if (months <= 18) return 0
-  if (months <= 24) return -6
-  return -12
+  if (months <= 12) return 3
+  if (months <= 18) return -3
+  if (months <= 24) return -8
+  return -14
 }
 
 /**
