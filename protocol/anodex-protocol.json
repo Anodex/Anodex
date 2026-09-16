@@ -15654,6 +15654,20 @@
             ]
           }
         },
+        "resolvedAt": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
         "appVersion": {
           "optional": true,
           "type": {
