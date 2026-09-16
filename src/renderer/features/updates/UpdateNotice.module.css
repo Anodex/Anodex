@@ -45,19 +45,14 @@
  * the accent is spent on the single thing the notice exists to offer.
  */
 .action {
+  composes: brandFill from '../../components/ui/BrandFill.module.css';
   flex-shrink: 0;
   padding: var(--space-2) var(--space-4);
   border: none;
   border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--text-on-accent);
   font: inherit;
   font-weight: 500;
   cursor: pointer;
-}
-
-.action:hover {
-  background: var(--accent-hover);
 }
 
 .action:focus-visible {
