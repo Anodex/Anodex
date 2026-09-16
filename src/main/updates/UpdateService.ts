@@ -8,6 +8,7 @@ import { settingsStore } from '../settings/SettingsStore'
 import { verifyUpdateFile } from './verifyRelease'
 import { nothingInFlight } from './quietMoment'
 import { showUpdateProgressWindow } from './updateProgressWindow'
+import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 
 const log = createLogger('updater')
 
@@ -250,6 +251,11 @@ class UpdateService extends EventEmitter {
 
   private setStatus(status: UpdateStatus): void {
     this.status = status
+    // Either answer means the check reached the server, which is the part that
+    // fails on a flaky connection and then quietly starts working again.
+    if (status.state === 'available' || status.state === 'not-available') {
+      diagnosticsReporter.resolved('updater')
+    }
     this.emit('status', status)
   }
 }
