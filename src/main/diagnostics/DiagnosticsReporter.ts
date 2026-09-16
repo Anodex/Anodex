@@ -26,6 +26,7 @@ import {
   categoryForScope,
   formatLogArgs,
   formatLogLine,
+  severityForConnection,
   severityForLevel,
   suggestedFixFor,
   truncate
@@ -81,13 +82,14 @@ class DiagnosticsReporter {
     const severity = severityForLevel(level)
     if (!severity) return
 
+    const text = `${formatted.message}\n${formatted.detail ?? ''}`
     this.record(
       {
-        severity,
+        severity: severityForConnection(severity, text, scope),
         category: categoryForScope(scope),
         message: formatted.message,
         detail: formatted.detail,
-        suggestedFix: suggestedFixFor(`${formatted.message}\n${formatted.detail ?? ''}`, scope),
+        suggestedFix: suggestedFixFor(text, scope),
         scope
       },
       timestamp
@@ -102,12 +104,13 @@ class DiagnosticsReporter {
    * without this the technical cause was reaching nobody at all.
    */
   private onResultError(error: AnodexError): void {
+    const text = `${error.message}\n${error.detail ?? ''}`
     this.report({
-      severity: 'warning',
+      severity: severityForConnection('warning', text, error.code),
       category: categoryForScope(error.code),
       message: error.message,
       detail: error.detail ? `code: ${error.code}\n${error.detail}` : `code: ${error.code}`,
-      suggestedFix: suggestedFixFor(`${error.message}\n${error.detail ?? ''}`, error.code),
+      suggestedFix: suggestedFixFor(text, error.code),
       scope: error.code
     })
   }
