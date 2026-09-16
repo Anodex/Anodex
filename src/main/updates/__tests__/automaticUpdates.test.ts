@@ -13,9 +13,8 @@ const h = vi.hoisted(() => ({
   checkForUpdates: vi.fn(() => Promise.resolve(null)),
   quitAndInstall: vi.fn(),
   progressWindow: vi.fn(() => Promise.resolve(undefined)),
-  verify: vi.fn(
-    (): Promise<{ verdict: 'signed' | 'unenforced' | 'rejected'; reason?: string }> =>
-      Promise.resolve({ verdict: 'signed' })
+  verify: vi.fn((): Promise<{ verdict: 'signed' | 'unenforced' | 'rejected'; reason?: string }> =>
+    Promise.resolve({ verdict: 'signed' })
   ),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }))
