@@ -187,6 +187,23 @@ describe('a failure that has since fixed itself', () => {
     )
   })
 
+  it('reaches the handler that logged it, not just the service behind it', () => {
+    // Handlers log under `ipc:email`; the service behind them logs under
+    // `email`. The handlers are where most failures come from, and a prefix
+    // match alone walked straight past them.
+    createLogger('ipc:email').error('Could not list mail:', new Error('EHOSTUNREACH'))
+    createLogger('ipc:mcp').error('Could not call the tool:', new Error('server gone'))
+    createLogger('ipc:git').error('Push failed:', new Error('remote rejected'))
+
+    diagnosticsReporter.resolved('email', 'mcp')
+
+    const settled = (scope: string): number | undefined =>
+      diagnosticsReporter.list().find((e) => e.scope === scope)?.resolvedAt
+    expect(settled('ipc:email')).toEqual(expect.any(Number))
+    expect(settled('ipc:mcp')).toEqual(expect.any(Number))
+    expect(settled('ipc:git')).toBeUndefined()
+  })
+
   it('leaves a resolved entry alone when the operation succeeds again', () => {
     createLogger('llama').error('Failed to load model:', new Error('out of memory'))
     diagnosticsReporter.resolved('llama')

@@ -17,6 +17,7 @@ import { handlerFor, type IpcHandler } from './handlerRegistry'
 import type { RemoteCertificate } from './certificate'
 import type { PairingService } from './pairing'
 import { createTokenCoalescer, type TokenCoalescer } from './tokenCoalescer'
+import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 import {
   MAX_FRAME_BYTES,
   MAX_RESPONSE_BYTES,
@@ -450,6 +451,8 @@ export class RemoteBridge {
     }
     attachRemoteClient(client)
     log.info(`client attached: ${client.id}`)
+    // A phone that reconnects settles whatever the dropped connection said.
+    diagnosticsReporter.resolved('remote')
     this.onConnectionsChanged()
     return client
   }
