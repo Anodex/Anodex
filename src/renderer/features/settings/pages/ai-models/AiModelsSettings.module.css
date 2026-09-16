@@ -1251,20 +1251,23 @@
   border-top: 1px solid var(--border);
 }
 
-.reliabilityPopoverActions button,
-.reliabilityDialogFoot button {
+/*
+ * Expand, and the dialog's Done. The smallest filled controls in the app, and
+ * the last two that were not on the system.
+ *
+ * They have a class of their own now, which is the whole reason they could
+ * join it: `composes` only works on a plain class, so reaching them as
+ * `.reliabilityPopoverActions button` meant the only way to give them the mark
+ * was a hand-kept copy of the shadow stack — the duplication BrandFill exists
+ * to delete. Two words in the markup buys the recipe staying in one place.
+ */
+.reliabilityAction {
+  composes: brandFill from '../../../../components/ui/BrandFill.module.css';
   padding: 6px 10px;
-  color: white;
   font-size: var(--text-xs);
   font-weight: 650;
-  background: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 72%, white);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-}
-
-.reliabilityPopoverActions button:hover,
-.reliabilityDialogFoot button:hover {
-  filter: brightness(1.08);
 }
 
 .reliabilityDialogBackdrop {
