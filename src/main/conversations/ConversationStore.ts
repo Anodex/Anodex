@@ -83,12 +83,29 @@ interface CacheEntry {
   conversation: Conversation
   filePath: string
   /**
-   * True for an archived conversation, whose messages stay on disk until something
-   * asks for them. See `ARCHIVED_HOLD_MS`.
+   * True for a conversation whose messages stay on disk until something asks for
+   * them: every archived one, and every chat past the newest `RECENT_CHATS_HELD`.
+   * See `UNLOADED_HOLD_MS`.
    */
   unloaded?: boolean
   /** How many messages it has, known without holding them. */
   messageCount: number
+}
+
+/**
+ * Drop the messages of every chat past the newest {@link RECENT_CHATS_HELD}.
+ *
+ * Only at build: a chat written or opened later is held again by its own entry, which
+ * is what keeps the chat somebody is using out of a read-per-turn.
+ */
+function unloadOlderChats(cache: Map<string, CacheEntry>): void {
+  const live = [...cache.values()]
+    .filter((entry) => !entry.unloaded)
+    .sort((a, b) => b.conversation.updatedAt - a.conversation.updatedAt)
+  for (const entry of live.slice(RECENT_CHATS_HELD)) {
+    entry.conversation = { ...entry.conversation, messages: [] }
+    entry.unloaded = true
+  }
 }
 
 /** What is kept in memory for a conversation read from, or written to, `filePath`. */
@@ -100,7 +117,7 @@ function entryFor(conversation: Conversation, filePath: string): CacheEntry {
 }
 
 /**
- * How long archived conversations read from disk are held before being let go.
+ * How long a conversation read from disk is held before being let go.
  *
  * Every conversation used to be held in memory for as long as the app ran,
  * archived ones included — on the machine this was measured on, 357 archived
@@ -109,7 +126,21 @@ function entryFor(conversation: Conversation, filePath: string): CacheEntry {
  * that from being a disk read per message when searching past chats is set to
  * include the archive, which reads every one of them for each turn.
  */
-const ARCHIVED_HOLD_MS = 2 * 60_000
+const UNLOADED_HOLD_MS = 2 * 60_000
+
+/**
+ * How many recent chats keep their messages in memory.
+ *
+ * The same reasoning as the archive, applied to chats nobody has opened in weeks: on
+ * the machine this was measured on, 102 live chats were 48MB of JSON held for the
+ * life of the app, while the sidebar shows only their titles. Reading one back costs
+ * 0.6ms for a typical chat and 21ms for the largest there (10MB) — less than sending
+ * it to the window, which happens either way.
+ *
+ * Twenty-five covers the chats a session actually returns to, so the common case
+ * still touches no disk at all.
+ */
+const RECENT_CHATS_HELD = 25
 
 /**
  * Persists conversations as individual JSON files under Electron's `userData`
@@ -129,9 +160,9 @@ class ConversationStore {
   private baseDir = ''
   private cache: Map<string, CacheEntry> | null = null
   private stateCache: ConversationState | null = null
-  /** Archived conversations read whole recently. See `ARCHIVED_HOLD_MS`. */
-  private readonly archivedHeld = new Map<string, Conversation>()
-  private archivedRelease: ReturnType<typeof setTimeout> | null = null
+  /** Conversations read whole from disk recently. See `UNLOADED_HOLD_MS`. */
+  private readonly heldWhole = new Map<string, Conversation>()
+  private heldRelease: ReturnType<typeof setTimeout> | null = null
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
@@ -142,16 +173,36 @@ class ConversationStore {
     this.ensureDir(join(this.baseDir, GENERAL_DIR))
     this.cache = null
     this.stateCache = null
-    this.archivedHeld.clear()
+    this.heldWhole.clear()
     log.info('Initialised at', this.baseDir)
   }
 
-  /** Return every persisted conversation, sorted by updatedAt descending. */
+  /**
+   * Every conversation that is not archived, whole, newest first.
+   *
+   * Reads an older one's messages from disk — see `RECENT_CHATS_HELD`. Callers that
+   * only need titles and counts should use `listShallow`, which touches no disk.
+   */
   list(): Conversation[] {
     return [...this.ensureCache().values()]
       .filter((entry) => !entry.conversation.archived)
-      .map((entry) => entry.conversation)
+      .map((entry) => this.readable(entry))
+      .filter((conversation): conversation is Conversation => conversation !== null)
       .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  /**
+   * Every conversation that is not archived, without reading a thing: an older one
+   * comes back without its messages, and `messageCount` says how many it has.
+   *
+   * What a list of chats actually shows. The messages are what make the store large,
+   * and a sidebar never shows one.
+   */
+  listShallow(): Array<{ conversation: Conversation; messageCount: number }> {
+    return [...this.ensureCache().values()]
+      .filter((entry) => !entry.conversation.archived)
+      .map((entry) => ({ conversation: entry.conversation, messageCount: entry.messageCount }))
+      .sort((a, b) => b.conversation.updatedAt - a.conversation.updatedAt)
   }
 
   /**
@@ -160,7 +211,7 @@ class ConversationStore {
    */
   heldConversationFiles(): string[] {
     return [...this.ensureCache().values()]
-      .filter((entry) => !entry.unloaded)
+      .filter((entry) => !entry.unloaded || this.heldWhole.has(entry.conversation.id))
       .map((entry) => entry.filePath)
   }
 
@@ -242,7 +293,7 @@ class ConversationStore {
     try {
       writeJsonAtomic(filePath, toWrite)
       this.ensureCache().set(normalized.id, entryFor(toWrite, filePath))
-      this.archivedHeld.delete(normalized.id)
+      this.heldWhole.delete(normalized.id)
     } catch (error) {
       log.error('Failed to save conversation:', filePath, error)
       throw error
@@ -300,7 +351,7 @@ class ConversationStore {
     this.removeFile(entry.filePath)
     conversationAssetStore.removeConversation(id)
     this.ensureCache().delete(id)
-    this.archivedHeld.delete(id)
+    this.heldWhole.delete(id)
     const state = this.getState()
     if (state.activeConversationId === id) this.setState({ activeConversationId: null })
     abortGeneration(id)
@@ -402,7 +453,7 @@ class ConversationStore {
     for (const id of conversationIds) {
       conversationAssetStore.removeConversation(id)
       cache.delete(id)
-      this.archivedHeld.delete(id)
+      this.heldWhole.delete(id)
       abortGeneration(id)
       if (state.activeConversationId === id) this.setState({ activeConversationId: null })
     }
@@ -451,6 +502,7 @@ class ConversationStore {
       const conversation = this.readFile(filePath)
       if (conversation) cache.set(conversation.id, entryFor(conversation, filePath))
     }
+    unloadOlderChats(cache)
     this.cache = cache
     return cache
   }
@@ -474,15 +526,15 @@ class ConversationStore {
   private whole(entry: CacheEntry): Conversation {
     if (!entry.unloaded) return entry.conversation
     const id = entry.conversation.id
-    const held = this.archivedHeld.get(id)
+    const held = this.heldWhole.get(id)
     if (held) {
-      this.holdArchived()
+      this.holdWhole()
       return held
     }
     const read = this.readFile(entry.filePath)
-    if (!read || read.id !== id) throw new Error(`Could not read archived conversation ${id}.`)
-    this.archivedHeld.set(id, read)
-    this.holdArchived()
+    if (!read || read.id !== id) throw new Error(`Could not read conversation ${id}.`)
+    this.heldWhole.set(id, read)
+    this.holdWhole()
     return read
   }
 
@@ -491,19 +543,19 @@ class ConversationStore {
     try {
       return this.whole(entry)
     } catch (error) {
-      log.warn('Skipping an archived conversation that could not be read:', entry.filePath, error)
+      log.warn('Skipping a conversation that could not be read:', entry.filePath, error)
       return null
     }
   }
 
-  /** Let go of archived conversations read whole, once nothing has asked for one for a while. */
-  private holdArchived(): void {
-    if (this.archivedRelease) clearTimeout(this.archivedRelease)
-    this.archivedRelease = setTimeout(() => {
-      this.archivedHeld.clear()
-      this.archivedRelease = null
-    }, ARCHIVED_HOLD_MS)
-    this.archivedRelease.unref?.()
+  /** Let go of conversations read whole, once nothing has asked for one for a while. */
+  private holdWhole(): void {
+    if (this.heldRelease) clearTimeout(this.heldRelease)
+    this.heldRelease = setTimeout(() => {
+      this.heldWhole.clear()
+      this.heldRelease = null
+    }, UNLOADED_HOLD_MS)
+    this.heldRelease.unref?.()
   }
 
   private listFiles(): string[] {
