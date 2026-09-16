@@ -9,6 +9,7 @@ import {
   ctxSizeWarning,
   buildRecommendedSlots,
   bytesToGb,
+  freshnessAdjustment,
   mergeCatalogs,
   reliabilityScoreForRecommended
 } from '../scoring'
@@ -255,6 +256,10 @@ describe('buildRecommendedSlots — Best Agent', () => {
   })
 
   it('prefers real observed reliability over the static catalog score when both candidates are tool-capable', () => {
+    // Dated a fortnight after Qwen3 8B was published, so the two candidates are
+    // the same age and neither wins on freshness — what is being tested here is
+    // reliability against catalog score, and nothing else.
+    const justAfterQwen3 = Date.parse('2025-05-17T00:00:00Z')
     // On this hardware (64 GB RAM, 16 GB VRAM, a GPU), Best Overall claims
     // 32B and Best Coding claims Codestral (both non-tool-calling contenders
     // beat 14B on the plain catalog score), leaving 14B as Best Agent's
@@ -264,10 +269,13 @@ describe('buildRecommendedSlots — Best Agent', () => {
     const hw = hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' })
     const installedModels = [installedFor('qwen2.5-coder-14b-q4'), installedFor('qwen3-8b-q4')]
 
-    const withoutReliability = buildRecommendedSlots(hw, null, {
-      installedModels,
-      reliability: new Map()
-    })
+    const withoutReliability = buildRecommendedSlots(
+      hw,
+      null,
+      { installedModels, reliability: new Map() },
+      undefined,
+      justAfterQwen3
+    )
     expect(withoutReliability.find((slot) => slot.id === 'agent')?.model.id).toBe(
       'qwen2.5-coder-14b-q4'
     )
@@ -276,7 +284,13 @@ describe('buildRecommendedSlots — Best Agent', () => {
       ['installed-qwen2.5-coder-14b-q4', reliabilityRecord(20, 'installed-qwen2.5-coder-14b-q4')],
       ['installed-qwen3-8b-q4', reliabilityRecord(95, 'installed-qwen3-8b-q4')]
     ])
-    const withReliability = buildRecommendedSlots(hw, null, { installedModels, reliability })
+    const withReliability = buildRecommendedSlots(
+      hw,
+      null,
+      { installedModels, reliability },
+      undefined,
+      justAfterQwen3
+    )
     expect(withReliability.find((slot) => slot.id === 'agent')?.model.id).toBe('qwen3-8b-q4')
   })
 })
@@ -476,5 +490,52 @@ describe('buildRecommendedSlots - live results outrank the built-in catalog', ()
 
     expect(slots.length).toBeGreaterThan(0)
     expect(slots.every((slot) => slot.model.source !== 'huggingface')).toBe(true)
+  })
+})
+
+describe('how much a model’s age is worth', () => {
+  const now = Date.parse('2026-09-16T00:00:00Z')
+  const monthsAgo = (months: number): string =>
+    new Date(now - months * 30 * 86_400_000).toISOString()
+
+  it('is worth something new, and counts against something old', () => {
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(1) } as RecommendedModel, now)).toBe(8)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(10) } as RecommendedModel, now)).toBe(4)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(0)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-6)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-12)
+  })
+
+  it('leaves a model with no date, or a date it cannot read, exactly where it was', () => {
+    expect(freshnessAdjustment({} as RecommendedModel, now)).toBe(0)
+    expect(freshnessAdjustment({ publishedAt: 'sometime' } as RecommendedModel, now)).toBe(0)
+  })
+
+  it('offers this month’s model over one Anodex shipped knowing about two years ago', () => {
+    // The complaint this was built for: a first run on a capable machine offered a
+    // model from the generation before last, because the built-in list was written
+    // before the current one existed and nothing in the score knew the date.
+    const now2026 = Date.parse('2026-09-16T00:00:00Z')
+    const hw = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Test GPU' })
+    const current: RecommendedModel = {
+      ...RECOMMENDED_MODELS.find((model) => model.id === 'qwen2.5-coder-32b-q4')!,
+      id: 'hf:current-32b',
+      name: 'Current 32B',
+      publishedAt: new Date(now2026 - 30 * 86_400_000).toISOString(),
+      qualityRank: undefined,
+      source: 'huggingface',
+      downloadUrl: 'https://huggingface.co/x/Current-32B-GGUF/resolve/main/current-32b-q4_k_m.gguf',
+      hfDownloads: 9_000_000
+    }
+
+    const best = buildRecommendedSlots(
+      hw,
+      null,
+      undefined,
+      mergeCatalogs(RECOMMENDED_MODELS, [current]),
+      now2026
+    ).find((slot) => slot.id === 'overall')
+
+    expect(best?.model.id).toBe('hf:current-32b')
   })
 })
