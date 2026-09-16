@@ -10,6 +10,7 @@ import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { conversationAssetStore } from './ConversationAssetStore'
+import { couldMatch, wordDigestOf } from './conversationWordDigest'
 
 const log = createLogger('conversations')
 
@@ -90,6 +91,8 @@ interface CacheEntry {
   unloaded?: boolean
   /** How many messages it has, known without holding them. */
   messageCount: number
+  /** Every word its messages could be searched for — see {@link wordDigestOf}. */
+  digest: string
 }
 
 /**
@@ -111,9 +114,16 @@ function unloadOlderChats(cache: Map<string, CacheEntry>): void {
 /** What is kept in memory for a conversation read from, or written to, `filePath`. */
 function entryFor(conversation: Conversation, filePath: string): CacheEntry {
   const messageCount = conversation.messages.length
+  const digest = wordDigestOf(conversation)
   return conversation.archived
-    ? { conversation: { ...conversation, messages: [] }, filePath, unloaded: true, messageCount }
-    : { conversation, filePath, messageCount }
+    ? {
+        conversation: { ...conversation, messages: [] },
+        filePath,
+        unloaded: true,
+        messageCount,
+        digest
+      }
+    : { conversation, filePath, messageCount, digest }
 }
 
 /**
@@ -203,6 +213,45 @@ class ConversationStore {
       .filter((entry) => !entry.conversation.archived)
       .map((entry) => ({ conversation: entry.conversation, messageCount: entry.messageCount }))
       .sort((a, b) => b.conversation.updatedAt - a.conversation.updatedAt)
+  }
+
+  /**
+   * Every conversation a search for `queryWords` could match, newest first.
+   *
+   * The chats held in memory come back as they are; an older one is opened only if
+   * its word digest says the search could find something in it, and is let go of
+   * again the moment this returns. Searching therefore costs what the answer is
+   * worth rather than the whole store: on the machine this was written for, one
+   * chat read for a distinctive word instead of 78, and nothing held afterwards.
+   *
+   * `matching` narrows by what a list already knows — a project, say — and is asked
+   * before anything is read.
+   */
+  searchable(
+    queryWords: Set<string>,
+    options: { archived: boolean; matching?: (conversation: Conversation) => boolean }
+  ): Conversation[] {
+    const found: Conversation[] = []
+    for (const entry of this.ensureCache().values()) {
+      if (!options.archived && entry.conversation.archived) continue
+      if (options.matching && !options.matching(entry.conversation)) continue
+
+      if (!entry.unloaded) {
+        found.push(entry.conversation)
+        continue
+      }
+      const held = this.heldWhole.get(entry.conversation.id)
+      if (held) {
+        found.push(held)
+        continue
+      }
+      if (!couldMatch(entry.digest, queryWords)) continue
+      // Read, scored, and let go of: a search leaves memory as it found it. The
+      // chat somebody opens from the results is what `whole` then holds.
+      const read = this.readFile(entry.filePath)
+      if (read && read.id === entry.conversation.id) found.push(read)
+    }
+    return found.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   /**
