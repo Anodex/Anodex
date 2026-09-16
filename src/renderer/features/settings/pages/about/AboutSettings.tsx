@@ -5,7 +5,6 @@ import { anodex } from '../../../../lib/anodex'
 import { AnodexLogo } from '../../../../components/AnodexLogo'
 import { Icon, type IconName } from '../../../../components/Icon'
 import { Button } from '../../../../components/ui/Button'
-import { SettingRow } from '../../SettingRow'
 import { ToggleControl } from '../../controls'
 import { updateStatusText } from './updateStatusText'
 import pageStyles from '../../SettingsPage.module.css'
@@ -96,17 +95,20 @@ export function AboutSettings({
           <UpdateStatusCard status={updateStatus} appVersion={info?.appVersion} />
           <UpdateAction status={updateStatus} />
 
-          <SettingRow
-            label="Install updates for me"
-            description="Anodex downloads a new version and installs it at the first moment nothing is running — no reply being written, no run going, nothing waiting to be approved, nothing downloading. It closes and reopens itself to do it."
-            control={
-              <ToggleControl
-                checked={automaticUpdates}
-                onChange={setAutomaticUpdates}
-                ariaLabel="Install updates for me"
-              />
-            }
-          />
+          <div className={styles.autoUpdate}>
+            <div className={styles.autoUpdateText}>
+              <strong>Install updates for me</strong>
+              <span>
+                Anodex installs a new version at the first moment nothing is running, closing and
+                reopening itself to do it.
+              </span>
+            </div>
+            <ToggleControl
+              checked={automaticUpdates}
+              onChange={setAutomaticUpdates}
+              ariaLabel="Install updates for me"
+            />
+          </div>
         </section>
 
         <section className={styles.card}>
