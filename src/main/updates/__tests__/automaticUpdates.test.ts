@@ -9,14 +9,13 @@ const h = vi.hoisted(() => ({
   automatic: false,
   quiet: true,
   listeners: new Map<string, (payload: never) => void>(),
-  downloadUpdate: vi.fn(async () => []),
-  checkForUpdates: vi.fn(async () => null),
+  downloadUpdate: vi.fn(() => Promise.resolve([])),
+  checkForUpdates: vi.fn(() => Promise.resolve(null)),
   quitAndInstall: vi.fn(),
-  progressWindow: vi.fn(async () => undefined),
+  progressWindow: vi.fn(() => Promise.resolve(undefined)),
   verify: vi.fn(
-    async (): Promise<{ verdict: 'signed' | 'unenforced' | 'rejected'; reason?: string }> => ({
-      verdict: 'signed'
-    })
+    (): Promise<{ verdict: 'signed' | 'unenforced' | 'rejected'; reason?: string }> =>
+      Promise.resolve({ verdict: 'signed' })
   ),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 }))
