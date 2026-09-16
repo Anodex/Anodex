@@ -10,6 +10,7 @@ export type IconName =
   | 'settings'
   | 'plus'
   | 'send'
+  | 'send-fill'
   | 'stop'
   | 'trash'
   | 'folder'
@@ -116,6 +117,23 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
       <path d="m21.854 2.147-10.94 10.939" />
+    </>
+  ),
+  /*
+   * The composer's send key sits on the brand gradient, where the stroke plane
+   * above vanishes: 2 on a 24 grid drawn at 16px lands near 1.3px, on top of a
+   * saturated fill. This is the same plane built as two filled facets, and the
+   * fold from the tip runs at exactly 135 degrees — the angle the mark and the
+   * switch knob are both cut on. The lower facet is the shaded one, so the
+   * light reads as coming from above, the way it does on the knob.
+   *
+   * Its own glyph rather than a replacement: `send` stays a stroke icon for
+   * Push and Run now, where a solid mark would outweigh its neighbours.
+   */
+  'send-fill': (
+    <>
+      <path d="M21.4 2.6 2.8 9.4l7.8 4z" fill="currentColor" stroke="none" />
+      <path d="M21.4 2.6 10.6 13.4l4 7.8z" fill="currentColor" fillOpacity="0.78" stroke="none" />
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,

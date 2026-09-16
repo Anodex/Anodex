@@ -627,6 +627,14 @@
 }
 
 /*
+ * Two classes, so the key's deeper travel beats brandFill's 0.97 on specificity
+ * rather than on which file the bundler happens to emit first.
+ */
+.send.action:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+/*
  * The most-pressed control in the app, and it was a flat blue circle. It wears
  * the mark now — the same violet-into-blue diagonal as the switches and the
  * primary button, so the thing pressed most looks like this app.
