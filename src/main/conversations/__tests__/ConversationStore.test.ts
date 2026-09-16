@@ -463,6 +463,70 @@ describe('ConversationStore holding only recent chats', () => {
   })
 })
 
+describe('ConversationStore searching without loading every chat', () => {
+  function chatSaying(id: string, updatedAt: number, said: string): Conversation {
+    return conversation({
+      id,
+      updatedAt,
+      messages: [{ id: `${id}-m0`, role: 'user', content: said, createdAt: 1 }]
+    })
+  }
+
+  /** 30 old chats about nothing, one of which mentions marzipan. */
+  function fillStore(): void {
+    for (let index = 0; index < 30; index++) {
+      conversationStore.save(
+        chatSaying(`chat-${index}`, 1000 + index, index === 0 ? 'the marzipan recipe' : 'a message')
+      )
+    }
+    conversationStore.init()
+  }
+
+  it('opens an old chat that could match, and leaves the rest on disk', () => {
+    fillStore()
+
+    const found = conversationStore.searchable(new Set(['marzipan']), { archived: false })
+
+    expect(found.map((chat) => chat.id)).toContain('chat-0')
+    expect(found.find((chat) => chat.id === 'chat-0')?.messages).toHaveLength(1)
+    // Every chat is a candidate the caller scores, but only the recent ones — held
+    // anyway — and the one that could match were read.
+    expect(found.filter((chat) => chat.messages.length > 0)).toHaveLength(26)
+  })
+
+  it('reads nothing at all for a word no chat has', () => {
+    fillStore()
+    const heldBefore = conversationStore.heldConversationFiles().length
+
+    const found = conversationStore.searchable(new Set(['sasquatch']), { archived: false })
+
+    expect(found.every((chat) => chat.id !== 'chat-0')).toBe(true)
+    expect(conversationStore.heldConversationFiles()).toHaveLength(heldBefore)
+  })
+
+  it('lets go of what it read, so searching does not refill memory', () => {
+    fillStore()
+    const heldBefore = conversationStore.heldConversationFiles().length
+
+    conversationStore.searchable(new Set(['marzipan']), { archived: false })
+
+    expect(conversationStore.heldConversationFiles()).toHaveLength(heldBefore)
+  })
+
+  it('narrows by what a list already knows before reading anything', () => {
+    fillStore()
+    conversationStore.save({ ...chatSaying('other', 900, 'the marzipan recipe'), projectId: 'p1' })
+    conversationStore.init()
+
+    const found = conversationStore.searchable(new Set(['marzipan']), {
+      archived: false,
+      matching: (chat) => chat.projectId === 'p1'
+    })
+
+    expect(found.map((chat) => chat.id)).toEqual(['other'])
+  })
+})
+
 describe('ConversationStore archiving', () => {
   it('moves conversations between the active and archived lists', () => {
     conversationStore.save(conversation({ id: 'chat-1' }))
