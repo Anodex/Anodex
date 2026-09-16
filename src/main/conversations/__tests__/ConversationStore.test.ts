@@ -395,7 +395,7 @@ describe('ConversationStore holding archived conversations', () => {
     const file = join(userDataDir, 'conversations', 'general', 'old.json')
     writeFileSync(file, 'not json', 'utf-8')
 
-    expect(() => conversationStore.restore('old')).toThrow(/Could not read archived conversation/)
+    expect(() => conversationStore.restore('old')).toThrow(/Could not read conversation/)
   })
 
   it('merges a remote save into an archived conversation without losing its messages', () => {
@@ -406,6 +406,60 @@ describe('ConversationStore holding archived conversations', () => {
     conversationStore.save(withMessages('old', 0), { fromRemote: true })
 
     expect(conversationStore.get('old')?.messages).toHaveLength(2)
+  })
+})
+
+/**
+ * The same reasoning as the archive, applied to chats nobody has opened in weeks:
+ * measured, 102 live chats were 48MB of JSON held for the life of the app while the
+ * sidebar shows only their titles.
+ */
+describe('ConversationStore holding only recent chats', () => {
+  function chatAt(id: string, updatedAt: number): Conversation {
+    return conversation({
+      id,
+      updatedAt,
+      messages: [{ id: `${id}-m0`, role: 'user', content: 'a message', createdAt: 1 }]
+    })
+  }
+
+  function saveMany(count: number): void {
+    for (let index = 0; index < count; index++) {
+      conversationStore.save(chatAt(`chat-${index}`, 1000 + index))
+    }
+    conversationStore.init()
+  }
+
+  it('lists every chat without reading an old one, and says how long each is', () => {
+    saveMany(30)
+
+    const shallow = conversationStore.listShallow()
+
+    expect(shallow).toHaveLength(30)
+    expect(shallow[0].conversation.id).toBe('chat-29')
+    // Newest first: the recent ones keep their messages, the oldest do not.
+    expect(shallow[0].conversation.messages).toHaveLength(1)
+    expect(shallow[29].conversation.messages).toEqual([])
+    // Length is known either way, which is all a list shows.
+    expect(shallow[29].messageCount).toBe(1)
+  })
+
+  it('reads an old chat whole when something actually asks for it', () => {
+    saveMany(30)
+
+    expect(conversationStore.get('chat-0')?.messages).toHaveLength(1)
+    expect(conversationStore.list().find((c) => c.id === 'chat-0')?.messages).toHaveLength(1)
+  })
+
+  it('holds a chat it saves, so a conversation in use is never read per turn', () => {
+    saveMany(30)
+    conversationStore.save(chatAt('chat-0', 9999))
+
+    // Saved, so it is current again: no disk read behind this.
+    expect(
+      conversationStore.listShallow().find((row) => row.conversation.id === 'chat-0')?.conversation
+        .messages
+    ).toHaveLength(1)
   })
 })
 
