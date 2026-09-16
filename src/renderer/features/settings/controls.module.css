@@ -99,13 +99,13 @@
 }
 
 .toggleOn {
-  background: linear-gradient(135deg, var(--accent-violet), var(--accent) 72%);
+  background: var(--accent-gradient);
   border-color: transparent;
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--accent-violet) 60%, white),
+    inset 0 1px 0 var(--accent-gradient-edge),
     inset 0 -2px 4px rgb(0 0 0 / 0.18),
     0 0 0 3px var(--accent-soft),
-    0 0 12px color-mix(in srgb, var(--accent-violet) 20%, transparent);
+    0 0 12px var(--accent-gradient-glow);
 }
 
 .toggleOn:hover {

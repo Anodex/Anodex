@@ -44,17 +44,13 @@
   border-radius: var(--radius-sm);
 }
 
+/* Reload — the only way out of a crashed screen. */
 .button {
+  composes: brandFill from './ui/BrandFill.module.css';
   padding: var(--space-2) var(--space-4);
   font-weight: 500;
-  color: var(--text-on-accent);
-  background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
-}
-
-.button:hover {
-  background: var(--accent-hover);
 }
 
 .sectionContainer {

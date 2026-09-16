@@ -180,13 +180,9 @@
   background: var(--bg-elevated);
 }
 
+/* Send the edited message. Its overwrite twin stays danger-red. */
 .submitButton {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
-.submitButton:hover {
-  background: var(--accent-hover);
+  composes: brandFill from '../../components/ui/BrandFill.module.css';
 }
 
 .overwriteButton {
