@@ -221,6 +221,11 @@ class AgentRunService {
     this.finish(runId, run.conversationId!, 'stopped', null, 'Plan rejected.')
   }
 
+  /** Whether a run is going on right now. */
+  isRunning(): boolean {
+    return this.runningRunId !== null
+  }
+
   /** Abort the currently running run, if any. */
   stop(runId: string): void {
     if (this.runningRunId !== runId) throw new Error('That run is not currently active.')

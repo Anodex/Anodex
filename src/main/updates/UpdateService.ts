@@ -4,10 +4,18 @@ import { autoUpdater } from 'electron-updater'
 import type { UpdateDownloadedEvent } from 'electron-updater'
 import type { UpdateStatus } from '@shared/update.types'
 import { createLogger } from '../utils/logger'
+import { settingsStore } from '../settings/SettingsStore'
 import { verifyUpdateFile } from './verifyRelease'
+import { nothingInFlight } from './quietMoment'
 import { showUpdateProgressWindow } from './updateProgressWindow'
 
 const log = createLogger('updater')
+
+/** How often an update waiting for a quiet moment looks again. */
+const QUIET_CHECK_MS = 60_000
+
+/** How often a long-running app asks whether there is a new version, when it installs them itself. */
+const RECHECK_MS = 3 * 60 * 60_000
 
 /**
  * Thin wrapper around `electron-updater`, following the same
@@ -16,6 +24,15 @@ const log = createLogger('updater')
  * user approves the download and the restart-to-install separately, matching
  * this app's general "ask before a disruptive action" convention rather than
  * silently restarting mid-session.
+ *
+ * Unless they asked for the opposite. `settings.updates.automatic` is off by
+ * default and, when on, means exactly what it says: the download starts by
+ * itself and the install happens at the first moment nothing is running (see
+ * `quietMoment.ts`). It is for a machine left working unattended, where the
+ * alternative is what happened here — four releases waiting on a click while
+ * the work that needed them carried on against the old build. The signature
+ * check is untouched by it: `installAndRestart` still acts only on
+ * `downloaded`, which a rejected file never reaches.
  *
  * Only meaningful in a packaged build: `electron-updater` reads
  * `app-update.yml`, which electron-builder only generates for a real
@@ -38,6 +55,10 @@ class UpdateService extends EventEmitter {
     autoUpdater.on('update-available', (info) => {
       this.pendingVersion = info.version
       this.setStatus({ state: 'available', version: info.version })
+      if (this.automatic()) {
+        log.info(`Downloading ${info.version} — updates are set to install by themselves`)
+        void this.download()
+      }
     })
     autoUpdater.on('update-not-available', () => this.setStatus({ state: 'not-available' }))
     autoUpdater.on('download-progress', (progress) =>
@@ -55,6 +76,15 @@ class UpdateService extends EventEmitter {
       log.warn('Update check failed:', error)
       this.setStatus({ state: 'error', message: error.message })
     })
+
+    // Anodex is checked once at launch, which is enough for an app somebody opens
+    // and closes. A machine left working stays open for days, and an update it
+    // never hears about is one it cannot install by itself — so while this is on,
+    // ask again through the day.
+    const recheck = setInterval(() => {
+      if (this.automatic() && this.status.state !== 'downloaded') void this.check()
+    }, RECHECK_MS)
+    recheck.unref?.()
   }
 
   getStatus(): UpdateStatus {
@@ -126,6 +156,72 @@ class UpdateService extends EventEmitter {
     }
 
     this.setStatus({ state: 'downloaded', version: event.version })
+    if (this.automatic()) this.installWhenNothingIsRunning()
+  }
+
+  /**
+   * Install as soon as a restart would cost nothing, checking again every minute
+   * until then.
+   *
+   * No deadline, and nothing is ever interrupted to make room: a machine that is
+   * busy for a day updates a day later, which is the whole bargain of leaving this
+   * on. The waiting is said out loud once per attempt, so a version that never
+   * seems to install can be explained from the log rather than guessed at.
+   */
+  private installWhenNothingIsRunning(options?: { atOnce?: boolean }): void {
+    if (this.waitingForQuiet || this.installing) return
+    this.waitingForQuiet = true
+
+    const attempt = (): void => {
+      if (this.status.state !== 'downloaded' || !this.automatic()) {
+        this.stopWaitingForQuiet()
+        return
+      }
+      if (!nothingInFlight()) {
+        log.info(`Holding ${this.status.version} back: something is still running`)
+        return
+      }
+      this.stopWaitingForQuiet()
+      log.info(`Installing ${this.status.version} — nothing is running`)
+      void this.installAndRestart()
+    }
+
+    this.quietCheck = setInterval(attempt, QUIET_CHECK_MS)
+    this.quietCheck.unref?.()
+    if (options?.atOnce !== false) attempt()
+  }
+
+  /**
+   * Act on the setting having just been turned on.
+   *
+   * An update already sitting downloaded is installed at the next quiet moment
+   * rather than this one: somebody who has just this second ticked the box is at
+   * the keyboard, and an app that vanishes on the same click reads as a fault
+   * however clearly the box was labelled. A minute is enough to mean "because you
+   * asked" instead.
+   */
+  automaticTurnedOn(): void {
+    if (!this.automatic()) return
+    if (this.status.state === 'downloaded') {
+      this.installWhenNothingIsRunning({ atOnce: false })
+      return
+    }
+    if (this.status.state === 'available') {
+      void this.download()
+      return
+    }
+    void this.check()
+  }
+
+  private stopWaitingForQuiet(): void {
+    if (this.quietCheck) clearInterval(this.quietCheck)
+    this.quietCheck = null
+    this.waitingForQuiet = false
+  }
+
+  /** Whether the user has asked for updates to install by themselves. */
+  private automatic(): boolean {
+    return settingsStore.get().updates?.automatic === true
   }
 
   /**
@@ -149,6 +245,8 @@ class UpdateService extends EventEmitter {
   }
 
   private installing = false
+  private waitingForQuiet = false
+  private quietCheck: ReturnType<typeof setInterval> | null = null
 
   private setStatus(status: UpdateStatus): void {
     this.status = status
