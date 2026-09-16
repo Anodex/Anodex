@@ -78,6 +78,20 @@ describe('redactSupportText', () => {
   })
 })
 
+/** What Anodex is holding, as the memory report gives it. */
+const memory = {
+  processes: [
+    { kind: 'Browser', detail: 'main', bytes: 854 * 1_048_576 },
+    { kind: 'Tab', detail: 'Anodex', bytes: 179 * 1_048_576 }
+  ],
+  mainHeapBytes: 220 * 1_048_576,
+  mainRssBytes: 854 * 1_048_576,
+  holders: [
+    { name: 'Conversations held in memory', detail: '103 chats', bytes: 48 * 1_048_576 },
+    { name: 'Code search model', detail: 'Not loaded.', bytes: null }
+  ]
+}
+
 describe('buildSupportBundle', () => {
   it('includes useful runtime facts while redacting diagnostics and log excerpts', () => {
     const bundle = buildSupportBundle({
@@ -85,6 +99,7 @@ describe('buildSupportBundle', () => {
       system,
       hardware,
       engine,
+      memory,
       diagnostics: [diagnostic],
       logText: 'Password: dont-export\nC:\\Users\\Person\\project\\file.ts\n'
     })
@@ -98,6 +113,26 @@ describe('buildSupportBundle', () => {
     expect(bundle.content).not.toContain('C:\\Users\\Person')
     expect(bundle.content).toContain('It excludes chats, workspace files, attachments, credentials')
     expect(bundle.redactionCount).toBeGreaterThan(0)
+  })
+
+  it("reports Anodex's own memory, which is the half a memory question needs", () => {
+    // The machine's RAM was already in the report; what Anodex was using of it was not,
+    // so a report about memory could answer nothing.
+    const bundle = buildSupportBundle({
+      createdAt: new Date('2026-01-02T03:04:05.000Z'),
+      system,
+      hardware,
+      engine,
+      memory,
+      diagnostics: [],
+      logText: ''
+    })
+
+    expect(bundle.content).toContain('ANODEX MEMORY IN USE')
+    expect(bundle.content).toContain('Browser (main): 854 MB')
+    expect(bundle.content).toContain('Main process JavaScript: 220 MB of 854 MB')
+    expect(bundle.content).toContain('Conversations held in memory: 48 MB — 103 chats')
+    expect(bundle.content).toContain('Code search model: not measured')
   })
 })
 

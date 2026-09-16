@@ -1,10 +1,11 @@
 import { app } from 'electron'
 import { readFileSync } from 'node:fs'
-import type { DiagnosticEntry } from '@shared/settings.types'
+import type { DiagnosticEntry, MemoryUsageReport } from '@shared/settings.types'
 import type { EngineState } from '@shared/model.types'
 import type { HardwareInfo, SystemInfo } from '@shared/system.types'
 import type { SupportBundlePreview } from '@shared/supportBundle.types'
 import { llamaService } from '../llama/LlamaService'
+import { memoryUsageReport } from './memoryUsage'
 import { getHardware } from '../ipc/system.handlers'
 import { diagnosticsReporter } from './DiagnosticsReporter'
 import { getLogFileInfo } from './logFile'
@@ -22,6 +23,8 @@ interface SupportBundleInput {
   system: SystemInfo
   hardware: HardwareInfo
   engine: EngineState
+  /** What Anodex itself is holding, the same figures Diagnostics shows. */
+  memory: MemoryUsageReport
   diagnostics: DiagnosticEntry[]
   logText: string
 }
@@ -112,6 +115,12 @@ export function buildSupportBundle(input: SupportBundleInput): SupportBundlePrev
     `Unified memory: ${input.hardware.unifiedMemory ? 'Yes' : 'No'}`,
     `Free storage: ${input.hardware.storageFree ?? 'Not detected'}`,
     '',
+    // The machine's memory says what there is; this says what Anodex is using of it,
+    // which is the half a report about memory actually needs. Names and counts only —
+    // no chat titles, no paths.
+    'ANODEX MEMORY IN USE',
+    ...memoryLines(input.memory),
+    '',
     'LOCAL MODEL RUNTIME',
     `Status: ${input.engine.status}`,
     `Model: ${model?.name ?? 'No local model loaded'}`,
@@ -161,9 +170,26 @@ export async function createSupportBundlePreview(): Promise<SupportBundlePreview
     system,
     hardware,
     engine: llamaService.getState(),
+    memory: memoryUsageReport(),
     diagnostics: diagnosticsReporter.list(),
     logText
   })
+}
+
+/** Anodex's own memory, as the lines a support report carries. */
+function memoryLines(memory: MemoryUsageReport): string[] {
+  const megabytes = (bytes: number): string => `${Math.round(bytes / 1_048_576)} MB`
+  return [
+    ...memory.processes.map(
+      (process) =>
+        `${process.kind}${process.detail ? ` (${process.detail})` : ''}: ${megabytes(process.bytes)}`
+    ),
+    `Main process JavaScript: ${megabytes(memory.mainHeapBytes)} of ${megabytes(memory.mainRssBytes)}`,
+    ...memory.holders.map(
+      (holder) =>
+        `${holder.name}: ${holder.bytes === null ? 'not measured' : megabytes(holder.bytes)} — ${holder.detail}`
+    )
+  ]
 }
 
 function formatDiagnostic(entry: DiagnosticEntry): string {
