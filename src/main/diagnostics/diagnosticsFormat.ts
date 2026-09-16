@@ -34,23 +34,48 @@ const SCOPE_CATEGORIES: Array<[RegExp, Category]> = [
     /^(workspace|conversations|conversation-assets|projects|project-memory|memory-store|skill-store|skill-catalog|change-catalog|critical-thinking-store|critical-thinking-evidence|agent-run-store|scheduler-store|settings|token-activity|code-index|visual-preview-assets)/,
     'file'
   ],
-  // Everything else in the running app: window/terminal/services/IPC.
+  // Everything else in the running app: window/terminal/services.
+  // `ipc:` is not listed: it is stripped before matching, and an IPC scope whose
+  // subsystem matches nothing here falls back to runtime below.
   [
-    /^(main|window|terminal|keep-awake|toast-window|context-menu|updater|ipc:|agent-run-service|scheduler-service|critical-thinking-service|code-indexer)/,
+    /^(main|window|terminal|keep-awake|toast-window|context-menu|updater|agent-run-service|scheduler-service|critical-thinking-service|code-indexer)/,
     'runtime'
   ]
 ]
 
 /**
+ * The subsystem a scope names, with the logger's `ipc:` prefix taken off.
+ *
+ * Handlers log under `ipc:email` and `ipc:mcp`; the services behind them log
+ * under `email` and `mcp`. Anything that reasons about a scope by its prefix is
+ * therefore reading two different names for one subsystem, and the handlers are
+ * where most failures come from — twenty failure sites under `ipc:email` alone
+ * against the service's own. Normalise once, here, rather than in each caller.
+ */
+export function subsystemOf(scope: string): string
+export function subsystemOf(scope: string | undefined): string | undefined
+export function subsystemOf(scope: string | undefined): string | undefined {
+  return scope?.startsWith('ipc:') ? scope.slice('ipc:'.length) : scope
+}
+
+/**
  * Classify a logger scope (`createLogger('llama:vision')`) or an IPC failure
  * code (`models.load-failed`) for the UI — both are dotted/colon-prefixed
  * subsystem names, so one table covers them.
+ *
+ * The handler and the service behind it land in the same place. They did not:
+ * a mailbox failure filed itself under Integration when the service logged it
+ * and under Runtime when the handler did, which is the same event in two
+ * categories — so filtering by Integration hid most mail failures, and clearing
+ * that category left them behind.
  */
 export function categoryForScope(scope: string): Category {
+  const subsystem = subsystemOf(scope)
   for (const [pattern, category] of SCOPE_CATEGORIES) {
-    if (pattern.test(scope)) return category
+    if (pattern.test(subsystem)) return category
   }
-  return 'general'
+  // An IPC scope naming no subsystem of its own is the IPC plumbing itself.
+  return scope.startsWith('ipc:') ? 'runtime' : 'general'
 }
 
 /** Warnings and errors reach the Diagnostics page; everything reaches the file. */
