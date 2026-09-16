@@ -21419,6 +21419,20 @@
             ]
           }
         },
+        "publishedAt": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
         "hfDownloads": {
           "optional": true,
           "type": {
