@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DiagnosticEntry } from '@shared/settings.types'
-import { configureDiagnostics, useDiagnosticsStore } from '../diagnosticsStore'
+import {
+  configureDiagnostics,
+  forgetEntriesFromOtherVersions,
+  useDiagnosticsStore
+} from '../diagnosticsStore'
 
 beforeEach(() => {
   useDiagnosticsStore.getState().clear()
@@ -129,3 +133,30 @@ function makeMainEntry(message: string, timestamp: number): DiagnosticEntry {
     scope: 'llama'
   }
 }
+
+/**
+ * Diagnostics live in this window's storage, so they outlive the update that fixed
+ * them. Measured on a real machine: "7 unresolved errors" beside a log with none since
+ * two versions earlier.
+ */
+describe('entries from an older version', () => {
+  it('lets go of them, and keeps what this version raised', () => {
+    useDiagnosticsStore.getState().ingest([
+      { ...makeEntry('from 0.9.11'), id: 'old', timestamp: Date.now(), appVersion: '0.9.11' },
+      { ...makeEntry('from before versions were recorded'), id: 'ancient', timestamp: Date.now() },
+      { ...makeEntry('from this one'), id: 'current', timestamp: Date.now(), appVersion: '0.9.19' }
+    ])
+
+    forgetEntriesFromOtherVersions('0.9.19')
+
+    expect(useDiagnosticsStore.getState().entries.map((entry) => entry.id)).toEqual(['current'])
+  })
+
+  it('stamps what it records afterwards, so the next update can do the same', () => {
+    forgetEntriesFromOtherVersions('0.9.19')
+
+    useDiagnosticsStore.getState().add(makeEntry('something failed', 'error'))
+
+    expect(useDiagnosticsStore.getState().entries[0].appVersion).toBe('0.9.19')
+  })
+})

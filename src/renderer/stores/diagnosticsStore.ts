@@ -81,6 +81,9 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
   entries: loadEntries(),
 
   add: (entry) => {
+    // Stamped so an entry can be told from one raised by an older version. See
+    // `forgetEntriesFromOtherVersions`.
+
     const diagnostic: DiagnosticEntry = {
       ...entry,
       // Errors always keep their detail. Verbose governs debug chatter on
@@ -90,7 +93,8 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
       // "needs more RAM/VRAM, try CPU-only" guidance sat in the discarded field.
       detail: runtimeSettings.verbose || entry.severity === 'error' ? entry.detail : undefined,
       id: createId('diag'),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      appVersion: currentAppVersion ?? undefined
     }
     set((state) => {
       const next = [diagnostic, ...state.entries]
@@ -134,6 +138,30 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
       .join('\n\n')
   }
 }))
+
+/**
+ * The version running now, once the window has asked for it. Null until then, and
+ * entries raised before it arrives simply carry no version — the same as an entry from
+ * before this existed.
+ */
+let currentAppVersion: string | null = null
+
+/**
+ * Let go of entries raised by a different version of Anodex.
+ *
+ * Diagnostics are kept in this window's storage, so a failure from two updates ago sat
+ * there as an unresolved error for ever: measured on a real machine, "7 unresolved
+ * errors" beside a log with none since the update that fixed them. A fault that is
+ * still there records itself again on this version, which is the honest signal; an old
+ * entry is a claim about a build that is no longer running.
+ */
+export function forgetEntriesFromOtherVersions(version: string): void {
+  currentAppVersion = version
+  useDiagnosticsStore.setState((state) => {
+    const kept = state.entries.filter((entry) => entry.appVersion === version)
+    return kept.length === state.entries.length ? { entries: state.entries } : commitEntries(kept)
+  })
+}
 
 /** Apply persisted Diagnostics settings to the live log. */
 export function configureDiagnostics(settings: DiagnosticSettings, onStartup = false): void {

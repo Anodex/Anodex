@@ -379,6 +379,16 @@ export interface DiagnosticEntry {
   source?: 'main' | 'renderer'
   /** Logger scope for a `main` entry, e.g. `llama` or `email:imap`. */
   scope?: string
+  /**
+   * The version of Anodex this happened on.
+   *
+   * Entries are kept in the window's own storage, so they outlive the update that
+   * fixed them: on the machine this was found, Diagnostics said "7 unresolved errors"
+   * while the log had none since two updates earlier. An entry from an older version
+   * is let go at startup — if the fault is still there, this version records it again.
+   * Absent on entries stored before this existed, which is treated as older.
+   */
+  appVersion?: string
 }
 
 export interface DiagnosticSettings {
