@@ -19,6 +19,7 @@
   background: var(--accent-gradient);
   box-shadow:
     inset 0 1px 0 var(--accent-gradient-edge),
+    inset 0 -2px 4px rgb(0 0 0 / 0.18),
     0 1px 8px var(--accent-gradient-glow);
 }
 
@@ -27,6 +28,14 @@
   filter: brightness(1.07);
 }
 
+/*
+ * A press has to move. Brightness alone was a 4% dim nobody could see, so every
+ * branded control except send read as dead under the finger — send felt alive
+ * only because it also scales. It scales further than this (0.88, on a 30px
+ * key) and keeps that in ChatComposer: the same travel on a 140px pill looks
+ * like the button retreating rather than being pushed.
+ */
 .brandFill:not(:disabled):active {
+  transform: scale(0.97);
   filter: brightness(0.96);
 }
