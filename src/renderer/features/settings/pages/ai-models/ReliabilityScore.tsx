@@ -196,7 +196,7 @@ export function ReliabilityScore({
             </div>
             <div className={styles.reliabilityPopoverActions}>
               <span>Scroll here or open the full report</span>
-              <button type="button" onClick={openDialog}>
+              <button type="button" className={styles.reliabilityAction} onClick={openDialog}>
                 Expand
               </button>
             </div>
@@ -279,7 +279,7 @@ export function ReliabilityScore({
                 <p>
                   Denied calls are excluded. Results come from this user’s actual tool outcomes.
                 </p>
-                <button type="button" onClick={closeDialog}>
+                <button type="button" className={styles.reliabilityAction} onClick={closeDialog}>
                   Done
                 </button>
               </footer>
