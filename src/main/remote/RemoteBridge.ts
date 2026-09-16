@@ -148,6 +148,21 @@ export class RemoteBridge {
     return connected
   }
 
+  /**
+   * How many sockets one device still has open. Nought is the ordinary case; more
+   * than one means it opened another before this one went, which is what makes a
+   * log of arrivals alone so hard to read.
+   */
+  private openSocketsFor(deviceId: string | undefined): number {
+    if (deviceId === undefined) return 0
+    let open = 0
+    for (const socket of this.sockets?.clients ?? []) {
+      if (socket.readyState !== socket.OPEN) continue
+      if (this.socketDevice.get(socket) === deviceId) open += 1
+    }
+    return open
+  }
+
   /** Whether the listener is currently accepting connections. */
   get listening(): boolean {
     return this.server !== null
@@ -356,11 +371,20 @@ export class RemoteBridge {
       }
     })
 
-    socket.on('close', () => {
+    socket.on('close', (code: number) => {
       clearTimeout(handshakeTimer)
       this.coalescers.get(socket)?.dispose()
       if (client) {
         detachRemoteClient(client)
+        // Said, because only the arrival ever was. A log of nothing but "client
+        // attached" reads as a phone connecting over and over and keeping every
+        // connection it ever made — which is what four lines for one device inside a
+        // minute looked like here, and is not what was happening. A connection that
+        // goes now says so, with the close code and what that device has left.
+        const left = this.socketDevice.get(socket)
+        log.info(
+          `client left: ${client.id} (close ${code}), ${this.openSocketsFor(left)} still open`
+        )
         this.onConnectionsChanged()
       }
     })
