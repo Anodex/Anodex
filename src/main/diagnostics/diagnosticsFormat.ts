@@ -203,6 +203,40 @@ const FIXES: Array<[RegExp, string]> = [
 const CONNECTION_FAILURE = /ECONNRESET|ECONNREFUSED|fetch failed|Connection error|socket hang up/i
 
 /**
+ * The network being away, as the operating system names it: no DNS answer, a
+ * connection dropped or timed out, nothing routable. Not a misconfiguration and
+ * not a refusal — those say something else.
+ */
+const NETWORK_AWAY =
+  /\b(ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ENETUNREACH|ENETDOWN|EHOSTUNREACH)\b|socket hang up|network is unreachable/i
+
+/**
+ * What a failure is worth reporting as, once it is clear the network simply
+ * wasn't there.
+ *
+ * Anodex checks mail in the background. Carrying a laptop between rooms produced
+ * `ENOTFOUND imap.gmail.com` and, an hour later, `ECONNRESET` — and Diagnostics
+ * then read "Needs attention" for the rest of the machine's life over a wifi
+ * handover that had fixed itself in seconds. Nothing there is for the user to do.
+ *
+ * Recorded as `info` instead: still listed, still in the log file and the support
+ * report, but not counted as a fault and let go of at restart. A connection that
+ * is really broken says something else — an authentication failure, a refusal, a
+ * certificate — and none of those are softened. Neither is the local engine,
+ * whose connections are to Anodex's own server over loopback: there, a dropped
+ * connection is a real fault and the internet has nothing to do with it.
+ */
+export function severityForConnection(
+  severity: DiagnosticEntry['severity'],
+  text: string,
+  scope?: string
+): DiagnosticEntry['severity'] {
+  if (severity !== 'warning') return severity
+  if (scope?.startsWith('llama')) return severity
+  return NETWORK_AWAY.test(text) ? 'info' : severity
+}
+
+/**
  * Best-effort suggested next step, or undefined when nothing is confidently
  * known. `scope` matters for one real case: a dropped connection inside the
  * local engine is a loopback failure against Anodex's own bundled model server,
