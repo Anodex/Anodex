@@ -398,6 +398,30 @@ export interface DiagnosticLogFile {
   available: boolean
 }
 
+/**
+ * What Anodex is holding in memory right now, for the Diagnostics page.
+ *
+ * Added because the question "why is it using this much?" had no answer anywhere in
+ * the app: the only way to look was Task Manager, which says one number for a process
+ * and nothing about what is in it.
+ */
+export interface MemoryUsageReport {
+  /** Each of the app's own processes, as Electron reports them. */
+  processes: Array<{ kind: string; detail?: string; bytes: number }>
+  /** The main process's JavaScript heap, inside its `rss`. */
+  mainHeapBytes: number
+  mainRssBytes: number
+  /** The big things the main process holds, each with what it is. */
+  holders: MemoryHolder[]
+}
+
+export interface MemoryHolder {
+  name: string
+  detail: string
+  /** Best estimate in bytes, or null when the size is not knowable cheaply. */
+  bytes: number | null
+}
+
 export interface MemorySettings {
   /**
    * "Cross-chat memory" — recall/write project-scoped memories (conventions,

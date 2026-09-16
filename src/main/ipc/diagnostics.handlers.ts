@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
+import type { MemoryUsageReport } from '@shared/settings.types'
+import { memoryUsageReport } from '../diagnostics/memoryUsage'
 import { err, ok, toErrorMessage } from '@shared/result'
 import type { DiagnosticEntry, DiagnosticLogFile } from '@shared/settings.types'
 import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
@@ -17,6 +19,10 @@ export function registerDiagnosticsHandlers(): void {
   ipcMain.handle(IpcChannel.Diagnostics.list, (): DiagnosticEntry[] => diagnosticsReporter.list())
 
   ipcMain.handle(IpcChannel.Diagnostics.getLogFile, (): DiagnosticLogFile => getLogFileInfo())
+
+  ipcMain.handle(IpcChannel.Diagnostics.getMemoryUsage, (): MemoryUsageReport =>
+    memoryUsageReport()
+  )
 
   ipcMain.handle(IpcChannel.Diagnostics.revealLogFile, (): void => {
     const { path, available } = getLogFileInfo()
