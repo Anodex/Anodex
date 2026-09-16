@@ -104,11 +104,7 @@
   background: var(--bg-elevated);
 }
 
+/* The way out this dialog is recommending. */
 .primary {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
-.primary:hover {
-  background: var(--accent-hover);
+  composes: brandFill from '../../components/ui/BrandFill.module.css';
 }

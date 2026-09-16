@@ -82,13 +82,9 @@
   background: var(--bg-elevated);
 }
 
+/* The answer the dialog was opened to collect. */
 .confirm {
-  color: var(--text-on-accent);
-  background: var(--accent);
-}
-
-.confirm:hover:not(:disabled) {
-  background: var(--accent-hover);
+  composes: brandFill from './BrandFill.module.css';
 }
 
 .confirm:disabled {

@@ -1,0 +1,32 @@
+/*
+ * The mark on a filled control: the violet-into-blue diagonal from the icon,
+ * lifted along its top edge and standing on a soft glow. Flat accent did the
+ * job and looked like every other button ever shipped.
+ *
+ * Paint only — no size, no radius, no geometry — because the button carrying a
+ * surface's answer isn't always <Button>. The composer's send button and a
+ * dozen dialogs style their own, and they compose this rather than keep their
+ * own copy of the recipe, so the mark can only ever be defined once. It belongs
+ * on the one affirmative control of a surface, and nowhere it would compete
+ * with that one.
+ *
+ * Its own file rather than a class in Button.module.css: composing pulls the
+ * whole source module in beside the importer, and the dialogs want the paint,
+ * not the component.
+ */
+.brandFill {
+  color: var(--text-on-accent);
+  background: var(--accent-gradient);
+  box-shadow:
+    inset 0 1px 0 var(--accent-gradient-edge),
+    0 1px 8px var(--accent-gradient-glow);
+}
+
+/* Brightness rather than a second colour: a gradient has no one hover shade. */
+.brandFill:not(:disabled):hover {
+  filter: brightness(1.07);
+}
+
+.brandFill:not(:disabled):active {
+  filter: brightness(0.96);
+}
