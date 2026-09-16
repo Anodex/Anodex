@@ -143,7 +143,8 @@ class DiagnosticsReporter {
       detail: input.detail ? truncate(input.detail, MAX_DETAIL_CHARS) : undefined,
       suggestedFix: input.suggestedFix,
       source: 'main',
-      scope: input.scope
+      scope: input.scope,
+      appVersion: app.getVersion()
     }
 
     this.entries.unshift(entry)
