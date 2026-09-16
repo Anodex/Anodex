@@ -20,7 +20,7 @@ function machine(overrides: Partial<HardwareInfo>): HardwareInfo {
     unifiedMemory: false,
     storageFree: null,
     ...overrides
-  } as HardwareInfo
+  }
 }
 
 const overallFor = (hardware: HardwareInfo): string | undefined =>
