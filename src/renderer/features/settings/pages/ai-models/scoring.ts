@@ -145,9 +145,10 @@ export function hardwareFitLabel(hardware: HardwareInfo): string {
  */
 export function scoreRecommendedModel(
   model: RecommendedModel,
-  hardware: HardwareInfo | null
+  hardware: HardwareInfo | null,
+  now: number = Date.now()
 ): number {
-  if (!hardware) return 70 + (model.qualityRank ?? 1) * 2
+  if (!hardware) return 70 + (model.qualityRank ?? 1) * 2 + freshnessAdjustment(model, now)
 
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
@@ -180,8 +181,35 @@ export function scoreRecommendedModel(
   if (model.source === 'huggingface' && model.hfDownloads) {
     score += Math.min(20, Math.log10(model.hfDownloads + 1) * 4)
   }
+  score += freshnessAdjustment(model, now)
 
   return Math.round(score)
+}
+
+/**
+ * What a model's age is worth, in a field where a year is a generation.
+ *
+ * Nothing else in this score knows the date. A hand-rated entry keeps its rank
+ * for ever, so the best model Anodex could offer a new user stayed the best one
+ * somebody typed in — every built-in entry was between one and two and a half
+ * years old when this was written, and the model this machine actually runs was
+ * newer than all of them.
+ *
+ * Bounded, and smaller than what hand-verified quality is worth: a current model
+ * should win a close call, not walk past a better one for being new. An entry
+ * with no date is left alone rather than guessed at.
+ */
+export function freshnessAdjustment(model: RecommendedModel, now: number = Date.now()): number {
+  if (!model.publishedAt) return 0
+  const published = Date.parse(model.publishedAt)
+  if (Number.isNaN(published)) return 0
+
+  const months = (now - published) / (30 * 86_400_000)
+  if (months <= 6) return 8
+  if (months <= 12) return 4
+  if (months <= 18) return 0
+  if (months <= 24) return -6
+  return -12
 }
 
 /**
@@ -218,7 +246,11 @@ export function buildRecommendedSlots(
   // with live Hugging Face results (see `RecommendedModelStrip.tsx`), so a
   // new model generation can outrank a stale hand-picked entry without an
   // Anodex code change.
-  catalog: RecommendedModel[] = RECOMMENDED_MODELS
+  catalog: RecommendedModel[] = RECOMMENDED_MODELS,
+  // Today, so a test can pin one: what Anodex recommends now depends on how old
+  // each model is, and a test that reads the clock changes its mind as the
+  // calendar moves under it.
+  now: number = Date.now()
 ): RecommendedSlot[] {
   const allCandidates = catalog.filter((model) => model.recommended !== false)
   // Every card shares this strict eligibility gate. A model that misses its
@@ -254,7 +286,7 @@ export function buildRecommendedSlots(
   const candidates = usingLive ? live : builtIn
   if (candidates.length === 0) return []
   const scored = candidates
-    .map((model) => ({ model, score: scoreRecommendedModel(model, hardware) }))
+    .map((model) => ({ model, score: scoreRecommendedModel(model, hardware, now) }))
     .sort((a, b) => b.score - a.score)
   const byScore = scored.map((entry) => entry.model)
   const speedCandidates = fastestAppropriateCandidates(scored)
@@ -289,7 +321,7 @@ export function buildRecommendedSlots(
       note,
       model,
       // Clamped here for display only — selection above ranks by the raw score.
-      score: clampScore(scoreRecommendedModel(model, hardware))
+      score: clampScore(scoreRecommendedModel(model, hardware, now))
     }
   }
 
