@@ -15,7 +15,7 @@ import { useCriticalThinkingStore } from '../stores/criticalThinkingStore'
 import { useEmailStore } from '../stores/emailStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMcpStore } from '../stores/mcpStore'
-import { useDiagnosticsStore } from '../stores/diagnosticsStore'
+import { forgetEntriesFromOtherVersions, useDiagnosticsStore } from '../stores/diagnosticsStore'
 import { useStartupStore } from '../stores/startupStore'
 import { useUiStore } from '../stores/uiStore'
 import { deferredModelRestore } from './deferredRestore'
@@ -273,6 +273,17 @@ export function useAnodexBridge(): void {
     const offDiagnosticEntry = anodex.diagnostics.onEntry((entry) => {
       useDiagnosticsStore.getState().ingest([entry])
     })
+    // Entries kept in this window's storage outlive the update that fixed them, so a
+    // fault from two versions ago sat here as an unresolved error for ever. Anything
+    // still wrong records itself again on this version.
+    void anodex.system
+      .getInfo()
+      .then((info) => {
+        if (!cancelled) forgetEntriesFromOtherVersions(info.appVersion)
+      })
+      .catch(() => {
+        /* Without the version, every entry is kept — the old behaviour. */
+      })
     void anodex.diagnostics
       .list()
       .then((entries) => {
