@@ -22,15 +22,17 @@ const log = createLogger('ipc:conversations')
 export function registerConversationHandlers(): void {
   ipcMain.handle(IpcChannel.Conversations.list, () => conversationStore.list())
 
+  // From the shallow list: a sidebar shows titles, and reading every old chat's
+  // messages to throw them away again is the work this avoids.
   ipcMain.handle(IpcChannel.Conversations.listWithoutMessages, () =>
-    conversationStore.list().map(withoutMessages)
+    conversationStore.listShallow().map(({ conversation }) => withoutMessages(conversation))
   )
 
   // Given ids, only those conversations; one archived or gone is simply absent. A
   // phone told one conversation changed reads that row rather than the whole list,
   // which on a real store is tens of kilobytes every save.
   ipcMain.handle(IpcChannel.Conversations.listSummaries, (_event, ids?: unknown) =>
-    summariesOf(conversationStore.list(), ids)
+    shallowSummariesOf(conversationStore.listShallow(), ids)
   )
 
   ipcMain.handle(
@@ -297,6 +299,22 @@ export function assertMessagesLoaded(conversation: Conversation): void {
 }
 
 /** Every summary, or only those named when `ids` is a list of them. */
+/**
+ * The same summaries from the shallow list, where a chat's length is known without
+ * its messages — see `ConversationStore.listShallow`.
+ */
+export function shallowSummariesOf(
+  rows: Array<{ conversation: Conversation; messageCount: number }>,
+  ids?: unknown
+): ConversationSummary[] {
+  const wanted = Array.isArray(ids)
+    ? new Set(ids.filter((id): id is string => typeof id === 'string'))
+    : null
+  return rows
+    .filter((row) => !wanted || wanted.has(row.conversation.id))
+    .map(({ conversation, messageCount }) => ({ ...toSummary(conversation), messageCount }))
+}
+
 export function summariesOf(conversations: Conversation[], ids?: unknown): ConversationSummary[] {
   if (!Array.isArray(ids)) return conversations.map(toSummary)
   const wanted = new Set(ids.filter((id): id is string => typeof id === 'string'))
