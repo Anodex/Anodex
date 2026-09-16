@@ -2155,18 +2155,6 @@
       }
     },
     {
-      "channel": "conversations:list",
-      "kind": "invoke",
-      "api": "conversations.list",
-      "args": [],
-      "result": {
-        "kind": "array",
-        "of": {
-          "$ref": "Conversation"
-        }
-      }
-    },
-    {
       "channel": "conversations:list-archived",
       "kind": "invoke",
       "api": "conversations.listArchived",

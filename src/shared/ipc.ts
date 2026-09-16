@@ -360,13 +360,13 @@ export const IpcChannel = {
     revealPath: 'backup:reveal-path'
   },
   Conversations: {
-    list: 'conversations:list',
     /**
      * Every conversation, without its messages.
      *
-     * `list` returns the entire store, which is fine in-process and fatal over a
-     * socket — a real store runs to hundreds of megabytes and a phone cannot buffer
-     * that. Anything listing conversations should prefer this.
+     * There was a `conversations:list` that returned the store whole. Nothing had
+     * called it in months: a real store runs to hundreds of megabytes, which is
+     * fatal over a socket, and — now that older chats keep their messages on disk —
+     * pulls every one of them back into memory. This is what listing chats means.
      */
     listSummaries: 'conversations:list-summaries',
     /**
@@ -900,7 +900,6 @@ export interface AnodexApi {
     revealPath(path: string): Promise<void>
   }
   conversations: {
-    list(): Promise<Conversation[]>
     /** See `IpcChannel.Conversations.listWithoutMessages`. */
     listWithoutMessages(): Promise<Conversation[]>
     listSummaries(): Promise<ConversationSummary[]>

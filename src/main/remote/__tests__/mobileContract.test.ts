@@ -228,7 +228,8 @@ describe('the contract Anodex Mobile is built against', () => {
       const used = [
         'chat:send',
         'chat:stop',
-        'conversations:list',
+        'conversations:list-summaries',
+        'conversations:get',
         'conversations:save',
         'projects:list',
         'projects:set-active',
