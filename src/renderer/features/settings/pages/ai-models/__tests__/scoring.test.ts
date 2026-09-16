@@ -500,10 +500,10 @@ describe('how much a model’s age is worth', () => {
 
   it('is worth something new, and counts against something old', () => {
     expect(freshnessAdjustment({ publishedAt: monthsAgo(1) } as RecommendedModel, now)).toBe(8)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(10) } as RecommendedModel, now)).toBe(4)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(0)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-6)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-12)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(10) } as RecommendedModel, now)).toBe(3)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(-3)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-8)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-14)
   })
 
   it('leaves a model with no date, or a date it cannot read, exactly where it was', () => {
