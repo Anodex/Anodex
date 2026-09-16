@@ -1253,7 +1253,15 @@
               "value": {
                 "optional": false,
                 "type": {
-                  "$ref": "CheckpointPreview"
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "null"
+                    },
+                    {
+                      "$ref": "CheckpointPreview"
+                    }
+                  ]
                 }
               }
             }
@@ -2627,6 +2635,15 @@
       "args": [],
       "result": {
         "$ref": "DiagnosticLogFile"
+      }
+    },
+    {
+      "channel": "diagnostics:get-memory-usage",
+      "kind": "invoke",
+      "api": "diagnostics.getMemoryUsage",
+      "args": [],
+      "result": {
+        "$ref": "MemoryUsageReport"
       }
     },
     {
@@ -19357,6 +19374,37 @@
         }
       }
     },
+    "MemoryHolder": {
+      "kind": "object",
+      "properties": {
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "detail": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "bytes": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        }
+      }
+    },
     "MemorySettings": {
       "kind": "object",
       "properties": {
@@ -19376,6 +19424,69 @@
           "optional": false,
           "type": {
             "kind": "boolean"
+          }
+        }
+      }
+    },
+    "MemoryUsageReport": {
+      "kind": "object",
+      "properties": {
+        "processes": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "kind": "object",
+              "properties": {
+                "kind": {
+                  "optional": false,
+                  "type": {
+                    "kind": "string"
+                  }
+                },
+                "detail": {
+                  "optional": true,
+                  "type": {
+                    "kind": "union",
+                    "of": [
+                      {
+                        "kind": "undefined"
+                      },
+                      {
+                        "kind": "string"
+                      }
+                    ]
+                  }
+                },
+                "bytes": {
+                  "optional": false,
+                  "type": {
+                    "kind": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "mainHeapBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "mainRssBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "holders": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "MemoryHolder"
+            }
           }
         }
       }

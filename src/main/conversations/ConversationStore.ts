@@ -154,6 +154,16 @@ class ConversationStore {
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  /**
+   * The file of every conversation being held whole in memory, for the memory report.
+   * An archived one is only a shell here until something opens it.
+   */
+  heldConversationFiles(): string[] {
+    return [...this.ensureCache().values()]
+      .filter((entry) => !entry.unloaded)
+      .map((entry) => entry.filePath)
+  }
+
   /** Return archived conversations, sorted by archivedAt/updatedAt descending. */
   listArchived(): Conversation[] {
     return this.archivedEntries()

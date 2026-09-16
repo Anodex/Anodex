@@ -104,6 +104,22 @@ class CheckpointStore {
     return checkpoints.sort((left, right) => right.createdAt - left.createdAt)
   }
 
+  /**
+   * The same inspection, or null when that turn has no checkpoint.
+   *
+   * A turn that changed nothing has none, and a phone asks after every turn it sends —
+   * so the missing case is ordinary, not a failure. Reported as one, it wrote a warning
+   * into the log every time somebody asked a question in a project.
+   */
+  inspectIfPresent(
+    workspaceRoot: string,
+    conversationId: string,
+    messageId: string
+  ): CheckpointPreview | null {
+    const stored = this.readFile(checkpointPath(workspaceRoot, conversationId, messageId))
+    return stored ? this.inspect(workspaceRoot, conversationId, messageId) : null
+  }
+
   inspect(workspaceRoot: string, conversationId: string, messageId: string): CheckpointPreview {
     const checkpoint = this.requireCheckpoint(workspaceRoot, conversationId, messageId)
     const restored = new Set(checkpoint.restoredPaths ?? [])

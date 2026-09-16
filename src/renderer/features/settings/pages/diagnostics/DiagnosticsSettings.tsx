@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { AppSettings, DiagnosticEntry, DiagnosticLogFile } from '@shared/settings.types'
+import type {
+  AppSettings,
+  DiagnosticEntry,
+  DiagnosticLogFile,
+  MemoryUsageReport
+} from '@shared/settings.types'
 import type { SupportBundlePreview } from '@shared/supportBundle.types'
 import { anodex } from '../../../../lib/anodex'
 import { useDiagnosticsStore } from '../../../../stores/diagnosticsStore'
@@ -33,6 +38,15 @@ const CATEGORY_LABELS: Record<DiagnosticEntry['category'], string> = {
   general: 'General'
 }
 
+/** Electron's own process names, as the person looking at them would say it. */
+function processLabel(kind: string): string {
+  if (kind === 'Browser') return 'Main process'
+  if (kind === 'Tab') return 'Window'
+  if (kind === 'GPU') return 'Graphics'
+  if (kind === 'Utility') return 'Helper'
+  return kind
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
@@ -48,6 +62,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
 
   const [filter, setFilter] = useState<DiagnosticEntry['severity'] | 'all'>('all')
   const [logFile, setLogFile] = useState<DiagnosticLogFile | null>(null)
+  const [memory, setMemory] = useState<MemoryUsageReport | null>(null)
   const [bundlePreview, setBundlePreview] = useState<SupportBundlePreview | null>(null)
   const [bundleLoading, setBundleLoading] = useState(false)
   const [bundleSaving, setBundleSaving] = useState(false)
@@ -58,6 +73,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
   // current rather than whatever it was when the app started.
   useEffect(() => {
     void anodex.diagnostics.getLogFile().then(setLogFile)
+    void anodex.diagnostics.getMemoryUsage().then(setMemory)
   }, [entries.length])
 
   const filtered = filter === 'all' ? entries : entries.filter((entry) => entry.severity === filter)
@@ -177,6 +193,50 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
           detail="Newest entries retained"
         />
       </div>
+
+      <section className={`${pageStyles.section} ${styles.section}`}>
+        <h2 className={pageStyles.sectionTitle}>Memory</h2>
+        <p className={pageStyles.sectionDesc}>
+          What Anodex is holding right now. Task Manager says one number per process; this says
+          which process, and what the large parts of it are.
+        </p>
+
+        <div className={styles.settingList}>
+          {memory ? (
+            <>
+              {memory.processes.map((process, index) => (
+                <SettingRow
+                  key={`${process.kind}-${index}`}
+                  label={processLabel(process.kind)}
+                  description={process.detail ?? ''}
+                  control={<span className={styles.memoryValue}>{formatSize(process.bytes)}</span>}
+                />
+              ))}
+              <SettingRow
+                label="Of the main process, JavaScript"
+                description="The rest is the runtime itself and what it has loaded."
+                control={
+                  <span className={styles.memoryValue}>{formatSize(memory.mainHeapBytes)}</span>
+                }
+              />
+              {memory.holders.map((holder) => (
+                <SettingRow
+                  key={holder.name}
+                  label={holder.name}
+                  description={holder.detail}
+                  control={
+                    <span className={styles.memoryValue}>
+                      {holder.bytes === null ? '—' : formatSize(holder.bytes)}
+                    </span>
+                  }
+                />
+              ))}
+            </>
+          ) : (
+            <SettingRow label="Reading…" description="" control={<span />} />
+          )}
+        </div>
+      </section>
 
       <section className={`${pageStyles.section} ${styles.section}`}>
         <h2 className={pageStyles.sectionTitle}>Logging</h2>

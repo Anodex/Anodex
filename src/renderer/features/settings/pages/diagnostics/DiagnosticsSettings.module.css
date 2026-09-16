@@ -611,3 +611,11 @@
     padding-left: 110px;
   }
 }
+
+/** The figure beside each line of the memory list. */
+.memoryValue {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
