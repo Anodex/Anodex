@@ -38,15 +38,20 @@ export function wordDigestOf(conversation: Conversation): string {
  * `searchTranscripts` surfaces a message scoring `MIN_SCORE` (2), and a message
  * scores one per distinct query word it contains plus three for carrying the
  * query verbatim. A one-word query therefore needs that word; a longer query
- * needs two of its words, because the verbatim phrase contains them all. Both
- * are asked of the conversation, which holds every word its messages do.
+ * needs two of its words, because the verbatim phrase contains them all.
+ *
+ * Asked as *substrings*, not whole words, because the verbatim match is a
+ * substring: searching for "checkpoint" surfaces a chat that only ever said
+ * "checkpoints", and against the real store a whole-word test dropped four such
+ * chats out of twenty-five. A query word is letters and digits only, so it can
+ * only ever sit inside one word of the text — and that word is in the digest.
  */
 export function couldMatch(digest: string, queryWords: Set<string>): boolean {
   if (queryWords.size === 0) return false
   const needed = Math.min(2, queryWords.size)
   let found = 0
   for (const word of queryWords) {
-    if (!digest.includes(` ${word} `)) continue
+    if (!digest.includes(word)) continue
     found += 1
     if (found >= needed) return true
   }
