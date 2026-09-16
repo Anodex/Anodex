@@ -7,6 +7,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DiagnosticEntry } from '@shared/settings.types'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -111,5 +112,88 @@ describe('DiagnosticsReporter wiring', () => {
     diagnosticsReporter.shutdown()
 
     expect(readLog()).toContain('session ended')
+  })
+})
+
+describe('one failure, one entry', () => {
+  it('attaches the code to the log line instead of filing a second entry', () => {
+    const before = diagnosticsReporter.list().length
+
+    // The shape every IPC handler uses: log the cause, then return it.
+    createLogger('conversations').warn(
+      'Failed to read visual preview:',
+      new Error('ENOENT: no such file or directory')
+    )
+    err(
+      'conversations.visual-preview-unavailable',
+      'This inspected screenshot is no longer available.',
+      'ENOENT: no such file or directory'
+    )
+
+    expect(diagnosticsReporter.list().length).toBe(before + 1)
+    const [entry] = diagnosticsReporter.list()
+    expect(entry.scope).toBe('conversations')
+    expect(entry.detail).toContain('code: conversations.visual-preview-unavailable')
+  })
+
+  it('still records a returned failure that no log line explains', () => {
+    const before = diagnosticsReporter.list().length
+
+    err('projects.missing', 'That project is gone.', 'lookup failed for id 41: not in the store')
+
+    expect(diagnosticsReporter.list().length).toBe(before + 1)
+    expect(diagnosticsReporter.list()[0].scope).toBe('projects.missing')
+  })
+
+  it('keeps two genuinely different failures apart', () => {
+    const before = diagnosticsReporter.list().length
+
+    createLogger('git').warn('Push failed:', new Error('remote rejected: non-fast-forward'))
+    err('email.sync-failed', 'Could not check for mail.', 'certificate has expired')
+
+    expect(diagnosticsReporter.list().length).toBe(before + 2)
+  })
+})
+
+describe('a failure that has since fixed itself', () => {
+  it('stops counting once its operation succeeds, and says when', () => {
+    createLogger('email:imap').error('Could not reach the mailbox:', new Error('ECONNREFUSED'))
+    createLogger('git').error('Push failed:', new Error('remote rejected'))
+
+    const mailbox = diagnosticsReporter.list().find((e) => e.scope === 'email:imap')
+    expect(mailbox?.resolvedAt).toBeUndefined()
+
+    diagnosticsReporter.resolved('email')
+
+    // Matched on the scope prefix, so `email:imap` and `email.sync-failed` both
+    // settle, and an unrelated subsystem is left alone.
+    expect(diagnosticsReporter.list().find((e) => e.scope === 'email:imap')?.resolvedAt).toEqual(
+      expect.any(Number)
+    )
+    expect(diagnosticsReporter.list().find((e) => e.scope === 'git')?.resolvedAt).toBeUndefined()
+  })
+
+  it('sends the settled entry out again so an open window can update it', () => {
+    createLogger('mcp').error('Server connection closed unexpectedly')
+    broadcastToWindows.mockClear()
+
+    diagnosticsReporter.resolved('mcp')
+
+    const sent = broadcastToWindows.mock.calls.map(
+      ([, entry]) => entry as DiagnosticEntry | undefined
+    )
+    expect(sent.some((entry) => entry?.scope === 'mcp' && entry.resolvedAt !== undefined)).toBe(
+      true
+    )
+  })
+
+  it('leaves a resolved entry alone when the operation succeeds again', () => {
+    createLogger('llama').error('Failed to load model:', new Error('out of memory'))
+    diagnosticsReporter.resolved('llama')
+    const first = diagnosticsReporter.list().find((e) => e.scope === 'llama')?.resolvedAt
+
+    diagnosticsReporter.resolved('llama')
+
+    expect(diagnosticsReporter.list().find((e) => e.scope === 'llama')?.resolvedAt).toBe(first)
   })
 })

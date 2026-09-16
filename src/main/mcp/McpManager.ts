@@ -19,6 +19,7 @@ import { createLogger } from '../utils/logger'
 import { mcpServerStore } from './McpServerStore'
 import { mcpAuthStore } from './McpAuthStore'
 import { McpOAuthProvider } from './oauth'
+import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 
 const log = createLogger('mcp')
 const MCP_CONNECT_TIMEOUT_MS = 20_000
@@ -426,6 +427,11 @@ class McpManager extends EventEmitter {
 
   private setStatus(state: McpServerState): void {
     this.statuses.set(state.id, state)
+    // Every route to a live server ends here, which makes this the one place
+    // that knows MCP is working again — including the reconnect after a server
+    // dropped out, whose earlier "connection closed unexpectedly" is exactly
+    // the kind of entry that used to sit there being wrong.
+    if (state.status === 'connected') diagnosticsReporter.resolved('mcp')
     this.emit('statusChanged', state)
   }
 }
