@@ -51,11 +51,13 @@ export function registerCheckpointHandlers(): void {
     const project = projectStore.getState().projects.find((item) => item.id === request.projectId)
     if (!project) return err('checkpoint.no-project', 'That project is no longer available.')
     try {
-      const preview = checkpointStore.inspect(
+      // Null for a turn that changed nothing: an ordinary answer, not a failure.
+      const preview = checkpointStore.inspectIfPresent(
         project.folderPath,
         request.conversationId,
         request.messageId
       )
+      if (!preview) return ok(null)
       return ok(isRemoteCall(event) ? withoutFileContents(preview) : preview)
     } catch (error) {
       return err(

@@ -36,10 +36,22 @@ function resolveModelPath(): string {
  * and this avoids contending for VRAM with — or risking any GPU-backend
  * interaction with — the much larger chat model that may already be loaded.
  */
+/**
+ * How long the model stays loaded after the last piece of text it embedded.
+ *
+ * It loads on the first code search and used to stay for the life of the app, whether
+ * or not anything searched code again — measured on the user's machine, the main
+ * process sat at 854MB with nothing saying what was in it. Ten minutes keeps it for a
+ * session of searching, and lets it go for the rest of the day. Reloading costs about
+ * a second on the next search.
+ */
+const IDLE_RELEASE_MS = 10 * 60_000
+
 class EmbeddingService {
   private model?: LlamaModel
   private context?: LlamaEmbeddingContext
   private loadPromise: Promise<void> | null = null
+  private idleTimer: ReturnType<typeof setTimeout> | null = null
 
   /** Whether the bundled model file is actually present on disk. */
   isAvailable(): boolean {
@@ -59,8 +71,40 @@ class EmbeddingService {
   async embed(text: string): Promise<number[]> {
     await this.ensureLoaded()
     if (!this.context) throw new Error('Embedding model failed to load.')
-    const embedding = await this.context.getEmbeddingFor(text)
-    return [...embedding.vector]
+    try {
+      const embedding = await this.context.getEmbeddingFor(text)
+      return [...embedding.vector]
+    } finally {
+      this.holdWhileInUse()
+    }
+  }
+
+  /** Whether the model is in memory right now. For the memory report. */
+  isLoaded(): boolean {
+    return this.context !== undefined
+  }
+
+  /**
+   * Let the model go now. Called on quit and by the idle timer; the next `embed`
+   * loads it again.
+   */
+  async release(): Promise<void> {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = null
+    if (!this.context && !this.model) return
+    this.loadPromise = null
+    await this.disposeModel()
+    log.info('Embedding model let go after a spell with no code search')
+  }
+
+  /** Restart the idle countdown; indexing a project keeps it loaded throughout. */
+  private holdWhileInUse(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    this.idleTimer = setTimeout(() => {
+      void this.release()
+    }, IDLE_RELEASE_MS)
+    // A pending timer must not hold a quitting app open.
+    this.idleTimer.unref?.()
   }
 
   private async ensureLoaded(): Promise<void> {
