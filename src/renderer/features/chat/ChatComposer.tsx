@@ -357,7 +357,7 @@ export function ChatComposer(): JSX.Element {
               title="Send after the current reply finishes"
               aria-label="Queue message"
             >
-              <Icon name="send" size={16} />
+              <Icon name="send-fill" size={16} />
             </button>
           ) : (
             <button
@@ -367,7 +367,7 @@ export function ChatComposer(): JSX.Element {
               title="Send message"
               aria-label="Send message"
             >
-              <Icon name="send" size={16} />
+              <Icon name="send-fill" size={16} />
             </button>
           )}
         </div>
