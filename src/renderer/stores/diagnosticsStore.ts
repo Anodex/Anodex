@@ -19,9 +19,10 @@ interface DiagnosticsState {
   add: (entry: NewDiagnosticEntry) => void
   /**
    * Merge already-stamped entries recorded by the main process (background
-   * services, crash handlers) into the list, newest first, ignoring ones
-   * already present. Called both with the backlog replayed on mount and with
-   * single entries as they're broadcast live.
+   * services, crash handlers) into the list, newest first. Called both with the
+   * backlog replayed on mount and with single entries as they're broadcast
+   * live — and again for an entry that has changed since, which is how a
+   * failure learns it has been resolved or picks up its failure code.
    */
   ingest: (incoming: DiagnosticEntry[]) => void
   /** Remove a single entry by id. */
@@ -105,15 +106,32 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
 
   ingest: (incoming) =>
     set((state) => {
-      const known = new Set(state.entries.map((entry) => entry.id))
-      const fresh = incoming.filter((entry) => entry.id && !known.has(entry.id))
-      if (fresh.length === 0) return { entries: state.entries }
+      const usable = incoming.filter((entry) => entry.id)
+      if (usable.length === 0) return { entries: state.entries }
+
+      // An id already held is the same entry sent again because it changed —
+      // it was resolved, or its failure code arrived. Take the newer copy
+      // rather than dropping it: the main process is the authority on its own
+      // entries, and ignoring the update was what made a resolved failure go on
+      // looking unresolved.
+      const updates = new Map(usable.map((entry) => [entry.id, entry]))
+      let replaced = false
+      const merged = state.entries.map((entry) => {
+        const update = updates.get(entry.id)
+        if (!update) return entry
+        updates.delete(entry.id)
+        replaced = true
+        return update
+      })
+
+      const fresh = [...updates.values()]
+      if (fresh.length === 0 && !replaced) return { entries: state.entries }
 
       // Main-process entries keep their detail regardless of the verbose
       // setting: a stack trace is the entire point of surfacing a background
       // failure, and verbose governs the UI's own debug chatter, not failures
       // that already happened. The full text is in the log file either way.
-      const next = [...fresh, ...state.entries].sort((a, b) => b.timestamp - a.timestamp)
+      const next = [...fresh, ...merged].sort((a, b) => b.timestamp - a.timestamp)
       if (next.length > runtimeSettings.maxEntries) next.length = runtimeSettings.maxEntries
       return commitEntries(next)
     }),
@@ -133,7 +151,12 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set, get) => ({
         const where = e.source === 'main' ? ' [background service]' : ''
         const fix = e.suggestedFix ? `\n  Suggested fix: ${e.suggestedFix}` : ''
         const detail = e.detail ? `\n  Detail: ${e.detail}` : ''
-        return `[${time}] ${e.severity.toUpperCase()} (${origin})${where}: ${e.message}${detail}${fix}`
+        // Say so in the export too: whoever reads this needs to know which of
+        // these still stand.
+        const settled = e.resolvedAt
+          ? `\n  Resolved: ${new Date(e.resolvedAt).toISOString()} (the operation succeeded later)`
+          : ''
+        return `[${time}] ${e.severity.toUpperCase()} (${origin})${where}: ${e.message}${detail}${fix}${settled}`
       })
       .join('\n\n')
   }
