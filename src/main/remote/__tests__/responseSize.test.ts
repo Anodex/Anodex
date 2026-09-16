@@ -9,8 +9,9 @@ import type { ServerFrame } from '../protocol'
 /**
  * What happens when a handler returns more than a phone can hold.
  *
- * This is not a hypothetical limit. `conversations:list` returns every conversation
- * with every message, and against a real store that was 123MB of JSON. A WebSocket
+ * This is not a hypothetical limit. There was a `conversations:list` that returned
+ * every conversation with every message, and against a real store that was 123MB of
+ * JSON. It has since been removed; the guard below is why it never mattered twice. A WebSocket
  * message is buffered whole before the client can look at it, so the phone died with
  * `OutOfMemoryError` inside OkHttp's reader thread — where it cannot be caught, and
  * where it takes the process with it.
@@ -46,7 +47,7 @@ describe('a reply too large to send', () => {
     pairing = new PairingService(store)
 
     bridge = new RemoteBridge(pairing, certificate, (channel) =>
-      channel === 'conversations:list'
+      channel === 'conversations:list-archived'
         ? () => [{ id: 'c1', content: 'x'.repeat(MAX_RESPONSE_BYTES + 1024) }]
         : channel === 'conversations:list-summaries'
           ? () => [{ id: 'c1', title: 'Small', messageCount: 4000 }]
@@ -87,7 +88,7 @@ describe('a reply too large to send', () => {
   it('answers with an error rather than sending it', async () => {
     const socket = await connected()
     socket.send(
-      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list', args: [] })
+      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list-archived', args: [] })
     )
 
     const frame = await nextFrame(socket)
@@ -105,7 +106,7 @@ describe('a reply too large to send', () => {
     // error that quotes the payload back is the same size as the payload.
     const socket = await connected()
     socket.send(
-      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list', args: [] })
+      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list-archived', args: [] })
     )
 
     const raw = await new Promise<Buffer>((resolve) => {
@@ -121,7 +122,7 @@ describe('a reply too large to send', () => {
     // too big; everything else still works, and the app should stay up.
     const socket = await connected()
     socket.send(
-      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list', args: [] })
+      JSON.stringify({ type: 'invoke', id: '1', channel: 'conversations:list-archived', args: [] })
     )
     await nextFrame(socket)
 

@@ -21,8 +21,6 @@ const log = createLogger('ipc:conversations')
 
 /** IPC handlers for conversation persistence. */
 export function registerConversationHandlers(): void {
-  ipcMain.handle(IpcChannel.Conversations.list, () => conversationStore.list())
-
   // From the shallow list: a sidebar shows titles, and reading every old chat's
   // messages to throw them away again is the work this avoids.
   ipcMain.handle(IpcChannel.Conversations.listWithoutMessages, () =>

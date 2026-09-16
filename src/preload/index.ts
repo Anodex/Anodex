@@ -138,7 +138,6 @@ const api: AnodexApi = {
     revealPath: (path) => ipcRenderer.invoke(IpcChannel.Backup.revealPath, path)
   },
   conversations: {
-    list: () => ipcRenderer.invoke(IpcChannel.Conversations.list),
     listWithoutMessages: () => ipcRenderer.invoke(IpcChannel.Conversations.listWithoutMessages),
     listSummaries: () => ipcRenderer.invoke(IpcChannel.Conversations.listSummaries),
     search: (query) => ipcRenderer.invoke(IpcChannel.Conversations.search, query),
