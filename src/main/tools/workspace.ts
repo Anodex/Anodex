@@ -8,18 +8,33 @@ const log = createLogger('workspace')
 const MAX_LINK_HOPS = 16
 
 /**
+ * Resolve a supplied path against `root` and guarantee it stays inside it.
+ *
+ * Both the lexical escape (`..`, an absolute path elsewhere) and the symlink
+ * escape are checked here, and `boundary` only names the thing in the refusal
+ * so each caller's message reads for its own boundary.
+ *
+ * Callers that need the workspace want {@link resolveInWorkspace}; this exists
+ * because the model downloader had grown its own containment check, and a rule
+ * about what is inside what is not a thing to hold two opinions on.
+ */
+export function resolveContained(root: string, requested: string, boundary: string): string {
+  const target = isAbsolute(requested) ? resolve(requested) : resolve(root, requested)
+  if (!isPathInside(root, target)) {
+    throw new Error(`Path "${requested}" is outside the ${boundary} and was blocked.`)
+  }
+  assertRealPathInside(root, target, requested, boundary)
+  return target
+}
+
+/**
  * Resolve a user/AI-supplied path against the workspace root and guarantee it
  * stays inside it. This is the core safety boundary for every file tool — a
  * path that escapes the workspace (via `..` or an absolute path elsewhere)
  * throws instead of touching the filesystem.
  */
 export function resolveInWorkspace(root: string, requested: string): string {
-  const target = isAbsolute(requested) ? resolve(requested) : resolve(root, requested)
-  if (!isPathInside(root, target)) {
-    throw new Error(`Path "${requested}" is outside the workspace and was blocked.`)
-  }
-  assertRealPathInside(root, target, requested)
-  return target
+  return resolveContained(root, requested, 'workspace')
 }
 
 /** Present an absolute path as a clean, forward-slashed workspace-relative path. */
@@ -39,13 +54,18 @@ function isPathInside(root: string, target: string): boolean {
  * the real workspace and the target's nearest existing ancestor so existing
  * links are confined while brand-new nested files can still be created.
  */
-function assertRealPathInside(root: string, target: string, requested: string): void {
+function assertRealPathInside(
+  root: string,
+  target: string,
+  requested: string,
+  boundary: string
+): void {
   let realRoot: string
   try {
     realRoot = realpathSync.native(root)
   } catch (error) {
     log.warn(
-      `Could not resolve the real workspace root path — symlink confinement checks are ` +
+      `Could not resolve the real ${boundary} root path — symlink confinement checks are ` +
         `disabled for this session (lexical ".."/absolute-path checks still apply):`,
       error
     )
@@ -59,7 +79,7 @@ function assertRealPathInside(root: string, target: string, requested: string): 
   }
 
   if (!isPathInside(realRoot, realTarget)) {
-    throw new Error(`Path "${requested}" is outside the workspace and was blocked.`)
+    throw new Error(`Path "${requested}" is outside the ${boundary} and was blocked.`)
   }
 }
 
