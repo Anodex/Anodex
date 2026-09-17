@@ -960,7 +960,8 @@ export interface AnodexApi {
   }
   workspace: {
     /** Files in the active workspace, each attributed to the user or the AI. */
-    listFiles(): Promise<Result<WorkspaceTreeNode[]>>
+    /** The project to list. Omitted means the active one, which is what the window wants. */
+    listFiles(projectId?: string | null): Promise<Result<WorkspaceTreeNode[]>>
     /** Resolve a workspace-relative path to an absolute one, for copying. */
     getAbsolutePath(relativePath: string): Promise<Result<string>>
     /** Reveal a file in the OS's file explorer/finder. */
@@ -968,9 +969,20 @@ export interface AnodexApi {
     /** Open a file with its OS-registered default application. */
     openPath(relativePath: string): Promise<Result<void>>
     /** Move a file or folder to the OS Recycle Bin/Trash (recoverable). */
-    deletePath(relativePath: string): Promise<Result<void>>
+    deletePath(relativePath: string, projectId?: string | null): Promise<Result<void>>
     /** Read a workspace file's contents for the in-app viewer/editor. */
-    readFileContent(relativePath: string): Promise<Result<WorkspaceFileContent>>
+    /**
+     * Read one file out of a project.
+     *
+     * `projectId` exists because a caller can mean a project that is not the
+     * active one — a phone looking at a conversation it scrolled to, and the
+     * diff beside it, which resolves the same way. Omitted keeps the old
+     * behaviour: the active project.
+     */
+    readFileContent(
+      relativePath: string,
+      projectId?: string | null
+    ): Promise<Result<WorkspaceFileContent>>
     /** Save new contents to a workspace file from the in-app editor (direct user action, not AI-gated). */
     writeFileContent(relativePath: string, content: string): Promise<Result<void>>
     /**

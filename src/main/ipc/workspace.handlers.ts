@@ -3,10 +3,10 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
-import { settingsStore } from '../settings/SettingsStore'
 import { projectStore } from '../projects/ProjectStore'
 import { listWorkspaceFiles } from '../workspace/listWorkspaceFiles'
 import { resolveInWorkspace } from '../tools/workspace'
+import { rootFor } from './workspaceRoot'
 import { prepareHtmlPreviewSource } from '../tools/previewTools'
 import {
   hasHtmlPreviewWindow,
@@ -39,12 +39,12 @@ export function imageMimeType(path: string): string {
 
 /** IPC handlers for the Files dock panel. */
 export function registerWorkspaceHandlers(): void {
-  ipcMain.handle(IpcChannel.Workspace.listFiles, async () => {
+  ipcMain.handle(IpcChannel.Workspace.listFiles, async (_event, projectId?: string | null) => {
     try {
-      const root = settingsStore.get().workspace.root
+      const root = rootFor(projectId)
       if (!root) return ok([])
-      const projectId = projectStore.getState().activeProjectId
-      return ok(await listWorkspaceFiles(root, projectId))
+      const scope = projectId ?? projectStore.getState().activeProjectId
+      return ok(await listWorkspaceFiles(root, scope))
     } catch (error) {
       return err(
         'workspace.list-files-failed',
@@ -55,7 +55,7 @@ export function registerWorkspaceHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Workspace.getAbsolutePath, (_event, relativePath: string) => {
-    const root = settingsStore.get().workspace.root
+    const root = rootFor()
     if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
     try {
       return ok(resolveInWorkspace(root, relativePath))
@@ -65,7 +65,7 @@ export function registerWorkspaceHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Workspace.revealInFileExplorer, (_event, relativePath: string) => {
-    const root = settingsStore.get().workspace.root
+    const root = rootFor()
     if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
     try {
       shell.showItemInFolder(resolveInWorkspace(root, relativePath))
@@ -80,7 +80,7 @@ export function registerWorkspaceHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Workspace.openPath, async (_event, relativePath: string) => {
-    const root = settingsStore.get().workspace.root
+    const root = rootFor()
     if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
     try {
       const target = resolveInWorkspace(root, relativePath)
@@ -94,48 +94,54 @@ export function registerWorkspaceHandlers(): void {
     }
   })
 
-  ipcMain.handle(IpcChannel.Workspace.deletePath, async (_event, relativePath: string) => {
-    const root = settingsStore.get().workspace.root
-    if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
-    try {
-      // Moves to the OS Recycle Bin/Trash rather than permanently deleting —
-      // recoverable if a user (or the confirmation dialog) gets it wrong.
-      await shell.trashItem(resolveInWorkspace(root, relativePath))
-      return ok(undefined)
-    } catch (error) {
-      return err('workspace.delete-failed', 'Could not delete that item.', toErrorMessage(error))
+  ipcMain.handle(
+    IpcChannel.Workspace.deletePath,
+    async (_event, relativePath: string, projectId?: string | null) => {
+      const root = rootFor(projectId)
+      if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+      try {
+        // Moves to the OS Recycle Bin/Trash rather than permanently deleting —
+        // recoverable if a user (or the confirmation dialog) gets it wrong.
+        await shell.trashItem(resolveInWorkspace(root, relativePath))
+        return ok(undefined)
+      } catch (error) {
+        return err('workspace.delete-failed', 'Could not delete that item.', toErrorMessage(error))
+      }
     }
-  })
+  )
 
-  ipcMain.handle(IpcChannel.Workspace.readFileContent, async (_event, relativePath: string) => {
-    const root = settingsStore.get().workspace.root
-    if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
-    try {
-      const file = resolveInWorkspace(root, relativePath)
-      const info = await stat(file)
-      if (info.size > MAX_EDITABLE_BYTES) {
-        return ok({ kind: 'too-large', sizeBytes: info.size } as const)
+  ipcMain.handle(
+    IpcChannel.Workspace.readFileContent,
+    async (_event, relativePath: string, projectId?: string | null) => {
+      const root = rootFor(projectId)
+      if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
+      try {
+        const file = resolveInWorkspace(root, relativePath)
+        const info = await stat(file)
+        if (info.size > MAX_EDITABLE_BYTES) {
+          return ok({ kind: 'too-large', sizeBytes: info.size } as const)
+        }
+        const buffer = await readFile(file)
+        if (isImagePath(file)) {
+          const dataUrl = `data:${imageMimeType(file)};base64,${buffer.toString('base64')}`
+          return ok({ kind: 'image', dataUrl } as const)
+        }
+        if (isLikelyBinary(buffer)) return ok({ kind: 'binary' } as const)
+        return ok({ kind: 'text', content: buffer.toString('utf-8') } as const)
+      } catch (error) {
+        return err(
+          'workspace.read-content-failed',
+          'Could not read that file.',
+          toErrorMessage(error)
+        )
       }
-      const buffer = await readFile(file)
-      if (isImagePath(file)) {
-        const dataUrl = `data:${imageMimeType(file)};base64,${buffer.toString('base64')}`
-        return ok({ kind: 'image', dataUrl } as const)
-      }
-      if (isLikelyBinary(buffer)) return ok({ kind: 'binary' } as const)
-      return ok({ kind: 'text', content: buffer.toString('utf-8') } as const)
-    } catch (error) {
-      return err(
-        'workspace.read-content-failed',
-        'Could not read that file.',
-        toErrorMessage(error)
-      )
     }
-  })
+  )
 
   ipcMain.handle(
     IpcChannel.Workspace.writeFileContent,
     async (_event, relativePath: string, content: string) => {
-      const root = settingsStore.get().workspace.root
+      const root = rootFor()
       if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
       try {
         const file = resolveInWorkspace(root, relativePath)
@@ -154,7 +160,7 @@ export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     IpcChannel.Workspace.prepareHtmlPreview,
     async (_event, relativePath: string, html: string) => {
-      const root = settingsStore.get().workspace.root
+      const root = rootFor()
       if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
       try {
         return ok(await prepareHtmlPreviewSource(root, relativePath, html))
@@ -171,7 +177,7 @@ export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     IpcChannel.Workspace.openHtmlPreviewWindow,
     async (_event, relativePath: string, title: string, html: string) => {
-      const root = settingsStore.get().workspace.root
+      const root = rootFor()
       if (!root) return err('workspace.no-root', 'No workspace folder is selected.')
       try {
         const content = await prepareHtmlPreviewSource(root, relativePath, html)
@@ -194,7 +200,7 @@ export function registerWorkspaceHandlers(): void {
     IpcChannel.Workspace.refreshHtmlPreviewWindow,
     async (_event, relativePath: string, html: string) => {
       if (!hasHtmlPreviewWindow(relativePath)) return ok(false)
-      const root = settingsStore.get().workspace.root
+      const root = rootFor()
       if (!root) return ok(false)
       try {
         // A reload replaces the exact document the model was observing. It is
