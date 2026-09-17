@@ -1,12 +1,14 @@
 import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type {
+  CheckpointFileDiffRequest,
   CheckpointPreview,
   CheckpointRequest,
   RollbackCheckpointsRequest,
   RestoreCheckpointRequest,
   UndoCheckpointRequest
 } from '@shared/checkpoint.types'
+import { buildRemoteFileDiff } from '@shared/checkpointDiff'
 import { err, ok, toErrorMessage } from '@shared/result'
 import { projectStore } from '../projects/ProjectStore'
 import { checkpointStore } from '../checkpoints/CheckpointStore'
@@ -63,6 +65,34 @@ export function registerCheckpointHandlers(): void {
       return err(
         'checkpoint.inspect-failed',
         'Could not inspect that checkpoint.',
+        toErrorMessage(error)
+      )
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Checkpoints.diffFile, (_event, request: CheckpointFileDiffRequest) => {
+    const project = projectStore.getState().projects.find((item) => item.id === request.projectId)
+    if (!project) return err('checkpoint.no-project', 'That project is no longer available.')
+    try {
+      const preview = checkpointStore.inspectIfPresent(
+        project.folderPath,
+        request.conversationId,
+        request.messageId
+      )
+      // Same answer as `inspect` gives for a turn that changed nothing: an
+      // ordinary null, not a failure.
+      if (!preview) return ok(null)
+
+      const file = preview.files.find((item) => item.path === request.path)
+      if (!file) {
+        return err('checkpoint.no-file', 'That turn did not change that file.')
+      }
+
+      return ok(buildRemoteFileDiff(file))
+    } catch (error) {
+      return err(
+        'checkpoint.diff-failed',
+        'Could not read what changed in that file.',
         toErrorMessage(error)
       )
     }

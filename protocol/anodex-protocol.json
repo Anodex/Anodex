@@ -1209,6 +1209,67 @@
       }
     },
     {
+      "channel": "checkpoints:diff-file",
+      "kind": "invoke",
+      "api": "checkpoints.diffFile",
+      "args": [
+        {
+          "name": "request",
+          "optional": false,
+          "type": {
+            "$ref": "CheckpointFileDiffRequest"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "null"
+                    },
+                    {
+                      "$ref": "CheckpointFileDiff"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "checkpoints:inspect",
       "kind": "invoke",
       "api": "checkpoints.inspect",
@@ -11410,6 +11471,99 @@
                 "$ref": "PromptReadingProgress"
               }
             ]
+          }
+        }
+      }
+    },
+    "CheckpointFileDiff": {
+      "kind": "object",
+      "properties": {
+        "path": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "kind": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "created"
+              },
+              {
+                "kind": "literal",
+                "value": "modified"
+              },
+              {
+                "kind": "literal",
+                "value": "deleted"
+              }
+            ]
+          }
+        },
+        "binary": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "added": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "removed": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "rows": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "UnifiedDiffLine"
+            }
+          }
+        },
+        "truncated": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      }
+    },
+    "CheckpointFileDiffRequest": {
+      "kind": "object",
+      "properties": {
+        "path": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "projectId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "conversationId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "messageId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }
@@ -24229,6 +24383,87 @@
           "optional": false,
           "type": {
             "$ref": "CheckpointSummary"
+          }
+        }
+      }
+    },
+    "UnifiedDiffLine": {
+      "kind": "object",
+      "properties": {
+        "type": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "unchanged"
+              },
+              {
+                "kind": "literal",
+                "value": "added"
+              },
+              {
+                "kind": "literal",
+                "value": "removed"
+              },
+              {
+                "kind": "literal",
+                "value": "blank"
+              },
+              {
+                "kind": "literal",
+                "value": "gap"
+              }
+            ]
+          }
+        },
+        "text": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "oldLine": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "newLine": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "count": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
           }
         }
       }
