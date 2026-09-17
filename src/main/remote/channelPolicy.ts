@@ -151,6 +151,68 @@ export const ALLOWED_CHANNELS = [
   // are, not because each was argued for one at a time.
 ] as const
 
+/**
+ * Event channels a paired phone is not sent.
+ *
+ * `decideRemoteChannel` guards what a phone may *ask for*. Nothing guarded what
+ * the computer *sends back on its own* — `broadcastToWindows` fanned every event
+ * out to every attached client, phone included, and the two halves of the same
+ * rule did not agree.
+ *
+ * This is not a second opinion about trust. The phone is trusted and nothing it
+ * can do changes here, because everything it does is a request. This is about the
+ * two cases where sending anyway is either dishonest or simply wasteful.
+ *
+ * `remote:` is deliberately **not** on this list, and the difference is the whole
+ * point of having two functions rather than one shared list. A phone is refused
+ * the ability to *change* the connection it depends on; being *told* about that
+ * connection is how it shows you whether it is online. Blocking the events
+ * because the requests are blocked would be pattern-matching on a prefix instead
+ * of reading the reason under it.
+ */
+export const DENIED_EVENT_PREFIXES = [
+  /**
+   * The refusal on the request side is only half a refusal if the output arrives
+   * anyway.
+   *
+   * `terminal:` is closed to a phone because a raw stream has no confirmation
+   * step. A phone cannot open a session, so today nothing addresses terminal
+   * output to one — but that is an accident of who holds the session, not a rule,
+   * and the day something broadcasts terminal output the block becomes decorative
+   * without anybody editing it.
+   */
+  'terminal:',
+
+  /**
+   * A feature the phone does not have, streaming token by token to a phone that
+   * drops every frame.
+   *
+   * Critical thinking stays on the computer — the owner's decision, and the phone
+   * has no code for it at all. Meanwhile `CriticalThinkingService` announces every
+   * token through the unmetered broadcast, so a run spends somebody's mobile data
+   * on a screen that does not exist. `broadcastLiveToken` was written for exactly
+   * this cost and this path never used it.
+   *
+   * If the phone ever grows a critical-thinking screen, this line comes out — and
+   * the send should move to `broadcastLiveToken` at the same time, so it is a
+   * choice rather than a firehose.
+   */
+  'critical-thinking:'
+] as const
+
+/**
+ * Whether an event may be sent to a paired phone.
+ *
+ * Deliberately a plain boolean rather than [RemoteChannelDecision]. A refused
+ * *request* must be named, because the phone is waiting on a reply and silence
+ * reads as a hang. A refused *event* has nobody waiting: not sending it is the
+ * whole action, and inventing a failure frame to describe it would put something
+ * on the wire that the block exists to keep off.
+ */
+export function mayPushToRemote(channel: string): boolean {
+  return !DENIED_EVENT_PREFIXES.some((prefix) => channel.startsWith(prefix))
+}
+
 export type RemoteChannelDecision =
   { allowed: true } | { allowed: false; reason: string; message: string }
 
