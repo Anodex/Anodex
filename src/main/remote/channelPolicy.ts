@@ -13,10 +13,17 @@
  * features rather than silently adding them, which is the failure nobody
  * notices until a user reports it.
  *
- * The mitigation for choosing the riskier default is that **the deny rules below
- * are enforced by a test that reads the generated protocol artifact**, so a new
- * channel matching a dangerous prefix fails the build rather than quietly
- * becoming remotely reachable.
+ * The mitigation for choosing the riskier default is that **the reachable set is
+ * pinned by a test that reads the generated protocol artifact** — see
+ * `remoteReach.test.ts`. A channel added later is compared against that list, so
+ * making one reachable is a deliberate edit rather than a silent consequence.
+ *
+ * That sentence used to be here without the test existing. The denylist was
+ * chosen *because* of a mitigation that was never built, and five channels had
+ * meanwhile become reachable that the rules below already covered in another
+ * spelling: two `shell.openExternal` calls, a `shell.openPath`, a native save
+ * sheet, and a desktop context-menu callback. Every one of them is denied
+ * further down now, and the test is what stops the next one.
  */
 
 /**
@@ -100,6 +107,34 @@ export const DENIED_CHANNELS = [
 
   // Opens a window on a screen nobody is looking at.
   'workspace:reveal-in-explorer',
+
+  /**
+   * The same three acts as the entries around them, reached by another name.
+   *
+   * `projects:open-folder` is `shell.openPath` — the identical call that
+   * `workspace:open-path` two lines up is denied for, on a folder rather than a
+   * file. The other two are `shell.openExternal`, which hands a URL to the
+   * host's browser. All three were reachable from a phone while the channels
+   * they are indistinguishable from were not, which is the whole of the reason
+   * they are here: the rule was already decided, it just had not been applied
+   * to every channel that performs it.
+   */
+  'projects:open-folder',
+  'projects:open-in-browser',
+  'email:open-webmail',
+
+  /**
+   * A native save sheet on the host. The first category above, and
+   * `diagnostics:reveal-log` — its sibling, one handler over — was already here.
+   */
+  'diagnostics:save-support-bundle',
+
+  /**
+   * Invokes a callback registered by a right-click menu on the desktop. There is
+   * no menu open on a computer nobody is at, so from a phone this can only ever
+   * fire a stale action or nothing.
+   */
+  'context-menu:run-action',
   'workspace:open-html-preview-window',
   'workspace:refresh-html-preview-window',
 
