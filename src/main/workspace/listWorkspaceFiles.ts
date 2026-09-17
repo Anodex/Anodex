@@ -14,8 +14,20 @@ const MAX_FILES = 500
  * to see mixed in with their real project files (the Workspace Dock's
  * Checkpoints panel is the real UI for this data). The rest of `.anodex`
  * (skills, notes) stays visible; only this one subdirectory is excluded.
+ *
+ * At any depth, not only at the root. Projects nest — `Sandbox` contains
+ * `Sandbox/Bench`, and both are projects — so browsing the parent walked into
+ * the child's `.anodex/checkpoints` and filled the listing with hundreds of
+ * `agent_msg_*.json` blobs, burying the files somebody opened the panel to
+ * find. The exclusion compared the whole relative path, which only ever
+ * matched the root's own copy.
  */
 const CHECKPOINTS_DIR = '.anodex/checkpoints'
+
+/** `.anodex/checkpoints` at the root, or any project's copy nested below it. */
+function isCheckpointsDir(path: string): boolean {
+  return path === CHECKPOINTS_DIR || path.endsWith(`/${CHECKPOINTS_DIR}`)
+}
 
 /**
  * How much slack to give between a file's real mtime and the AI's recorded
@@ -76,7 +88,7 @@ async function walk(
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue
       const path = toWorkspaceRelative(root, full)
-      if (path === CHECKPOINTS_DIR) continue
+      if (isCheckpointsDir(path)) continue
       const children = await walk(full, root, memory, budget)
       if (children.length === 0) continue
       nodes.push({
