@@ -42,13 +42,17 @@ describe('what a phone may do inside the workspace', () => {
   })
 
   it('may delete a file, with the phone asking first', () => {
-    // Refused here once, because deleting is irreversible and there is no undo
-    // waiting on the other end. That is still true — what changed is where the
-    // guard sits. A refusal the person cannot override protects nobody who
-    // actually meant it; a confirmation they can read does. The phone asks
-    // before it calls this, which is the owner's decision and the same shape the
-    // app already uses for conversations, where the archive is the only place
-    // anything is thrown out for good.
+    // Refused here once, on the reasoning that deleting is irreversible. It is
+    // not: the handler calls `shell.trashItem`, so the file goes to the Recycle
+    // Bin and a person can take it back out. The refusal was guarding against a
+    // cost that was never being paid.
+    //
+    // What is left is worth a confirmation and not a locked door. A refusal the
+    // person cannot override protects nobody who actually meant it; a sentence
+    // saying where the file goes lets them decide in the second before it
+    // happens. The phone asks first, and says "Recycle Bin" rather than "are you
+    // sure" — which is the same shape the app already uses for conversations,
+    // where the archive is the only place anything is thrown out for good.
     expect(decideRemoteChannel(IpcChannel.Workspace.deletePath).allowed).toBe(true)
   })
 })
