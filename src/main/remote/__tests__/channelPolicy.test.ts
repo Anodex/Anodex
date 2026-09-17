@@ -4,148 +4,115 @@ import { decideRemoteChannel } from '../channelPolicy'
 /**
  * What a paired phone may reach.
  *
- * The policy is a denylist, which fails open, so these tests are the mitigation:
- * a channel that must never be remote is asserted here rather than trusted to a
- * prefix somebody remembered to add.
+ * The owner's decision, stated plainly: **a paired phone is the user's own
+ * trusted phone, and may see and do what they can do at the machine.** Pairing
+ * is the trust boundary, and it is a strong one — a pinned certificate, a
+ * 40-bit code that lives two minutes, five guesses before a lockout, and a
+ * 256-bit device key the computer only ever stores a hash of.
+ *
+ * These tests used to assert the opposite, group by group, each with its own
+ * reasoning about what a phone should not be trusted with. That argument is
+ * gone. What is left is narrow and is not about trust, so this file pins the
+ * *reasons* rather than a list: the tempting future edit is to widen one of the
+ * two remaining refusals because it looks arbitrary beside everything allowed.
  */
 describe('remote channel policy', () => {
-  it('refuses the channels that would be remote code execution', () => {
+  it('lets a trusted phone do what the person holding it could do at the desk', () => {
+    // Every one of these was refused before, each on its own written-down
+    // reasoning about what a phone should not be trusted with.
     for (const channel of [
-      'terminal:write',
-      'terminal:create',
+      'settings:get',
+      'settings:update',
+      'mcp:add',
+      'mcp:remove',
+      'memory:create',
+      'memory:update',
+      'models:download',
+      'models:delete',
+      'models:unload',
       'computer-control:start',
-      'computer-control:list-desktop-targets'
+      'checkpoints:restore',
+      'checkpoints:undo',
+      'checkpoints:rollback',
+      'workspace:delete-path'
     ]) {
-      expect(decideRemoteChannel(channel).allowed).toBe(false)
+      expect(decideRemoteChannel(channel).allowed, channel).toBe(true)
     }
   })
 
-  it('refuses configuration surfaces', () => {
-    // A phone that can rewrite settings can turn off the protections that let it
-    // connect at all.
-    for (const channel of ['settings:update', 'mcp:add', 'memory:save', 'remote:set-enabled']) {
-      expect(decideRemoteChannel(channel).allowed).toBe(false)
-    }
-  })
-
-  it('refuses handlers that would open a dialog on the host', () => {
-    // A window appearing on a computer in another room, in front of nobody,
-    // blocking whatever asked for it.
-    for (const channel of ['attachments:pick-files', 'critical-thinking:export-pdf']) {
-      expect(decideRemoteChannel(channel).allowed).toBe(false)
-    }
-  })
-
-  it('allows reading the model state despite the models: prefix', () => {
-    // The carve-out exists because the whole prefix left the phone's connection
-    // header permanently blank — it is a read, and §8 lists it as allowed.
-    expect(decideRemoteChannel('models:get-state').allowed).toBe(true)
-    expect(decideRemoteChannel('models:state-changed').allowed).toBe(true)
-  })
-
-  it('still refuses the models: channels that acquire or destroy', () => {
-    // `models:load` used to be in this list. Switching between models already on
-    // the machine was allowed deliberately — see `modelSwitching.test.ts`, which
-    // draws the line and pins both sides of it. What stayed refused is anything
-    // that writes gigabytes to someone else's disk or removes a file for good.
-    for (const channel of ['models:delete', 'models:download', 'models:add']) {
-      expect(decideRemoteChannel(channel).allowed).toBe(false)
-    }
-  })
-
-  it('allows the surfaces the phone exists for', () => {
+  it('still refuses the settings that govern the connection itself', () => {
+    // Not because a phone might abuse them. Because changing the port, the
+    // address or the listener from the device that depends on them is how a
+    // phone locks itself out of the computer it is talking to, and the way back
+    // is a walk to the desk.
     for (const channel of [
-      'chat:send',
-      'chat:stop',
-      'tools:confirm-response',
-      'conversation:list',
-      'agent:list',
-      'workspace:read-file',
-      'email:list'
+      'remote:set-enabled',
+      'remote:set-port',
+      'remote:set-manual-address',
+      'remote:set-internet-access',
+      'remote:begin-pairing',
+      'remote:revoke'
     ]) {
-      expect(decideRemoteChannel(channel).allowed).toBe(true)
+      expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
     }
   })
 
-  it('lets a phone manage the paired devices, but never who may pair', () => {
-    for (const channel of ['devices:list', 'devices:rename', 'devices:unpair']) {
-      expect(decideRemoteChannel(channel).allowed).toBe(true)
+  it('still refuses the terminal, the one surface with nothing to confirm', () => {
+    // `run_command` is reachable and goes through the approval flow, so a phone
+    // can already have the computer run things — with a yes in between. A raw
+    // terminal stream has no such step.
+    for (const channel of ['terminal:create', 'terminal:write', 'terminal:kill']) {
+      expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
     }
-    for (const channel of ['remote:begin-pairing', 'remote:set-enabled', 'remote:revoke']) {
-      expect(decideRemoteChannel(channel).allowed).toBe(false)
+  })
+
+  it('still refuses what would only put a window on an empty desk', () => {
+    // Not a permission decision, and not permanent: each becomes an ordinary
+    // feature the moment it is made to work on the phone's own screen. A picker
+    // or a save sheet opening on a computer in another room blocks whatever
+    // asked for it, in front of nobody, with the phone showing no sign of it.
+    for (const channel of [
+      'attachments:pick-files',
+      'critical-thinking:export-pdf',
+      'diagnostics:save-support-bundle',
+      'workspace:open-path',
+      'workspace:reveal-in-explorer',
+      'projects:open-folder',
+      'projects:open-in-browser',
+      'email:open-webmail',
+      'models:add',
+      'models:add-vision-projector',
+      'settings:pick-personality-image',
+      'settings:open-models-dir'
+    ]) {
+      expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
     }
+  })
+
+  it('refuses the picker without refusing the thing the picker was for', () => {
+    // The distinction the list above turns on, asserted separately because it is
+    // the one that gets lost. Choosing and loading a model is ordinary; only the
+    // native dialog that would open on the desk to pick a file is not.
+    expect(decideRemoteChannel('models:add').allowed).toBe(false)
+    expect(decideRemoteChannel('models:list').allowed).toBe(true)
+    expect(decideRemoteChannel('models:load').allowed).toBe(true)
+
+    expect(decideRemoteChannel('settings:pick-personality-image').allowed).toBe(false)
+    expect(decideRemoteChannel('settings:forget-personality-image').allowed).toBe(true)
   })
 
   it('names every refusal', () => {
-    // A silent refusal leaves the phone waiting on a reply that is not coming.
+    // A silent refusal leaves the phone waiting on a reply that is not coming,
+    // and the user with an app that appears to hang for no reason.
     const decision = decideRemoteChannel('terminal:write')
     expect(decision.allowed).toBe(false)
     if (decision.allowed) return
     expect(decision.reason).toBe('desktop-only')
     expect(decision.message).toContain('terminal:write')
   })
-})
 
-/**
- * The memory carve-out, pinned in both directions.
- *
- * Written because the useful half of this is what it still refuses. A future
- * change that widens `memory:` to the whole prefix would look reasonable in a
- * diff — two channels are already allowed — and would quietly hand a phone the
- * ability to write memories, which are injected into every later prompt.
- */
-describe('memory from a phone', () => {
-  it('can read what is remembered and forget one line', () => {
-    expect(decideRemoteChannel('memory:list').allowed).toBe(true)
-    expect(decideRemoteChannel('memory:delete').allowed).toBe(true)
-  })
-
-  it('cannot write one', () => {
-    // Forgetting only narrows what the model is told. Adding steers every later
-    // conversation, from a device that might be in somebody else's hand.
-    expect(decideRemoteChannel('memory:create').allowed).toBe(false)
-    expect(decideRemoteChannel('memory:update').allowed).toBe(false)
-  })
-})
-
-/**
- * Seeing what a run changed, without being able to undo it blind.
- *
- * The reads are what make trusting a run from away possible. The writes put files
- * back to an earlier state, and the phone has no diff view to justify that with —
- * it would be undoing work on the strength of a filename and a count.
- */
-describe('the profile from a phone', () => {
-  it('can read whose profile it is', () => {
-    // A name and an avatar, so the phone's Profile screen has something to be
-    // about. Before this it said "set it at your computer" and showed nothing.
-    expect(decideRemoteChannel('settings:get-profile').allowed).toBe(true)
-  })
-
-  it('still cannot read or write settings', () => {
-    // The point of the narrowing. `settings:get` carries the permission mode, the
-    // MCP servers and the model directory; a phone that can read that is one step
-    // from a phone that can change it, and changing it can switch off the
-    // protections that let the phone connect at all.
-    //
-    // Written as a separate assertion from the one above because the tempting
-    // future edit is to widen the exception to the prefix, and that would leave
-    // the first test passing.
-    expect(decideRemoteChannel('settings:get').allowed).toBe(false)
-    expect(decideRemoteChannel('settings:update').allowed).toBe(false)
-    expect(decideRemoteChannel('settings:reset').allowed).toBe(false)
-  })
-})
-
-describe('checkpoints from a phone', () => {
-  it('can see what changed', () => {
-    expect(decideRemoteChannel('checkpoints:list').allowed).toBe(true)
-    expect(decideRemoteChannel('checkpoints:inspect').allowed).toBe(true)
-  })
-
-  it('cannot put files back', () => {
-    expect(decideRemoteChannel('checkpoints:restore').allowed).toBe(false)
-    expect(decideRemoteChannel('checkpoints:undo').allowed).toBe(false)
-    expect(decideRemoteChannel('checkpoints:rollback').allowed).toBe(false)
+  it('allows an ordinary channel nobody ever had to argue for', () => {
+    expect(decideRemoteChannel('chat:send').allowed).toBe(true)
+    expect(decideRemoteChannel('conversations:list').allowed).toBe(true)
   })
 })

@@ -1,29 +1,32 @@
 /**
  * Which channels a paired phone may reach.
  *
- * A denylist rather than an allowlist, and that is a deliberate and uncomfortable
- * choice, so it is worth stating the reasoning.
+ * **A paired phone is the user's own trusted phone, and may see and do what they
+ * can do at the machine.** That is the owner's decision, stated plainly, and it
+ * is what this file now encodes. Pairing is the trust boundary; what happens
+ * after it is not re-litigated channel by channel.
  *
- * An allowlist fails safe: a channel added later is unreachable until someone
- * lists it. A denylist fails open. The reason this is a denylist anyway is that
- * the product goal is *parity* — the phone is meant to reach Chat, Agent,
- * Workspace, Email and Critical Thinking as the desktop has them, which is
- * almost all 201 channels. An allowlist of ~190 entries would be copied from the
- * channel list once and then rot, and a rotting allowlist silently removes
- * features rather than silently adding them, which is the failure nobody
- * notices until a user reports it.
+ * Two things stay refused, each for a reason that is not about trust:
  *
- * The mitigation for choosing the riskier default is that **the reachable set is
- * pinned by a test that reads the generated protocol artifact** — see
- * `remoteReach.test.ts`. A channel added later is compared against that list, so
- * making one reachable is a deliberate edit rather than a silent consequence.
+ * - `remote:` — the settings that govern the connection itself. Not withheld
+ *   because a phone might abuse them, but because changing the port, the manual
+ *   address or the listener from the device that depends on them is how a phone
+ *   locks itself out of the computer it is talking to. The one place where
+ *   letting someone do a thing is how they lose the ability to do anything.
+ * - `terminal:` — a raw stream with no confirmation step. Everything else a
+ *   phone can ask for goes through the approval flow, including `run_command`;
+ *   the terminal is the one surface that would bypass it.
  *
- * That sentence used to be here without the test existing. The denylist was
- * chosen *because* of a mitigation that was never built, and five channels had
- * meanwhile become reachable that the rules below already covered in another
- * spelling: two `shell.openExternal` calls, a `shell.openPath`, a native save
- * sheet, and a desktop context-menu callback. Every one of them is denied
- * further down now, and the test is what stops the next one.
+ * Beyond those, the list below holds only actions that do nothing useful from a
+ * phone: a native file picker or save sheet, a folder opening in Explorer, a
+ * browser window — all of them appearing on a computer in another room, in front
+ * of nobody, with the phone showing no sign it happened. Those are not
+ * permission decisions and they are not permanent; each becomes an ordinary
+ * feature the moment it is made to work on the phone's own screen.
+ *
+ * The reachable set is pinned by a test that reads the generated protocol
+ * artifact — see `remoteReach.test.ts`. A channel added later is compared
+ * against that list, so making one reachable stays a deliberate edit.
  */
 
 /**
@@ -33,45 +36,24 @@
  */
 export const DENIED_CHANNEL_PREFIXES = [
   /**
-   * A software keyboard against a shell that is not a real PTY. `TerminalService`
-   * is `child_process.spawn` and its `resize()` is a no-op, so the experience
-   * would be poor — but the reason it is *denied* rather than deprioritised is
-   * that a terminal is arbitrary command execution with no confirmation step.
-   */
-  'terminal:',
-
-  /**
-   * Driving the host's mouse and keyboard from a phone. There is no version of
-   * this that is not a way to do anything at all on the machine.
-   */
-  'computer-control:',
-
-  /**
-   * Configuration surfaces. Each widens the blast radius and none benefits from
-   * being remote: a phone that can rewrite settings can turn off the very
-   * protections that let it connect.
-   */
-  'settings:',
-  'mcp:',
-  'memory:',
-
-  /**
-   * Loading a 30B model is done at the machine, deliberately.
+   * Driving the mouse and keyboard is allowed; rewriting the connection is not.
    *
-   * Note the exception in ALLOWED_CHANNELS: `models:get-state` is a read, and it
-   * is what tells the phone which model is loaded and how full its context is.
-   * Blocking the whole prefix left the connection header permanently blank.
+   * A phone that changes the port, the manual address, or turns the listener
+   * off is changing the conditions under which it is able to speak at all, from
+   * the far end of them. The failure is not misuse, it is a locked door with
+   * the key on the inside — and the way back is walking to the computer.
    */
-  'models:',
+  'remote:',
 
   /**
-   * Remote access administers itself only from the machine.
+   * A raw stream with no confirmation step.
    *
-   * A phone that could turn the listener off, unpair itself, or mint a fresh
-   * pairing code would be able to rewrite the conditions under which it is
-   * allowed to talk at all — including handing a new device key to whoever asked.
+   * Every other thing a phone can ask for passes through the approval flow,
+   * `run_command` included — so a phone can already have the computer run
+   * things, with a yes in between. A terminal has no such step, which makes it
+   * the one surface where "trusted device" and "nothing to confirm" stack up.
    */
-  'remote:'
+  'terminal:'
 ] as const
 
 /**
@@ -89,8 +71,10 @@ export const DENIED_CHANNEL_PREFIXES = [
  * containing a `.bat` or a `.lnk` makes that arbitrary execution triggered from a
  * phone, and nothing about it is visible to the person holding the phone.
  *
- * The third destroys something. `workspace:delete-path` is irreversible and there is
- * no undo waiting on the other end.
+ * Deleting a file used to be a third category here, refused because it is
+ * irreversible. It is allowed now, on the owner's decision, and the guard moved
+ * to where it belongs: the phone asks before it deletes. A confirmation the
+ * person can read beats a refusal they cannot override.
  */
 export const DENIED_CHANNELS = [
   'attachments:pick-files',
@@ -138,27 +122,18 @@ export const DENIED_CHANNELS = [
   'workspace:open-html-preview-window',
   'workspace:refresh-html-preview-window',
 
-  // Irreversible, from a device that gets left on tables.
-  'workspace:delete-path',
-
   /**
-   * Putting files back the way they were, from a phone.
+   * Native pickers and folder windows the removed prefixes used to cover.
    *
-   * `checkpoints:list` and `checkpoints:inspect` are reads and stay allowed — being
-   * able to see what a run changed is most of what makes trusting one from away
-   * possible at all.
-   *
-   * These three are not reads. They rewrite files in the project to an earlier
-   * state, and the phone has no diff view to justify the decision with: it would be
-   * undoing work on the strength of a filename and a count. On a machine nobody is
-   * sitting at, that is a way to lose an afternoon of an agent's output to one
-   * mistaken tap.
-   *
-   * Worth revisiting the moment the phone can actually show what would be undone.
+   * `models:add` and `models:add-vision-projector` are `dialog.showOpenDialog`;
+   * `settings:pick-personality-image` is the same; `settings:open-models-dir` is
+   * `shell.openPath`. Choosing a model is allowed — this is only the file picker
+   * that would open on the desk to do it, which the phone cannot see or answer.
    */
-  'checkpoints:restore',
-  'checkpoints:undo',
-  'checkpoints:rollback'
+  'models:add',
+  'models:add-vision-projector',
+  'settings:pick-personality-image',
+  'settings:open-models-dir'
 ] as const
 
 /**
@@ -170,58 +145,10 @@ export const DENIED_CHANNELS = [
  * pattern.
  */
 export const ALLOWED_CHANNELS = [
-  /** Read-only. Feeds the phone's connection header — which model, how full (§8). */
-  'models:get-state',
-
-  // The phone shows whose profile it is. A name and an avatar carry nothing that
-  // widens what a phone can do, and the alternative was a screen that said "set it
-  // at your computer" and showed nothing else at all.
-  'settings:get-profile',
-  'models:state-changed',
-
-  /**
-   * Reading what Anodex remembers, and forgetting one entry.
-   *
-   * The `memory:` prefix is denied because it sits with the configuration
-   * surfaces, and a phone that can rewrite configuration can switch off the
-   * protections that let it connect. These two are neither.
-   *
-   * `list` is a read. `delete` removes one remembered line and can do nothing
-   * else — it cannot add a memory, and adding is the direction that matters: a
-   * memory is injected into future prompts, so writing one from a phone is a way
-   * to steer every later conversation from a device that might be in somebody
-   * else's hand. Forgetting only ever narrows what the model is told.
-   *
-   * `create` and `update` stay denied for exactly that reason. A memory that is
-   * wrong is worth being able to remove from wherever you are; one that is
-   * missing can wait until you are at the machine.
-   */
-  'memory:list',
-  'memory:delete',
-
-  /**
-   * Switching between models that are already on the machine.
-   *
-   * The line is *acquiring* versus *choosing*. Downloading is a multi-gigabyte
-   * write to somebody else's disk, picked from a search of the open internet, and
-   * it stays at the machine — `models:add`, `models:download`, `models:discover`,
-   * `models:fetch-top-models` and `models:add-vision-projector` remain denied by
-   * the prefix, as does `models:delete`, which is destructive and irreversible.
-   *
-   * Choosing among what is already there is the ordinary thing somebody wants from
-   * the sofa, and it is bounded: the set was assembled deliberately at the desk,
-   * and the worst case is the wrong model out of that set being loaded.
-   *
-   * `models:load` does take minutes and does move the machine out from under
-   * anyone sitting at it. That is a real cost, and it is the same cost the desk
-   * pays when it loads a model — a phone is not doing anything here the person
-   * holding it could not do by walking over.
-   *
-   * `models:unload` is deliberately not here. It only takes capability away, and
-   * loading a different model already covers every reason to want it.
-   */
-  'models:list',
-  'models:load'
+  // Empty, and that is the point: every entry here was a hole cut in a prefix
+  // rule that no longer exists. `models:get-state`, `settings:get-profile`,
+  // `memory:list` and the rest are reachable now because their whole subsystems
+  // are, not because each was argued for one at a time.
 ] as const
 
 export type RemoteChannelDecision =

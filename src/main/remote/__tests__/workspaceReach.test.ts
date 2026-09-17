@@ -41,8 +41,14 @@ describe('what a phone may do inside the workspace', () => {
     }
   })
 
-  it('may not delete a file', () => {
-    // Irreversible, and there is no undo waiting on the other end.
-    expect(decideRemoteChannel(IpcChannel.Workspace.deletePath).allowed).toBe(false)
+  it('may delete a file, with the phone asking first', () => {
+    // Refused here once, because deleting is irreversible and there is no undo
+    // waiting on the other end. That is still true — what changed is where the
+    // guard sits. A refusal the person cannot override protects nobody who
+    // actually meant it; a confirmation they can read does. The phone asks
+    // before it calls this, which is the owner's decision and the same shape the
+    // app already uses for conversations, where the archive is the only place
+    // anything is thrown out for good.
+    expect(decideRemoteChannel(IpcChannel.Workspace.deletePath).allowed).toBe(true)
   })
 })
