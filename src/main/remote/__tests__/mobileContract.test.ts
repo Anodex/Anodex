@@ -242,7 +242,7 @@ describe('the contract Anodex Mobile is built against', () => {
     })
 
     it('and the dangerous ones still are not', () => {
-      for (const name of ['terminal:write', 'computer-control:start', 'remote:set-enabled']) {
+      for (const name of ['terminal:write', 'terminal:create', 'remote:set-enabled']) {
         expect(decideRemoteChannel(name).allowed, `${name} must stay refused`).toBe(false)
       }
     })
