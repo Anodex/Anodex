@@ -35,9 +35,13 @@ export function buildRemoteFileDiff(file: CheckpointFilePreview): CheckpointFile
 
   const stats = diffStats(before, after)
   const all = buildUnifiedDiffLines(before, after)
-  const rows = all.slice(0, MAX_DIFF_ROWS).map((row) =>
-    row.text.length > MAX_ROW_LENGTH ? { ...row, text: `${row.text.slice(0, MAX_ROW_LENGTH)}…` } : row
-  )
+  const rows = all
+    .slice(0, MAX_DIFF_ROWS)
+    .map((row) =>
+      row.text.length > MAX_ROW_LENGTH
+        ? { ...row, text: `${row.text.slice(0, MAX_ROW_LENGTH)}…` }
+        : row
+    )
 
   return {
     path: file.path,
@@ -49,4 +53,3 @@ export function buildRemoteFileDiff(file: CheckpointFilePreview): CheckpointFile
     truncated: all.length > rows.length
   }
 }
-
