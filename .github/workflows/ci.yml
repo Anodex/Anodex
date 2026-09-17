@@ -51,6 +51,15 @@ jobs:
       - name: Protocol contract is up to date
         run: npm run protocol:check
 
+      # The same gate, for the half of the seam that is not types. The phone's palette,
+      # spacing, radii and icon glyphs are copied from this repository by hand, and its own
+      # tests say they "cannot see the desktop, so a value changed there and not here still
+      # passes". This is that half made checkable: it found two glyphs already adrift — an
+      # icon missing its dot, and a paperclip redrawn at different coordinates — neither of
+      # which any test in either repository could see.
+      - name: Design contract is current
+        run: npm run design:check
+
   # A `commit-msg` hook already strips coding-agent attribution, and it works —
   # but a hook only runs where somebody installed it. Forty-one trailers reached
   # `main` in the five weeks after that hook landed, from worktrees without husky
