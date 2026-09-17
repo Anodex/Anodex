@@ -8341,6 +8341,24 @@
           "type": {
             "kind": "string"
           }
+        },
+        {
+          "name": "projectId",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
         }
       ],
       "result": {
@@ -8440,7 +8458,26 @@
       "channel": "workspace:list-files",
       "kind": "invoke",
       "api": "workspace.listFiles",
-      "args": [],
+      "args": [
+        {
+          "name": "projectId",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      ],
       "result": {
         "kind": "union",
         "of": [
@@ -8682,6 +8719,24 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        },
+        {
+          "name": "projectId",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
           }
         }
       ],

@@ -181,15 +181,16 @@ const api: AnodexApi = {
     runAction: (id) => ipcRenderer.invoke(IpcChannel.ContextMenu.runAction, id)
   },
   workspace: {
-    listFiles: () => ipcRenderer.invoke(IpcChannel.Workspace.listFiles),
+    listFiles: (projectId) => ipcRenderer.invoke(IpcChannel.Workspace.listFiles, projectId),
     getAbsolutePath: (relativePath) =>
       ipcRenderer.invoke(IpcChannel.Workspace.getAbsolutePath, relativePath),
     revealInFileExplorer: (relativePath) =>
       ipcRenderer.invoke(IpcChannel.Workspace.revealInFileExplorer, relativePath),
     openPath: (relativePath) => ipcRenderer.invoke(IpcChannel.Workspace.openPath, relativePath),
-    deletePath: (relativePath) => ipcRenderer.invoke(IpcChannel.Workspace.deletePath, relativePath),
-    readFileContent: (relativePath) =>
-      ipcRenderer.invoke(IpcChannel.Workspace.readFileContent, relativePath),
+    deletePath: (relativePath, projectId) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.deletePath, relativePath, projectId),
+    readFileContent: (relativePath, projectId) =>
+      ipcRenderer.invoke(IpcChannel.Workspace.readFileContent, relativePath, projectId),
     writeFileContent: (relativePath, content) =>
       ipcRenderer.invoke(IpcChannel.Workspace.writeFileContent, relativePath, content),
     prepareHtmlPreview: (relativePath, html) =>
