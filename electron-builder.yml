@@ -38,16 +38,25 @@ files:
   # node_modules at runtime. These two groups are not.
   #
   # 1. Renderer-only libraries. Vite bundles them into out/renderer, so their
-  #    package sources ship a second time for nothing. Verified: no file under
-  #    src/main or src/preload imports any of them. If that ever changes, the
-  #    app will fail at require-time in a packaged build but work in dev, so
-  #    re-check this list before moving one of them into the main process.
+  #    package sources ship a second time for nothing.
+  #
+  #    This list used to say "verified: no file under src/main or src/preload
+  #    imports any of them", and warned that if that ever changed the app would
+  #    fail at require-time in a packaged build while working in dev. That is
+  #    exactly what happened in 0.10.0: `diffRows.ts` moved into `src/shared` so
+  #    the main process could draw a diff for a phone, `diff` stayed excluded,
+  #    and the packaged main process threw MODULE_NOT_FOUND before it could
+  #    start its listener. Every install that updated got an error dialog and a
+  #    phone that could no longer reach it.
+  #
+  #    `packagedDependencies.test.ts` now checks this list against what the main
+  #    and preload trees actually import, because a comment asking somebody to
+  #    re-check something is not a check.
   - '!node_modules/highlight.js/**/*'
   - '!node_modules/@xterm/**/*'
   - '!node_modules/zustand/**/*'
   - '!node_modules/immer/**/*'
   - '!node_modules/use-sync-external-store/**/*'
-  - '!node_modules/diff/**/*'
   # 2. The parts of pdf.js that a text-only consumer never loads. Anodex uses
   #    exactly one entry point, `pdfjs-dist/legacy/build/pdf.mjs` (see
   #    email/attachmentText.ts), so the modern build, the viewer UI, the image
