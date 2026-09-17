@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { buildSideBySideDiffRows, buildUnifiedDiffLines } from '../../lib/diffRows'
+import { buildSideBySideDiffRows, buildUnifiedDiffLines } from '@shared/diffRows'
 import { highlightCode, languageForFileName } from '../../lib/highlight'
 import styles from './DiffView.module.css'
 

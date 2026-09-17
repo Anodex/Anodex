@@ -60,6 +60,7 @@ const REACHABLE_FROM_A_PHONE = [
   'chat:thinking-stream',
   'chat:title',
   'chat:working',
+  'checkpoints:diff-file',
   'checkpoints:inspect',
   'checkpoints:list',
   'checkpoints:restore',

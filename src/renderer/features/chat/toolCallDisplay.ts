@@ -1,5 +1,5 @@
 import type { ToolCall } from '@shared/tools.types'
-import { diffStats } from '../../lib/diffRows'
+import { diffStats } from '@shared/diffRows'
 
 export interface ToolCallDisplay {
   action: string

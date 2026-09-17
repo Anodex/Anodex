@@ -130,6 +130,8 @@ import type {
   CheckpointPreview,
   CheckpointHistoryEntry,
   CheckpointRequest,
+  CheckpointFileDiff,
+  CheckpointFileDiffRequest,
   RestoreCheckpointRequest,
   RestoreCheckpointResult,
   RollbackCheckpointsRequest,
@@ -323,6 +325,8 @@ export const IpcChannel = {
     list: 'checkpoints:list',
     /** Inspect changed files and detect edits made after a checkpoint was captured. */
     inspect: 'checkpoints:inspect',
+    /** The unified diff of one changed file, built here because `inspect` strips contents. */
+    diffFile: 'checkpoints:diff-file',
     /** Restore the files changed by one assistant message back to their before-state. */
     restore: 'checkpoints:restore',
     /** Reapply the AI turn after a checkpoint restore. */
@@ -859,6 +863,8 @@ export interface AnodexApi {
     /** Inspect changed files and detect edits made after a checkpoint was captured. */
     /** Null when that turn changed nothing, and so has no checkpoint. */
     inspect(request: CheckpointRequest): Promise<Result<CheckpointPreview | null>>
+    /** The unified diff of one changed file. Null when that turn has no checkpoint. */
+    diffFile(request: CheckpointFileDiffRequest): Promise<Result<CheckpointFileDiff | null>>
     /** Restore the files changed by one assistant message back to their before-state. */
     restore(request: RestoreCheckpointRequest): Promise<Result<RestoreCheckpointResult>>
     /** Reapply the AI turn after a checkpoint restore. */

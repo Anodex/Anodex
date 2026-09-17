@@ -1,3 +1,5 @@
+import type { UnifiedDiffLine } from './diffRows'
+
 export type CheckpointFileChangeKind = 'created' | 'modified' | 'deleted'
 export type CheckpointContentEncoding = 'utf8' | 'base64'
 
@@ -41,6 +43,39 @@ export interface CheckpointFilePreview {
 
 export interface CheckpointPreview extends CheckpointSummary {
   files: CheckpointFilePreview[]
+}
+
+export interface CheckpointFileDiffRequest extends CheckpointRequest {
+  /** One of the paths `inspect` reported for this turn. */
+  path: string
+}
+
+/**
+ * What one file's change looks like, drawn on the machine that has the file.
+ *
+ * `inspect` deliberately strips file contents before they go on a socket, which
+ * leaves a remote client able to say *that* a file changed and never *what*
+ * changed in it. Sending the contents instead is the wrong fix: a checkpoint
+ * holds the whole before and after, and one rewritten file becomes a frame too
+ * big to send.
+ *
+ * A diff is smaller than either side of it, because unchanged lines away from a
+ * change are collapsed — so the answer is built here, where the diff code
+ * already lives, and what crosses the wire is the part a person would read.
+ */
+export interface CheckpointFileDiff {
+  path: string
+  kind: CheckpointFileChangeKind
+  /** No rows: there is nothing to draw, and saying why is the useful answer. */
+  binary: boolean
+  added: number
+  removed: number
+  rows: UnifiedDiffLine[]
+  /**
+   * The change was larger than a phone should be sent, so `rows` stops early.
+   * The counts above are still the whole truth — they are counted before the cut.
+   */
+  truncated: boolean
 }
 
 export interface RestoreCheckpointRequest extends CheckpointRequest {

@@ -108,6 +108,7 @@ const api: AnodexApi = {
   checkpoints: {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Checkpoints.list, projectId),
     inspect: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.inspect, request),
+    diffFile: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.diffFile, request),
     restore: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.restore, request),
     undo: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.undo, request),
     rollback: (request) => ipcRenderer.invoke(IpcChannel.Checkpoints.rollback, request)
