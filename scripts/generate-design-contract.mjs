@@ -77,9 +77,9 @@ function readRootBlock(file) {
   const block = source.slice(open, end)
   const values = {}
   // Comments can contain anything that looks like a declaration, so they go first.
-  for (const [, name, value] of block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(
-    /(--[a-z0-9-]+)\s*:\s*([^;]+);/gi
-  )) {
+  for (const [, name, value] of block
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
     values[name] = value.trim().replace(/\s+/g, ' ')
   }
   return values
@@ -115,7 +115,9 @@ function readGlyphs() {
   for (const [, name, body] of source.slice(start).matchAll(entry)) {
     const elements = []
     const paths = []
-    for (const [, tag, attributes] of body.matchAll(/<(path|line|circle|rect|polyline|polygon|ellipse)\s+([^>]*?)\/?>/g)) {
+    for (const [, tag, attributes] of body.matchAll(
+      /<(path|line|circle|rect|polyline|polygon|ellipse)\s+([^>]*?)\/?>/g
+    )) {
       // `[a-zA-Z-]+` would not do: `x1` and `y2` have digits in them, and an
       // attribute pattern that cannot match them turns `<line>` into `line ` —
       // a glyph present in the contract and empty inside it.
@@ -150,7 +152,9 @@ const contract = {
   version: DESIGN_VERSION,
   midnight: readRootBlock(MIDNIGHT),
   scale: Object.fromEntries(
-    Object.entries(theme).filter(([name]) => name.startsWith('--space-') || name.startsWith('--radius-'))
+    Object.entries(theme).filter(
+      ([name]) => name.startsWith('--space-') || name.startsWith('--radius-')
+    )
   ),
   glyphs: readGlyphs()
 }
