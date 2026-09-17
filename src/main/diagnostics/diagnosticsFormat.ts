@@ -228,6 +228,35 @@ const FIXES: Array<[RegExp, string]> = [
 const CONNECTION_FAILURE = /ECONNRESET|ECONNREFUSED|fetch failed|Connection error|socket hang up/i
 
 /**
+ * Parts of the local-inference stack that reach the network rather than
+ * loopback. Fetching a model from a catalogue is an ordinary internet request,
+ * and a blip there is a blip like any other.
+ */
+const REACHES_THE_INTERNET = /^(downloader|hf-catalog)/
+
+/**
+ * Is this failure about Anodex's own bundled model server?
+ *
+ * Its connections are loopback, so two things follow that are the opposite of
+ * what they would be for anything else: a dropped connection is a real fault
+ * rather than a network blip, and "check your network" is actively misleading
+ * advice. Both of those were written separately as `scope.startsWith('llama')`,
+ * and both missed the same cases — the handler scope `ipc:models` and the
+ * failure code `models.load-failed`, which is what a refused load returns. A
+ * loopback drop surfaced through either one was softened to "not a fault" and
+ * then told the user to check their firewall.
+ *
+ * Asked once now, and asked by category so a code answers it the same way a
+ * logger scope does — less the two subsystems in that category that genuinely
+ * do go out to the internet.
+ */
+function isLocalEngine(scope: string | undefined): boolean {
+  if (!scope) return false
+  if (categoryForScope(scope) !== 'model') return false
+  return !REACHES_THE_INTERNET.test(subsystemOf(scope))
+}
+
+/**
  * The network being away, as the operating system names it: no DNS answer, a
  * connection dropped or timed out, nothing routable. Not a misconfiguration and
  * not a refusal — those say something else.
@@ -257,7 +286,7 @@ export function severityForConnection(
   scope?: string
 ): DiagnosticEntry['severity'] {
   if (severity !== 'warning') return severity
-  if (scope?.startsWith('llama')) return severity
+  if (isLocalEngine(scope)) return severity
   return NETWORK_AWAY.test(text) ? 'info' : severity
 }
 
@@ -269,7 +298,7 @@ export function severityForConnection(
  * misleading there.
  */
 export function suggestedFixFor(text: string, scope?: string): string | undefined {
-  if (scope?.startsWith('llama') && CONNECTION_FAILURE.test(text)) {
+  if (isLocalEngine(scope) && CONNECTION_FAILURE.test(text)) {
     return 'The connection to Anodex’s own local model server dropped — this is not an internet problem. Reload the model in Settings → AI Models; if it keeps dropping, the model likely ran out of memory mid-request.'
   }
   for (const [pattern, fix] of FIXES) {
