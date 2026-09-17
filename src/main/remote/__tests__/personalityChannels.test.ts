@@ -20,29 +20,21 @@ describe('the personality channels', () => {
     expect(decideRemoteChannel(IpcChannel.Personality.setActive).allowed).toBe(true)
   })
 
-  it('still refuses the settings prefix it was carved out of', () => {
-    // The failure this exists to catch: someone reaching for `settings:update`
-    // later because it is "the same kind of thing", or lifting the deny rule to
-    // make some other setting reachable.
-    expect(decideRemoteChannel(IpcChannel.Settings.get).allowed).toBe(false)
-    expect(decideRemoteChannel(IpcChannel.Settings.update).allowed).toBe(false)
+  it('is no longer a carve-out, because the prefix it was cut from is gone', () => {
+    // These three were argued for one at a time, as holes in a `settings:` rule
+    // that refused the rest. A paired phone is the owner's own phone now, so the
+    // rule went and the holes went with it — settings are simply reachable.
+    expect(decideRemoteChannel(IpcChannel.Settings.get).allowed).toBe(true)
+    expect(decideRemoteChannel(IpcChannel.Settings.update).allowed).toBe(true)
   })
 
-  it('still refuses everything the phone was never meant to touch', () => {
-    for (const channel of [
-      IpcChannel.Mcp.add,
-      // Was `memory:list` until reading memory from a phone was allowed
-      // deliberately — see `channelPolicy.test.ts`, which draws that line and pins
-      // both halves of it. Create is the one that stayed refused: a memory is fed
-      // into later prompts, so writing one steers every conversation after it.
-      IpcChannel.Memory.create,
-      IpcChannel.Remote.setEnabled,
-      IpcChannel.Terminal.create,
-      // Was `models:load` until switching models from a phone was allowed
-      // deliberately — see `modelSwitching.test.ts`, which draws that line. Delete
-      // is the one that stayed refused: it destroys a file for good.
-      IpcChannel.Models.delete
-    ]) {
+  it('still refuses the two things that are not about trust', () => {
+    // This list has shrunk every time a restriction turned out to be an
+    // assumption rather than a reason — `memory:list`, then `models:load`, then
+    // the rest of them at once. These two are what was left standing: the
+    // settings that govern the connection, and the one surface with no
+    // confirmation step. See `channelPolicy.test.ts` for why each survives.
+    for (const channel of [IpcChannel.Remote.setEnabled, IpcChannel.Terminal.create]) {
       expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
     }
   })
