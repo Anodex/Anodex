@@ -237,3 +237,34 @@ describe('a handler and the service behind it are one subsystem', () => {
     expect(subsystemOf(undefined)).toBeUndefined()
   })
 })
+
+describe('one answer to "is this the local engine?"', () => {
+  const dropped = 'ECONNRESET talking to the bundled model server'
+
+  it('keeps a loopback drop a fault however it was reported', () => {
+    // The engine's connections never leave the machine, so a dropped one is a
+    // real fault. Asked as a prefix, this missed the handler scope and the
+    // failure code — the two ways a refused load actually reaches the page.
+    for (const scope of ['llama', 'llama:vision', 'ipc:models', 'models.load-failed']) {
+      expect(severityForConnection('warning', dropped, scope)).toBe('warning')
+    }
+  })
+
+  it('still softens a blip where the network really is involved', () => {
+    // Fetching a model from a catalogue is an ordinary internet request.
+    for (const scope of ['downloader', 'hf-catalog', 'ipc:downloader', 'email:imap']) {
+      expect(severityForConnection('warning', dropped, scope)).toBe('info')
+    }
+  })
+
+  it('does not tell someone to check their firewall about loopback', () => {
+    for (const scope of ['llama', 'ipc:models', 'models.load-failed']) {
+      expect(suggestedFixFor(dropped, scope)).toMatch(/not an internet problem/)
+    }
+  })
+
+  it('leaves the network advice alone for something that is on the network', () => {
+    expect(suggestedFixFor(dropped, 'downloader')).not.toMatch(/not an internet problem/)
+    expect(suggestedFixFor(dropped, 'email:imap')).not.toMatch(/not an internet problem/)
+  })
+})
