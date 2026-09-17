@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import type { ClientChannel } from './clients/ClientChannel'
 import { activeRemoteClients, wantsLiveThinking, wantsLiveTokens } from './clients/clientRegistry'
+import { mayPushToRemote } from './remote/channelPolicy'
 
 /**
  * Frame-disposal-safe IPC delivery to renderer windows.
@@ -97,6 +98,10 @@ export function broadcastLiveToken(
   kind: 'reply' | 'thinking' = 'reply'
 ): boolean {
   for (const window of BrowserWindow.getAllWindows()) sendToWindow(window, channel, payload)
+  // Not enforcement — `ClientChannel.send` does that, once, for every path. This
+  // is about what the return value means: a channel no phone is ever sent is not
+  // a phone that missed a token, so the heartbeat has nothing to make up for.
+  if (!mayPushToRemote(channel)) return true
   let reachedEveryone = true
   for (const client of activeRemoteClients()) {
     if (kind === 'thinking' ? wantsLiveThinking(client) : wantsLiveTokens(client)) {

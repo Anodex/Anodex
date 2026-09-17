@@ -10,7 +10,7 @@ import {
 } from '../clients/clientRegistry'
 import { collectHostAddresses } from './addresses'
 import { EXPECTED_MOBILE_VERSION } from './mobileRelease'
-import { decideRemoteChannel } from './channelPolicy'
+import { decideRemoteChannel, mayPushToRemote } from './channelPolicy'
 import { farewellCode, type RemoteFarewell } from '@shared/remoteFarewell'
 import { hostname } from 'node:os'
 import { handlerFor, type IpcHandler } from './handlerRegistry'
@@ -446,7 +446,20 @@ export class RemoteBridge {
 
     const client: ClientChannel = {
       id: `remote:${deviceId}`,
-      send: (channel, payload) => coalescer.event(channel, payload),
+      /**
+       * The one place an event becomes a frame on this socket, and therefore the
+       * one place the outbound policy belongs.
+       *
+       * It was first written at the fan-out in `broadcast.ts`, which covered the
+       * three broadcasters and missed four direct `client.send` calls elsewhere.
+       * All four send channels a phone is allowed, so nothing was wrong — but a
+       * rule enforced at four of seven doors is the shape of problem this whole
+       * policy exists to close, and the next direct send would not know to ask.
+       */
+      send: (channel, payload) => {
+        if (!mayPushToRemote(channel)) return
+        coalescer.event(channel, payload)
+      },
       isAlive: () => socket.readyState === socket.OPEN
     }
     attachRemoteClient(client)
