@@ -1,6 +1,6 @@
 import { createWriteStream, existsSync, statSync } from 'node:fs'
 import { rename, rm } from 'node:fs/promises'
-import { resolve, sep } from 'node:path'
+import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ModelDownloadProgress } from '@shared/model.types'
@@ -9,6 +9,7 @@ import {
   recommendedVisionProjectorFileName,
   type RecommendedModel
 } from '@shared/recommendedModels'
+import { resolveContained } from '../tools/workspace'
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('downloader')
@@ -133,11 +134,22 @@ export async function downloadModel(
   }
 }
 
+/**
+ * Where a downloaded file is allowed to land.
+ *
+ * This kept its own containment check — a lexical `startsWith` — while the file
+ * tools used a guard that also follows symlinks and caps link hops. One rule,
+ * two implementations, and the weaker one guarding a filename that arrives from
+ * a remote catalogue. It uses the shared guard now, so a link inside the models
+ * directory cannot land a download outside it either.
+ */
 function resolveDownloadTarget(targetDir: string, fileName: string): string {
   const root = resolve(targetDir)
-  const target = resolve(root, fileName)
-  if (!target.startsWith(`${root}${sep}`)) {
-    throw new Error('Refusing to download a model outside the configured models directory.')
+  const target = resolveContained(root, fileName, 'models directory')
+  if (target === root) {
+    // The shared guard allows the root itself, which is right for a workspace
+    // path and wrong for a file to write.
+    throw new Error('Refusing to download a model with no file name.')
   }
   return target
 }

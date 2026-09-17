@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { resolveInWorkspace, toWorkspaceRelative } from '../workspace'
+import { resolveContained, resolveInWorkspace, toWorkspaceRelative } from '../workspace'
 
 describe('workspace path safety', () => {
   /**
@@ -213,5 +213,38 @@ describe('workspace path safety', () => {
         )
       ).toBe('src/index.ts')
     })
+  })
+})
+
+describe('containment is one rule, not one per caller', () => {
+  const models = resolve('/anodex-test/models')
+
+  it('blocks an escape from any boundary, not just the workspace', () => {
+    // The model downloader had grown its own lexical `startsWith` check while
+    // the file tools used the guard above. Same question, two answers.
+    expect(() => resolveContained(models, '../elsewhere.gguf', 'models directory')).toThrow(
+      /outside the models directory/
+    )
+    expect(() =>
+      resolveContained(models, resolve('/somewhere/else.gguf'), 'models directory')
+    ).toThrow(/outside the models directory/)
+  })
+
+  it('names the boundary it was given, so each refusal reads for its own', () => {
+    expect(() => resolveContained(models, '../x', 'models directory')).toThrow(
+      'Path "../x" is outside the models directory and was blocked.'
+    )
+  })
+
+  it('leaves the workspace refusal worded exactly as it was', () => {
+    expect(() => resolveInWorkspace(resolve('/anodex-test/workspace'), '../x')).toThrow(
+      'Path "../x" is outside the workspace and was blocked.'
+    )
+  })
+
+  it('still allows an ordinary file inside', () => {
+    expect(resolveContained(models, 'qwen.gguf', 'models directory')).toBe(
+      join(models, 'qwen.gguf')
+    )
   })
 })
