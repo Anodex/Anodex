@@ -17687,6 +17687,20 @@
             ]
           }
         },
+        "mailbox": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
         "accountId": {
           "optional": true,
           "type": {

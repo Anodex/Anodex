@@ -275,7 +275,13 @@ class EmailService {
     const query = request.query.trim()
     if (!query) throw new Error('query is required.')
     const { account, adapter } = this.resolve(request.accountId)
-    return adapter.listThreads(account, { limit: normalizeLimit(request.limit), query })
+    return adapter.listThreads(account, {
+      limit: normalizeLimit(request.limit),
+      query,
+      // Absent scopes nothing, which is what a search with no folder in mind has
+      // always meant. Every adapter already accepts both together.
+      ...(request.mailbox?.trim() ? { mailbox: request.mailbox.trim() } : {})
+    })
   }
 
   /**

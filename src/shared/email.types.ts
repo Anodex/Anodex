@@ -143,6 +143,15 @@ export interface EmailAttachmentSummary {
 export interface EmailSearchRequest extends EmailAccountScoped {
   query: string
   limit?: number
+  /**
+   * Mailbox/label to search inside; absent searches the account.
+   *
+   * The same field `EmailListThreadsRequest` has, for the same reason: a reader
+   * looking at one folder and typing a word means that folder. Searching
+   * everywhere from inside Trash answers a question nobody asked, and answers it
+   * with mail that is not in front of them.
+   */
+  mailbox?: string
 }
 
 export interface EmailListThreadsRequest extends EmailAccountScoped {
