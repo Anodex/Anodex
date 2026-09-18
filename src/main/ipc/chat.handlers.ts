@@ -33,6 +33,7 @@ import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { remoteQuestionConversation, remoteTurnConversation } from '../conversations/remoteTurn'
+import { projectStore } from '../projects/ProjectStore'
 import { startWorkingHeartbeat } from '../chat/workingHeartbeat'
 
 const log = createLogger('ipc:chat')
@@ -289,7 +290,8 @@ function recordRemoteQuestion(request: ChatRequest): void {
     const conversation = remoteQuestionConversation(
       conversationStore.get(request.conversationId),
       request,
-      Date.now()
+      Date.now(),
+      projectStore.getState().activeProjectId
     )
     if (!conversation) return
     conversationStore.save(conversation, { fromRemote: true })
@@ -308,7 +310,8 @@ function recordRemoteTurn(
       conversationStore.get(request.conversationId),
       request,
       result,
-      Date.now()
+      Date.now(),
+      projectStore.getState().activeProjectId
     )
     if (!conversation) return
     conversationStore.save(conversation, { fromRemote: true })
