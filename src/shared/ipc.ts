@@ -36,6 +36,7 @@ import type {
   DiagnosticEntry,
   DiagnosticLogFile,
   MemoryUsageReport,
+  PermissionMode,
   ProfileSettings,
   SettingsPatch
 } from './settings.types'
