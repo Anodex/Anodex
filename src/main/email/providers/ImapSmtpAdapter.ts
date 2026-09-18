@@ -205,11 +205,30 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       }
     }
 
+    // The query was a substring — deliberately, see `subjectSearchTerm` — so
+    // this is where the thread becomes exactly its own messages again. It always
+    // matched more than the thread, even before the query was loosened:
+    // "Lunch?" is inside "Re: Lunch? moved", and nothing downstream checked
+    // while `applyFlag` and `move` act on whatever a thread resolves to.
+    const exact = collected.filter((message) => normalizeSubject(message.subject) === subject)
+
+    // Two parsers read that subject: the listing decodes the envelope, the read
+    // decodes the whole message. They agree on everything seen so far, and if
+    // they ever do not, this must not be how the reader finds out — an exact
+    // match that excludes every message is worse than the loose set it was
+    // narrowing, which is what the caller received before any of this existed.
+    if (exact.length === 0 && collected.length > 0) {
+      log.warn(
+        `No message matched thread subject "${subject}" exactly; keeping all ${collected.length}.`
+      )
+    }
+    const kept = exact.length > 0 ? exact : collected
+
     // A server may file one message in both folders — Gmail does for anything
     // sent to yourself. The RFC 5322 Message-ID is what says they are the
     // same message; without one, the mailbox-scoped id is the best available.
     const seen = new Set<string>()
-    return collected
+    return kept
       .filter((message) => {
         const key = message.messageIdHeader ?? message.id
         if (seen.has(key)) return false
@@ -219,14 +238,45 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       .sort((left, right) => left.date - right.date)
   }
 
+  /**
+   * Every message in [mailbox] whose subject is [subject].
+   *
+   * The server is asked for a *substring* of the subject rather than all of it,
+   * and the exact match is made here. Two reasons, and the second is the one
+   * that was costing the reader whole conversations.
+   *
+   * The narrow one: `HEADER SUBJECT` is a substring test, so asking for the
+   * whole subject still matches messages that merely contain it — "Lunch?" is
+   * inside "Re: Lunch? moved" — and nothing downstream checked. Filtering here
+   * makes the thread exactly the messages the id names, whatever the server
+   * returned.
+   *
+   * The wide one: a server's search does not have to agree with us about
+   * punctuation, and Gmail's does not. `"Anyone else dealing with this?"` and
+   * `...going viral. Why?` returned nothing at all from a mailbox holding both,
+   * while subjects with apostrophes, em dashes and commas came back fine — so
+   * the whole conversation was unopenable, everywhere, for as long as it sat in
+   * the inbox. [subjectSearchTerm] hands over the longest stretch the server is
+   * unlikely to argue with, which is still a literal substring for a server that
+   * reads it strictly. The exact match happens in [threadMessagesIn], over
+   * everything every mailbox returned.
+   */
   private async searchMailboxBySubject(
     account: EmailAccount,
     mailbox: string,
     subject: string
   ): Promise<EmailMessage[]> {
     return this.withMailbox(account, mailbox, async (client) => {
-      const uids = await client.search({ header: { subject } }, { uid: true })
-      if (!uids || uids.length === 0) return []
+      const term = subjectSearchTerm(subject)
+      const uids = await client.search({ header: { subject: term } }, { uid: true })
+      // `false` is a refused command, `[]` is a mailbox with nothing in it, and
+      // the two used to land in the same silent branch. A thread that cannot be
+      // read is worth a line in the log; an empty folder is not.
+      if (uids === false) {
+        log.warn(`${mailbox} refused a subject search for "${term}".`)
+        return []
+      }
+      if (uids.length === 0) return []
 
       const messages: EmailMessage[] = []
       for await (const raw of client.fetch(
@@ -895,6 +945,48 @@ export function normalizeSubject(subject: string): string {
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+/**
+ * The part of a subject worth handing to a server's search.
+ *
+ * `HEADER SUBJECT` is defined as a substring test, so any stretch of the
+ * subject is a legal thing to ask for and the caller filters the answer exactly.
+ * That freedom is what makes this possible at all: the term can be chosen to
+ * avoid whatever the server is bad at without changing which messages end up in
+ * the thread.
+ *
+ * What servers are bad at is punctuation. Gmail returned nothing for
+ * `"Anyone else dealing with this?"` while answering a subject with apostrophes,
+ * commas and an em dash in the same mailbox — so the rule here is not "strip the
+ * character Gmail dislikes", which would be guessing at a list nobody publishes.
+ * It is: give it the longest unbroken run of letters, digits and spaces, and let
+ * the exact match happen where the rules are known.
+ *
+ * A subject that is mostly punctuation has no such run worth using — a four
+ * letter term is a mailbox sweep, and the fetch that follows is not free. Those
+ * fall back to the whole subject, which is what every subject did until now.
+ */
+export function subjectSearchTerm(subject: string): string {
+  const longest = subject
+    .split(AWKWARD_IN_SEARCH)
+    .map((run) => run.trim())
+    .reduce((best, run) => (run.length > best.length ? run : best), '')
+
+  return longest.length >= MIN_SEARCH_TERM ? longest : subject
+}
+
+/**
+ * Everything that is not a letter, a digit, a space, a hyphen or an underscore.
+ *
+ * Deliberately wider than the characters known to cause trouble. The cost of
+ * splitting on one the server would have handled is a shorter search term and a
+ * few more messages fetched and discarded; the cost of keeping one it would not
+ * is a conversation that does not open.
+ */
+const AWKWARD_IN_SEARCH = /[^\p{L}\p{N}\s_-]+/gu
+
+/** Short of this a term matches too much of the mailbox to be worth the fetch. */
+const MIN_SEARCH_TERM = 8
 
 function fromEnvelope(
   raw: FetchMessageObject,

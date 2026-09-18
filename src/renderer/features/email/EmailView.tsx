@@ -1117,8 +1117,18 @@ function ThreadReader({
               <p>Opening conversation…</p>
             </div>
           ) : messages.length === 0 ? (
+            /* A thread listed in the inbox and then found to be empty is a
+               failure to read it, not a property of the mail. The old sentence
+               here — "this conversation has no readable messages" — sounded like
+               a fact about the sender's message, so nobody went looking, and a
+               provider search that quietly matched nothing stayed hidden behind
+               it for weeks. */
             <div className={styles.emptyInbox}>
-              <p>This conversation has no readable messages.</p>
+              <p>This conversation would not open.</p>
+              <p className={styles.emptyDetail}>
+                Your mail provider did not return the messages it just listed. Opening it in webmail
+                will show whether it is still there.
+              </p>
             </div>
           ) : (
             <div className={styles.messageList}>
