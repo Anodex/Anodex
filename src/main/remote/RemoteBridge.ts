@@ -493,12 +493,18 @@ export class RemoteBridge {
   ): Promise<void> {
     const decision = decideRemoteChannel(channel)
     if (!decision.allowed) {
+      // Logged, like every other refusal. These two branches were the only ones
+      // that failed a call without writing anything down, so a phone asking for
+      // something this version does not have left no trace at either end — and
+      // on the phone it looked like a button that does nothing.
+      log.info(`remote ${channel} refused: ${decision.reason}`)
       this.fail(socket, id, decision.reason, decision.message)
       return
     }
 
     const handler = this.lookup(channel)
     if (!handler) {
+      log.warn(`remote ${channel} is not a channel this version has.`)
       this.fail(socket, id, 'unknown-channel', `This version of Anodex has no "${channel}".`)
       return
     }

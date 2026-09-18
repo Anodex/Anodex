@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { decodeThreadId, encodeThreadId, normalizeSubject } from '../ImapSmtpAdapter'
+import {
+  decodeThreadId,
+  encodeThreadId,
+  normalizeSubject,
+  subjectSearchTerm
+} from '../ImapSmtpAdapter'
 
 /**
  * Thread identity for IMAP, which has no thread primitive of its own.
@@ -96,5 +101,77 @@ describe('decodeThreadId', () => {
   it('rejects ids from another provider, and malformed message threads', () => {
     expect(() => decodeThreadId('18f2c1a9b')).toThrow(/not a valid IMAP thread id/)
     expect(() => decodeThreadId('msg.not-a-real-id')).toThrow(/not a valid IMAP message id/)
+  })
+})
+
+/**
+ * What the server is asked for when a thread is opened.
+ *
+ * `HEADER SUBJECT` is a substring test, so any stretch of the subject is a legal
+ * query and the adapter matches exactly afterwards. The term exists to route
+ * around servers that disagree with us about punctuation: Gmail answered nothing
+ * at all for two subjects in the same mailbox, both ending in a question mark,
+ * while returning subjects containing apostrophes, commas and an em dash. Every
+ * message in those conversations was unreachable from both the computer and the
+ * phone, and the screen said nothing about why.
+ */
+describe('subjectSearchTerm', () => {
+  it('is always a substring of the subject', () => {
+    // The property the whole approach rests on. A server entitled to read
+    // `HEADER SUBJECT` strictly must still match what we send.
+    for (const subject of [
+      "This intense exchange with Trump's surgeon general pick is going viral. Why?",
+      '"Anyone else dealing with this?"',
+      "The Kennedy Center is 'temporarily' closed — and a judge has questions",
+      'Deadly Amazon cargo plane crash at Miami airport investigated by FAA, NTSB',
+      'Start a project to give each idea a home'
+    ]) {
+      expect(subject).toContain(subjectSearchTerm(subject))
+    }
+  })
+
+  it('drops the punctuation a search may mishandle', () => {
+    // The two subjects that went unopenable in a real mailbox.
+    expect(subjectSearchTerm('"Anyone else dealing with this?"')).toBe(
+      'Anyone else dealing with this'
+    )
+    expect(
+      subjectSearchTerm(
+        "This intense exchange with Trump's surgeon general pick is going viral. Why?"
+      )
+    ).toBe('s surgeon general pick is going viral')
+  })
+
+  it('leaves an ordinary subject whole', () => {
+    // The common case. A subject with nothing awkward in it is asked for
+    // exactly, which is both the narrowest query and what happened before.
+    expect(subjectSearchTerm('Start a project to give each idea a home')).toBe(
+      'Start a project to give each idea a home'
+    )
+    expect(subjectSearchTerm('4 new image styles to try')).toBe('4 new image styles to try')
+  })
+
+  it('keeps hyphens and underscores, which no server minds', () => {
+    expect(subjectSearchTerm('mail-in voting restrictions blocked')).toBe(
+      'mail-in voting restrictions blocked'
+    )
+    expect(subjectSearchTerm('anodex_ai, see detesa83 and more in your feed')).toBe(
+      'see detesa83 and more in your feed'
+    )
+  })
+
+  it('falls back to the whole subject when nothing long enough survives', () => {
+    // A four-letter term would match half the mailbox, and each match costs a
+    // full message fetch. Asking for the awkward subject is no worse than what
+    // every subject did before this existed.
+    expect(subjectSearchTerm('Re: ?!')).toBe('Re: ?!')
+    expect(subjectSearchTerm('$$$ !!! ???')).toBe('$$$ !!! ???')
+  })
+
+  it('works in a script with no Latin letters', () => {
+    // `\p{L}` rather than `a-z`: a subject in Greek or Japanese is a subject,
+    // and reducing one to its punctuation would make every such thread fall
+    // back to the query that fails.
+    expect(subjectSearchTerm('Συνάντηση την Τρίτη;')).toBe('Συνάντηση την Τρίτη')
   })
 })

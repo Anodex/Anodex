@@ -321,12 +321,24 @@ class EmailService {
     return adapter.readMessage(account, id)
   }
 
-  /** Full messages of one thread, oldest first — what the reading pane shows. */
+  /**
+   * Full messages of one thread, oldest first — what the reading pane shows.
+   *
+   * Zero messages is a fault, not a result. Every thread here was listed from
+   * the same mailbox moments earlier, so a conversation with nothing in it means
+   * the provider could not find what it had just described — and the readers
+   * above draw exactly nothing, on this computer and on the phone, with no error
+   * to explain the blank. It went unnoticed for weeks because nothing anywhere
+   * wrote it down. This line is so the next one is findable in an afternoon.
+   */
   async getThreadMessages(threadId: string, accountId?: string): Promise<EmailMessage[]> {
     const id = threadId.trim()
     if (!id) throw new Error('thread id is required.')
     const { account, adapter } = this.resolve(accountId)
     const messages = await adapter.getThreadMessages(account, id)
+    if (messages.length === 0) {
+      log.warn(`Thread ${id} has no messages the ${account.provider} account can read.`)
+    }
     return [...messages].sort((left, right) => left.date - right.date)
   }
 
