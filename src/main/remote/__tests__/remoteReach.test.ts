@@ -94,14 +94,11 @@ const REACHABLE_FROM_A_PHONE = [
   'conversations:search',
   'conversations:set-state',
   'conversations:thinking',
-  'critical-thinking:approve',
-  'critical-thinking:create',
-  'critical-thinking:delete',
-  'critical-thinking:list',
-  'critical-thinking:resume',
-  'critical-thinking:runs-changed',
-  'critical-thinking:stop',
-  'critical-thinking:stream',
+  // Critical thinking is gone from this list on purpose. Its token stream was
+  // already blocked on the way out — the phone has no screen for it, so every
+  // token was mobile data spent on nothing — while the request side stayed open,
+  // letting a phone start, stop, approve or delete a run it cannot see. Closed in
+  // both directions on 2026-09-17. The phone called none of the nine.
   'devices:changed',
   'devices:list',
   'devices:rename',
@@ -193,6 +190,9 @@ const REACHABLE_FROM_A_PHONE = [
   'provider:list-models',
   'provider:usage-changed',
   'provider:verify-key',
+  // Asking what the connection is, which is not changing it. Everything else
+  // under `remote:` stays refused — see the note in `ALLOWED_CHANNELS`.
+  'remote:status',
   'scheduler:create',
   'scheduler:delete',
   'scheduler:get-keep-awake',
