@@ -34,6 +34,7 @@ import {
   replySubject,
   type OutgoingMessage
 } from './mime'
+import { findTrashMailbox } from './trashMailbox'
 import { dedupeParticipants, describeAttachment, threadPreview } from './threadSummary'
 import { authorizeProvider } from './providers/oauthClients'
 import { GmailAdapter } from './providers/GmailAdapter'
@@ -710,6 +711,41 @@ class EmailService {
       mailbox: request.mailbox
     })
     return `${result} on ${account.address}.`
+  }
+
+  /**
+   * Delete a thread, which everywhere means moving it to the trash.
+   *
+   * There is no other kind of delete on a mail server worth offering: IMAP's
+   * `\Deleted` flag plus an expunge destroys a message with nothing to undo it
+   * with, and no mail client has shipped that as a one-tap button in twenty
+   * years. A move to trash is what "delete" means to the person pressing it, and
+   * it is recoverable from any client they own.
+   *
+   * Refuses rather than guessing when the account has no trash mailbox. Moving
+   * mail into a folder that does not exist is how a delete silently loses a
+   * message; being told "this account has no trash" is a fact somebody can act
+   * on.
+   */
+  async trash(request: {
+    threadId?: string
+    messageId?: string
+    accountId?: string
+  }): Promise<string> {
+    const { account, adapter } = this.resolve(request.accountId)
+    const mailboxes = await adapter.listMailboxes(account)
+    const trash = findTrashMailbox(mailboxes)
+
+    if (!trash) {
+      throw new Error(`No trash mailbox on ${account.address}, so nothing was moved.`)
+    }
+
+    await adapter.move(account, {
+      threadId: request.threadId?.trim() || undefined,
+      messageId: request.messageId?.trim() || undefined,
+      mailbox: trash.name
+    })
+    return `Moved to ${trash.name} on ${account.address}.`
   }
 
   /** Resolves the target account and refuses early if it has no credentials. */

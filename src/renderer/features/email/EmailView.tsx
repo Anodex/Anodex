@@ -80,6 +80,7 @@ export function EmailView(): JSX.Element {
   const openThread = useEmailStore((s) => s.openThread)
   const closeThread = useEmailStore((s) => s.closeThread)
   const applyFlag = useEmailStore((s) => s.applyFlag)
+  const trashThread = useEmailStore((s) => s.trashThread)
   const runSearch = useEmailStore((s) => s.search)
   const loadEmail = useEmailStore((s) => s.load)
   const openSettings = useUiStore((s) => s.openSettings)
@@ -188,6 +189,7 @@ export function EmailView(): JSX.Element {
         busy={busyThreadId === thread.id}
         onOpen={() => void openThread(thread)}
         onFlag={(action) => void applyFlag(thread, action)}
+        onTrash={() => void trashThread(thread)}
         onPickTone={setToneTarget}
       />
     </Fragment>
@@ -718,6 +720,8 @@ interface ThreadRowProps {
   busy: boolean
   onOpen: () => void
   onFlag: (action: 'mark_read' | 'mark_unread' | 'star' | 'unstar' | 'archive') => void
+  /** Delete: moves to the account's trash, which is what every client means by it. */
+  onTrash: () => void
   /** Opens the sender-colour menu at the pointer. */
   onPickTone: (target: SenderToneTarget) => void
 }
@@ -736,6 +740,7 @@ function ThreadRow({
   busy,
   onOpen,
   onFlag,
+  onTrash,
   onPickTone
 }: ThreadRowProps): JSX.Element {
   const sender = parseSender(thread.from)
@@ -845,6 +850,11 @@ function ThreadRow({
             disabled={busy}
             onClick={() => onFlag('archive')}
           />
+          {/* Delete moves to trash, which is what every mail client means by it
+              and the only kind worth a one-click button: IMAP's `\Deleted` plus
+              an expunge destroys a message with nothing to undo it with. Last in
+              the row, furthest from the actions somebody uses while reading. */}
+          <IconAction label="Delete" icon="trash" disabled={busy} onClick={onTrash} />
         </div>
       </div>
     </div>

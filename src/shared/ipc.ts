@@ -629,6 +629,17 @@ export const IpcChannel = {
     digestThreads: 'email:digest-threads',
     applyFlag: 'email:apply-flag',
     move: 'email:move',
+    /**
+     * Delete, which on every mail server means moving to the trash.
+     *
+     * Separate from `move` because the caller does not know what this account
+     * calls its trash -- Gmail says `[Gmail]/Trash`, Microsoft says `Deleted
+     * Items`, an IMAP server says whatever its admin chose. Resolving that in
+     * the client would mean the desktop and the phone each carrying their own
+     * list of spellings, and the one that was wrong failing by moving somebody's
+     * mail into a folder that does not exist.
+     */
+    trash: 'email:trash',
     listMailboxes: 'email:list-mailboxes',
     saveAttachment: 'email:save-attachment',
     /** Resolves an opened message's remote images to inline `data:` URIs. */
@@ -1182,6 +1193,12 @@ export interface AnodexApi {
     digestThreads(requests: EmailThreadDigestRequest[]): Promise<Result<EmailThreadDigestBatch>>
     applyFlag(request: EmailFlagRequest): Promise<Result<string>>
     move(request: EmailMoveRequest): Promise<Result<string>>
+    /** Delete: moves to the account's trash. See `IpcChannel.Email.trash`. */
+    trash(request: {
+      threadId?: string
+      messageId?: string
+      accountId?: string
+    }): Promise<Result<string>>
     listMailboxes(accountId?: string): Promise<Result<EmailMailbox[]>>
     /** Prompts for a location and writes the attachment there. Null path means cancelled. */
     saveAttachment(request: {
