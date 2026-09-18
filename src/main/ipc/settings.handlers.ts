@@ -17,6 +17,15 @@ export function registerSettingsHandlers(): void {
   // than a filter somebody could widen later without noticing what it guards.
   ipcMain.handle(IpcChannel.Settings.getProfile, () => settingsStore.get().profile)
 
+  // One field, by name. See the doc on `IpcChannel.Settings.getAgent`: the whole
+  // settings blob carries every provider key, and a phone reading the permission
+  // mode has no use for those. Written as an explicit object rather than a
+  // subset of `general`, so a field added to `GeneralSettings` later does not
+  // start crossing the socket without anybody choosing that.
+  ipcMain.handle(IpcChannel.Settings.getAgent, () => ({
+    permissionMode: settingsStore.get().general.permissionMode
+  }))
+
   ipcMain.handle(IpcChannel.Settings.update, (_event, patch: SettingsPatch) => {
     try {
       const settings = settingsStore.update(patch)
