@@ -300,4 +300,24 @@ describe('opening a conversation', () => {
 
     expect(messages.map((message) => message.subject)).toEqual([SUBJECT])
   })
+
+  it('keeps what the search found when nothing matches exactly', () => {
+    // Two parsers read the subject: the listing decodes the envelope, the read
+    // decodes the whole message. They agree today. If a message ever arrives
+    // where they do not, an exact match that excludes everything would empty the
+    // conversation — reintroducing the bug this all exists to fix, through the
+    // fix for it. The loose set is what the caller received before any of this,
+    // so falling back to it can be no worse.
+    // The id says one thing, the message says another — which is what a
+    // disagreement between the two decoders looks like from here.
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: 'Quarterly report', messageId: '<a@example.com>' }
+    ])
+
+    return adapter
+      .getThreadMessages(account, encodeThreadId('Quarterly report (2026)', 'INBOX', 1))
+      .then((messages) => {
+        expect(messages.map((message) => message.subject)).toEqual(['Quarterly report'])
+      })
+  })
 })

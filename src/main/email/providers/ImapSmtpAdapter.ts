@@ -205,11 +205,30 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       }
     }
 
+    // The query was a substring — deliberately, see `subjectSearchTerm` — so
+    // this is where the thread becomes exactly its own messages again. It always
+    // matched more than the thread, even before the query was loosened:
+    // "Lunch?" is inside "Re: Lunch? moved", and nothing downstream checked
+    // while `applyFlag` and `move` act on whatever a thread resolves to.
+    const exact = collected.filter((message) => normalizeSubject(message.subject) === subject)
+
+    // Two parsers read that subject: the listing decodes the envelope, the read
+    // decodes the whole message. They agree on everything seen so far, and if
+    // they ever do not, this must not be how the reader finds out — an exact
+    // match that excludes every message is worse than the loose set it was
+    // narrowing, which is what the caller received before any of this existed.
+    if (exact.length === 0 && collected.length > 0) {
+      log.warn(
+        `No message matched thread subject "${subject}" exactly; keeping all ${collected.length}.`
+      )
+    }
+    const kept = exact.length > 0 ? exact : collected
+
     // A server may file one message in both folders — Gmail does for anything
     // sent to yourself. The RFC 5322 Message-ID is what says they are the
     // same message; without one, the mailbox-scoped id is the best available.
     const seen = new Set<string>()
-    return collected
+    return kept
       .filter((message) => {
         const key = message.messageIdHeader ?? message.id
         if (seen.has(key)) return false
@@ -239,7 +258,8 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
    * the whole conversation was unopenable, everywhere, for as long as it sat in
    * the inbox. [subjectSearchTerm] hands over the longest stretch the server is
    * unlikely to argue with, which is still a literal substring for a server that
-   * reads it strictly.
+   * reads it strictly. The exact match happens in [threadMessagesIn], over
+   * everything every mailbox returned.
    */
   private async searchMailboxBySubject(
     account: EmailAccount,
@@ -264,10 +284,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
         { uid: true, envelope: true, flags: true, source: true },
         { uid: true }
       )) {
-        const message = await fromSource(raw, account, mailbox)
-        // The search was deliberately loose. This is where the thread becomes
-        // exactly its own messages again.
-        if (normalizeSubject(message.subject) === subject) messages.push(message)
+        messages.push(await fromSource(raw, account, mailbox))
       }
       return messages
     })
