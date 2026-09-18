@@ -7272,7 +7272,21 @@
           "permissionMode": {
             "optional": false,
             "type": {
-              "kind": "unknown"
+              "kind": "union",
+              "of": [
+                {
+                  "kind": "literal",
+                  "value": "ask"
+                },
+                {
+                  "kind": "literal",
+                  "value": "full"
+                },
+                {
+                  "kind": "literal",
+                  "value": "untethered"
+                }
+              ]
             }
           }
         }
