@@ -7262,6 +7262,37 @@
       }
     },
     {
+      "channel": "settings:get-agent",
+      "kind": "invoke",
+      "api": "settings.getAgent",
+      "args": [],
+      "result": {
+        "kind": "object",
+        "properties": {
+          "permissionMode": {
+            "optional": false,
+            "type": {
+              "kind": "union",
+              "of": [
+                {
+                  "kind": "literal",
+                  "value": "ask"
+                },
+                {
+                  "kind": "literal",
+                  "value": "full"
+                },
+                {
+                  "kind": "literal",
+                  "value": "untethered"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
       "channel": "settings:get-profile",
       "kind": "invoke",
       "api": "settings.getProfile",

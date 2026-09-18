@@ -36,6 +36,7 @@ import type {
   DiagnosticEntry,
   DiagnosticLogFile,
   MemoryUsageReport,
+  PermissionMode,
   ProfileSettings,
   SettingsPatch
 } from './settings.types'
@@ -283,6 +284,21 @@ export const IpcChannel = {
      * That is the same narrowing `models:get-state` makes.
      */
     getProfile: 'settings:get-profile',
+    /**
+     * Just the permission mode: how much Anodex may do before it asks.
+     *
+     * Separate from `settings:get` for the same reason `getProfile` is. That one
+     * answers with the whole `AppSettings`, and that blob carries every provider
+     * API key in plaintext. A paired phone is trusted and may change this
+     * setting -- it is the same trust that lets it read the owner's files -- but
+     * a screen that wants one enum should not be handed a set of secrets it has
+     * no use for, on every read, as a side effect.
+     *
+     * Not a restriction on what the phone may do. `settings:update` is unchanged
+     * and still takes any patch: this narrows what crosses the socket to answer
+     * a question, not what may be asked.
+     */
+    getAgent: 'settings:get-agent',
     update: 'settings:update',
     /**
      * main → renderer: settings changed somewhere other than this window.
@@ -830,8 +846,10 @@ export interface AnodexApi {
     /** main → renderer: settings were changed by a paired phone. */
     onChanged(listener: (settings: AppSettings) => void): () => void
     get(): Promise<AppSettings>
-    /** Just the profile — the one part of settings a paired phone may read. */
+    /** Just the profile: a name, an avatar, the account's own labels. */
     getProfile(): Promise<ProfileSettings>
+    /** Just the permission mode. See `IpcChannel.Settings.getAgent`. */
+    getAgent(): Promise<{ permissionMode: PermissionMode }>
     update(patch: SettingsPatch): Promise<AppSettings>
     openModelsDir(): Promise<void>
     /** Copies the chosen picture into userData; resolves null if cancelled. */

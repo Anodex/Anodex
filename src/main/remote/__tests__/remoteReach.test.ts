@@ -204,6 +204,12 @@ const REACHABLE_FROM_A_PHONE = [
   'scheduler:update',
   'settings:changed',
   'settings:forget-personality-image',
+  // Deliberate, and narrower than what it replaces. The phone reads the
+  // permission mode from here instead of `settings:get`, which answers with the
+  // whole `AppSettings` -- every provider API key included. Both are reachable;
+  // this one exists so the phone stops being handed secrets it has no use for on
+  // every read.
+  'settings:get-agent',
   'settings:get',
   'settings:get-profile',
   'settings:update',
