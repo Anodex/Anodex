@@ -116,6 +116,11 @@ const REACHABLE_FROM_A_PHONE = [
   'email:digest-threads',
   'email:discover',
   'email:get-status',
+  // Deliberate. `save-attachment` opens a dialog on the computer, which is
+  // useless from a phone -- it puts a prompt on a machine in another room and
+  // waits for a click that is not coming. This hands the bytes over instead, so
+  // an attachment lands wherever the person actually is.
+  'email:get-attachment-chunk',
   'email:get-thread-messages',
   'email:get-unread-thread-count',
   'email:list-accounts',
