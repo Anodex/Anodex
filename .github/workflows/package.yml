@@ -164,6 +164,12 @@ jobs:
       # artifacts already built and only performs the upload.
       - name: Package
         if: startsWith(github.ref, 'refs/tags/v')
+        # Explicitly, because this step is a shell script now and Windows runners
+        # default to PowerShell. The single `npm run dist` line this replaced ran
+        # anywhere; a `while` loop and a `[ -f ... ]` test do not, and the Windows
+        # job failed in ninety seconds without ever starting a build. Every other
+        # multi-line step in this file already says the same thing.
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
