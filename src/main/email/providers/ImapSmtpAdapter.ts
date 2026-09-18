@@ -268,14 +268,38 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
   ): Promise<EmailMessage[]> {
     return this.withMailbox(account, mailbox, async (client) => {
       const term = subjectSearchTerm(subject)
-      const uids = await client.search({ header: { subject: term } }, { uid: true })
-      // `false` is a refused command, `[]` is a mailbox with nothing in it, and
-      // the two used to land in the same silent branch. A thread that cannot be
-      // read is worth a line in the log; an empty folder is not.
-      if (uids === false) {
+      const searched = await client.search({ header: { subject: term } }, { uid: true })
+      // `false` is a refused command, `[]` is a mailbox with nothing matching,
+      // and the two used to land in the same silent branch.
+      if (searched === false) {
         log.warn(`${mailbox} refused a subject search for "${term}".`)
-        return []
       }
+
+      let uids = searched === false ? [] : searched
+
+      if (uids.length === 0) {
+        // The server's search disagrees with its own mailbox.
+        //
+        // This is not a hypothetical either. Gmail answers nothing for some
+        // subjects that are sitting in the inbox it just listed — with the
+        // whole subject, and with a punctuation-free stretch of it, which was
+        // the previous attempt at this and did not work. Guessing at which
+        // string a search engine will accept is not a thing that converges.
+        //
+        // So stop asking. The listing found this message by reading the
+        // mailbox, and reading the mailbox is a thing every IMAP server does
+        // the same way. Same window the listing uses, so a row visible in a
+        // list can always be opened — which is the property that was missing,
+        // rather than any particular query being right.
+        uids = await uidsBySubjectScan(client, subject)
+        if (uids.length > 0) {
+          log.warn(
+            `${mailbox} found nothing for "${term}" but holds ` +
+              `${uids.length} message(s) with that subject; read them directly.`
+          )
+        }
+      }
+
       if (uids.length === 0) return []
 
       const messages: EmailMessage[] = []
@@ -1023,6 +1047,35 @@ function isUnread(raw: FetchMessageObject): boolean {
 
 function isStarred(raw: FetchMessageObject): boolean {
   return raw.flags ? raw.flags.has('\\Flagged') : false
+}
+
+/**
+ * The uids in the open mailbox whose subject is [subject], read rather than searched.
+ *
+ * The same window the listing uses, and the same comparison: an envelope fetch
+ * over the most recent [THREAD_WINDOW] messages, normalized subject against
+ * normalized subject. That is deliberate rather than convenient — it is what
+ * makes "a conversation you can see in a list can be opened" true by
+ * construction, instead of true whenever the server's search agrees with its
+ * own contents.
+ *
+ * Envelopes only. The bodies are fetched afterwards, for the handful that
+ * matched, so the cost of a server that will not search is one listing's worth
+ * of headers and nothing more.
+ */
+async function uidsBySubjectScan(client: ImapFlow, subject: string): Promise<number[]> {
+  const all = await client.search({ all: true }, { uid: true })
+  if (!all || all.length === 0) return []
+
+  const matches: number[] = []
+  for await (const raw of client.fetch(
+    all.slice(-THREAD_WINDOW).join(','),
+    { uid: true, envelope: true },
+    { uid: true }
+  )) {
+    if (normalizeSubject(raw.envelope?.subject ?? '') === subject) matches.push(raw.uid)
+  }
+  return matches
 }
 
 async function fromSource(
