@@ -218,9 +218,9 @@ export const IpcChannel = {
      * off does not cost it the conversation: `conversations:changed` still fires when
      * the turn is saved, so the phone catches up whole a moment later.
      *
-     * Under `chat:` rather than `remote:` because that prefix is denied to a paired
-     * device outright, and this is a client describing itself rather than reaching
-     * into the pairing.
+     * Under `chat:` rather than `remote:` because a paired device is refused
+     * everything under that prefix but the one status read, and this is a client
+     * describing itself rather than reaching into the pairing.
      */
     setLiveTokens: 'chat:set-live-tokens',
     /**
@@ -248,10 +248,11 @@ export const IpcChannel = {
   /**
    * Choosing how Anodex answers.
    *
-   * Its own prefix rather than part of `settings:`, which is denied to a paired
-   * phone as a whole and should stay that way — that one carries the permission
-   * mode, the MCP servers and the model directory. The personality changes the
-   * wording of a system prompt and nothing else, so it gets a door its own size.
+   * Its own prefix rather than part of `settings:`. That was once justified by
+   * `settings:` being denied to a paired phone as a whole; it is not, and the
+   * remaining reason is the good one — a personality changes the wording of a
+   * system prompt and nothing else, so it reads and writes a door its own size
+   * instead of the whole settings blob.
    */
   Personality: {
     /** Every personality and which is in force. Read-only, safe to expose. */
@@ -266,14 +267,20 @@ export const IpcChannel = {
     /**
      * Just the profile: a name, an avatar, and the account's own labels.
      *
-     * Separate from `settings:get` because the whole `settings:` prefix is denied
-     * to a paired phone, and rightly — that blob carries the permission mode, the
-     * MCP servers and the model directory, and a client able to read it is one
-     * step from a client able to change it.
+     * A narrow read: one name, one avatar, one set of labels.
      *
-     * A display name is none of those things. This is the same narrowing
-     * `models:get-state` already makes: one read, carrying nothing that widens the
-     * blast radius, rather than an exception on the prefix.
+     * This used to say it was separate because "the whole `settings:` prefix is
+     * denied to a paired phone, and rightly". That is not the rule and has not
+     * been for some time — `decideRemoteChannel` refuses editing the connection,
+     * the terminal and critical thinking, and `settings:get` is allowed. The
+     * phone repo read this comment rather than the policy and built nine Settings
+     * screens around it, several of which say a setting can only be changed at
+     * the computer when it can be changed from anywhere.
+     *
+     * The channel keeps earning its place on the narrower ground it always had:
+     * a screen that wants a display name should ask for a display name, not for a
+     * blob carrying the permission mode, the MCP servers and the model directory.
+     * That is the same narrowing `models:get-state` makes.
      */
     getProfile: 'settings:get-profile',
     update: 'settings:update',

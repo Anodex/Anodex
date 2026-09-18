@@ -42,6 +42,11 @@ export const DENIED_CHANNEL_PREFIXES = [
    * off is changing the conditions under which it is able to speak at all, from
    * the far end of them. The failure is not misuse, it is a locked door with
    * the key on the inside — and the way back is walking to the computer.
+   * Revoking and pairing belong here for the same reason: both decide who may
+   * speak, and both should be decided at the machine being spoken to.
+   *
+   * *Editing* the connection is the rule; asking about it is not. `remote:status`
+   * is carved back out in `ALLOWED_CHANNELS` — see the note there.
    */
   'remote:',
 
@@ -53,7 +58,23 @@ export const DENIED_CHANNEL_PREFIXES = [
    * things, with a yes in between. A terminal has no such step, which makes it
    * the one surface where "trusted device" and "nothing to confirm" stack up.
    */
-  'terminal:'
+  'terminal:',
+
+  /**
+   * A feature the phone does not have, in the direction nobody checked.
+   *
+   * The output side has been closed for a while — see `DENIED_EVENT_PREFIXES`,
+   * where critical thinking's token stream was spending mobile data on a screen
+   * that does not exist. The request side was left open, so a phone could still
+   * *start*, *stop*, *approve* or *delete* a run it has no way to see. That is
+   * the same half-a-refusal the terminal entry above is about, and the owner's
+   * decision on 2026-09-17 was to close it in both directions.
+   *
+   * Nothing breaks: the phone calls none of these nine channels today.
+   * `critical-thinking:export-pdf` used to be listed one by one below, which is
+   * now redundant — a prefix covers it and every sibling it was hiding among.
+   */
+  'critical-thinking:'
 ] as const
 
 /**
@@ -83,7 +104,6 @@ export const DENIED_CHANNELS = [
   'project:pick-directory',
   'backup:pick-file',
   'backup:pick-directory',
-  'critical-thinking:export-pdf',
   'diagnostics:reveal-log',
 
   // Runs a program on the host, chosen by file association.
@@ -145,10 +165,25 @@ export const DENIED_CHANNELS = [
  * pattern.
  */
 export const ALLOWED_CHANNELS = [
-  // Empty, and that is the point: every entry here was a hole cut in a prefix
-  // rule that no longer exists. `models:get-state`, `settings:get-profile`,
-  // `memory:list` and the rest are reachable now because their whole subsystems
-  // are, not because each was argued for one at a time.
+  /**
+   * Asking what the connection is, which is not changing it.
+   *
+   * The rule is that a phone may not edit the address, the port, or who is
+   * paired — that is the locked door with the key on the inside. `remote:status`
+   * does none of that: it reports the host, the port and whether the listener is
+   * up, and it is how the phone answers "am I online" without guessing from a
+   * failed request.
+   *
+   * The events already came through for exactly this reason (see the note on
+   * `DENIED_EVENT_PREFIXES`), so the request side was the odd one out: a phone
+   * could be *told* the status but not *ask* for it, which meant it could only
+   * learn the connection had changed if it happened to be listening at the time.
+   *
+   * Everything else under `remote:` stays refused, by prefix rather than by
+   * name, so a `remote:set-something` added next year is refused on the day it
+   * is written rather than the day somebody remembers this list.
+   */
+  'remote:status'
 ] as const
 
 /**
