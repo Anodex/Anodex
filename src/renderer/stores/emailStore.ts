@@ -139,7 +139,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const mailbox = get().mailbox ?? undefined
       const [threadsResult, unreadCountResult] = await Promise.all([
         query
-          ? anodex.email.search({ query, limit, accountId })
+          ? // The same folder the listing beside it is showing. `mailbox` was
+            // computed one line up and then dropped here, so typing a word while
+            // looking at Trash returned mail from the whole account under a
+            // heading that still said Trash.
+            anodex.email.search({ query, limit, accountId, mailbox })
           : anodex.email.listThreads({ limit, accountId, mailbox }),
         anodex.email.getUnreadThreadCount(accountId)
       ])
