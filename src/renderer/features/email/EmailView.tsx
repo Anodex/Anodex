@@ -39,6 +39,8 @@ import { avatarPaint, colorFor, useSenderColor, useSenderToneStore } from './sen
 import { SenderCard } from './SenderCard'
 import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
+import { EmailComposer } from './EmailComposer'
+import { blankDraft, forwardDraft, replyDraft } from './composeMail'
 import styles from './EmailView.module.css'
 
 /** How far one arrow-key press nudges the rail's edge. */
@@ -59,6 +61,7 @@ export function EmailView(): JSX.Element {
   const threads = useEmailStore((s) => s.threads)
   const unreadCount = useEmailStore((s) => s.unreadCount)
   const activeAccountId = useEmailStore((s) => s.activeAccountId)
+  const startCompose = useEmailStore((s) => s.startCompose)
   const openThreadId = useEmailStore((s) => s.openThreadId)
   const openMessages = useEmailStore((s) => s.openMessages)
   const openLoading = useEmailStore((s) => s.openLoading)
@@ -339,6 +342,19 @@ export function EmailView(): JSX.Element {
           </Button>
         )}
 
+        {/* Writing one, which this app could not do at all: every message that
+            ever left it was written by the model through `send_email`. */}
+        {active?.connected && (
+          <Button
+            variant="primary"
+            size="sm"
+            iconLeft={<Icon name="pencil" size={15} />}
+            onClick={() => startCompose(blankDraft(activeAccountId ?? undefined))}
+          >
+            Write
+          </Button>
+        )}
+
         {status && WEBMAIL_PROVIDERS.has(status.provider) && (
           <Button
             variant="secondary"
@@ -489,6 +505,11 @@ export function EmailView(): JSX.Element {
           )}
         </section>
       )}
+
+      {/* Over everything, because writing a message is the one thing here that
+          is not reading one, and it must not be half-covered by the list it was
+          started from. */}
+      <EmailComposer />
     </div>
   )
 }
@@ -973,6 +994,7 @@ function ThreadReader({
   const openEmailThreadConversation = useChatStore((s) => s.openEmailThreadConversation)
   const setPendingComposerText = useChatStore((s) => s.setPendingComposerText)
   const setView = useUiStore((s) => s.setView)
+  const startCompose = useEmailStore((s) => s.startCompose)
 
   /**
    * Writes the instruction into a composer rather than sending it. The model
@@ -1041,13 +1063,34 @@ function ThreadReader({
               >
                 Summarize
               </Button>
+              {/* Reply-all only where it means something. On a message with one
+                  recipient the two are the same act under two names, and the
+                  one that mails nine other people should not be a neighbour of
+                  the one that does not. */}
+              {latest.to.length + latest.cc.length > 1 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => startCompose(replyDraft(latest, true))}
+                >
+                  Reply all
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => startCompose(forwardDraft(latest))}
+              >
+                Forward
+              </Button>
+              {/* Yours, not the model's. The model is inside that window under
+                  "Have Anodex write it" — which is the whole change: it used to
+                  be the only way out of this app. */}
               <Button
                 variant="primary"
                 size="sm"
                 iconLeft={<Icon name="pencil" size={14} />}
-                onClick={() =>
-                  assist('Draft a reply to this email and send it once I approve.', latest)
-                }
+                onClick={() => startCompose(replyDraft(latest, false))}
               >
                 Reply
               </Button>

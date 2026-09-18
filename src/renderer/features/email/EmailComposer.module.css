@@ -1,0 +1,110 @@
+/* The compose window: a column of fields, the body, the model, then Send. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(720px, 92vw);
+  max-height: min(760px, 88vh);
+  padding: var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Label and field on one line, so the three of them read as a block of
+   addressing rather than six stacked rows pushing the message off screen. */
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-2);
+}
+
+.label {
+  flex: 0 0 64px;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--text-faint);
+}
+
+.body {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  padding: var(--space-3);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  outline: none;
+}
+
+.body:focus-visible {
+  border-color: var(--accent);
+}
+
+/* The model, under the message rather than beside Send: it writes the body, so
+   it belongs with the body, and it must not sit where a thumb reaches for the
+   one control that cannot be taken back. */
+.assist {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.assistActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.assistNote,
+.sendNote {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
