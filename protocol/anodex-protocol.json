@@ -3128,6 +3128,139 @@
       }
     },
     {
+      "channel": "email:get-attachment-chunk",
+      "kind": "invoke",
+      "api": "email.getAttachmentChunk",
+      "args": [
+        {
+          "name": "request",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "messageId": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "attachmentId": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "offset": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "number"
+                    }
+                  ]
+                }
+              },
+              "accountId": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "filename": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "mimeType": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "size": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    },
+                    "offset": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    },
+                    "base64": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "done": {
+                      "optional": false,
+                      "type": {
+                        "kind": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "email:get-status",
       "kind": "invoke",
       "api": "email.getStatus",

@@ -15,6 +15,7 @@ import type {
   EmailSyncMode,
   EmailThreadDigestRequest
 } from '@shared/email.types'
+import { chunkOf, withAttachment } from '../email/attachmentChunks'
 import { emailService } from '../email/EmailService'
 import { digestThreads } from '../email/threadDigests'
 import { loadRemoteImages } from '../email/remoteImages'
@@ -272,6 +273,33 @@ export function registerEmailHandlers(): void {
       return err('email.mailboxes-failed', 'Could not list mailboxes.', toErrorMessage(error))
     }
   })
+
+  ipcMain.handle(
+    IpcChannel.Email.getAttachmentChunk,
+    async (
+      _event,
+      request: {
+        messageId: string
+        attachmentId: string
+        offset?: number
+        accountId?: string
+      }
+    ) => {
+      try {
+        const content = await withAttachment(request.messageId, request.attachmentId, () =>
+          emailService.getAttachment(request.messageId, request.attachmentId, request.accountId)
+        )
+        return ok(chunkOf(content, request.offset ?? 0))
+      } catch (error) {
+        log.warn('Failed to read an email attachment:', error)
+        return err(
+          'email.attachment-failed',
+          'Could not read that attachment.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
 
   ipcMain.handle(
     IpcChannel.Email.saveAttachment,
