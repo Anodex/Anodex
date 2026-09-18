@@ -134,11 +134,70 @@ jobs:
       # metadata is the part that matters: electron-updater reads it, not the
       # installer, and without it a release is just a file somebody can download by
       # hand. Uploading the artifacts to a release afterwards would miss it.
+      # Retried, because the upload fails in a way the build cannot prevent.
+      #
+      # GitHub answers `500 Error saving asset` on `uploads.github.com` for this
+      # repository's larger assets -- seen on v0.10.2 (three failures before the
+      # fourth attempt worked) and again on v0.10.3, on Linux every time. The
+      # AppImage is the largest asset at roughly 672 MB, and essentially all of
+      # that is llama.cpp's GPU backends: `linux-x64-cuda-ext` alone is 361 MB,
+      # with cuda, vulkan and cpu accounting for the rest. Every one of those is
+      # somebody's graphics card, so the size is a product decision rather than
+      # something to trim here.
+      #
+      # What can be fixed is the response to a failure. Three things happen on a
+      # retry, in this order:
+      #
+      # 1. Any asset already on the release from the half-finished attempt is
+      #    deleted. A partial upload leaves a file of the right name and the wrong
+      #    length, and the next attempt then fails on its own debris -- a stray
+      #    `.exe.blockmap` once made Windows fail this way, and it passed
+      #    immediately once the orphan was removed.
+      # 2. The build is not repeated. `dist/` still holds what was packaged, and
+      #    rebuilding an Electron app to re-attempt an HTTP POST wastes ten
+      #    minutes per try.
+      # 3. The wait grows. A storage error that is still happening one second
+      #    later is usually still happening ten seconds later.
+      #
+      # `--publish always` on the later attempts re-uploads from the existing
+      # `dist/`, which is what makes step 2 possible: electron-builder finds the
+      # artifacts already built and only performs the upload.
       - name: Package
         if: startsWith(github.ref, 'refs/tags/v')
-        run: npm run dist -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          attempt=1
+          max=4
+          while true; do
+            if npm run dist -- --publish always; then
+              echo "Published on attempt $attempt."
+              break
+            fi
+
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::Publishing failed $max times; giving up."
+              exit 1
+            fi
+
+            echo "::warning::Publish attempt $attempt failed. Clearing partial assets and retrying."
+
+            # Only this platform's files. The matrix runs one platform per job but
+            # they share a release, and deleting another job's asset mid-upload
+            # would turn one flaky upload into two.
+            for file in dist/*; do
+              [ -f "$file" ] || continue
+              name="$(basename "$file")"
+              if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"                    --json assets --jq '.assets[].name' | grep -qxF "$name"; then
+                echo "Removing partial asset $name"
+                gh release delete-asset "$GITHUB_REF_NAME" "$name"                   --repo "$GITHUB_REPOSITORY" --yes || true
+              fi
+            done
+
+            sleep $((attempt * 15))
+            attempt=$((attempt + 1))
+          done
 
       - name: Package (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
