@@ -642,6 +642,20 @@ export const IpcChannel = {
     trash: 'email:trash',
     listMailboxes: 'email:list-mailboxes',
     saveAttachment: 'email:save-attachment',
+    /**
+     * An attachment's bytes, a chunk at a time.
+     *
+     * `saveAttachment` opens a save dialog on the computer, which is the right
+     * thing when somebody is sitting at it and useless when they are not: from a
+     * phone it puts a dialog on a machine in another room and waits for a click
+     * that is not coming.
+     *
+     * So a phone asks for the bytes and writes them itself, and an attachment
+     * lands wherever the person is. Chunked because the socket refuses a
+     * response over four megabytes and base64 costs a third on top, which would
+     * otherwise cap attachments below the size of a phone photograph.
+     */
+    getAttachmentChunk: 'email:get-attachment-chunk',
     /** Resolves an opened message's remote images to inline `data:` URIs. */
     loadRemoteImages: 'email:load-remote-images',
     createDraft: 'email:create-draft',
@@ -1207,6 +1221,25 @@ export interface AnodexApi {
       filename: string
       accountId?: string
     }): Promise<Result<{ path: string | null }>>
+    /**
+     * An attachment's bytes from `offset`, for a caller that writes the file
+     * itself. See `IpcChannel.Email.getAttachmentChunk`.
+     */
+    getAttachmentChunk(request: {
+      messageId: string
+      attachmentId: string
+      offset?: number
+      accountId?: string
+    }): Promise<
+      Result<{
+        filename: string
+        mimeType: string
+        size: number
+        offset: number
+        base64: string
+        done: boolean
+      }>
+    >
     /**
      * Fetches a message's blocked remote images and returns them keyed by the
      * URL that asked for them, as `data:` URIs the reader's frame can show.
