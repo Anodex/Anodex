@@ -189,9 +189,9 @@ jobs:
             for file in dist/*; do
               [ -f "$file" ] || continue
               name="$(basename "$file")"
-              if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"                    --json assets --jq '.assets[].name' | grep -qxF "$name"; then
+              if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$name"; then
                 echo "Removing partial asset $name"
-                gh release delete-asset "$GITHUB_REF_NAME" "$name"                   --repo "$GITHUB_REPOSITORY" --yes || true
+                gh release delete-asset "$GITHUB_REF_NAME" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
               fi
             done
 
