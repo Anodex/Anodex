@@ -11,6 +11,27 @@ const PLACEHOLDER_TITLE = 'New chat'
 const MAX_TITLE_CHARS = 60
 
 /**
+ * Which project a turn belongs to, by the same rule the run itself uses.
+ *
+ * The distinction is between a key that is absent and one that is null, and it
+ * is deliberate: absent means "whatever project is open at the computer", null
+ * means "none". `boundedChatRunner` has honoured that for as long as it has
+ * existed. This file did not — it read `request.projectId ?? null`, which
+ * collapses the two — so a turn from a client that omits the key *ran* inside the
+ * active project and was *filed* under no project at all. The work happened in
+ * one place and the record of it went to another, and nothing failed.
+ *
+ * Passed in rather than read from `projectStore` here, so this stays a pure
+ * function over a request and its caller keeps deciding what "active" means.
+ */
+export function projectForRemoteTurn(
+  request: Pick<ChatRequest, 'projectId'>,
+  activeProjectId: string | null
+): string | null {
+  return 'projectId' in request ? (request.projectId ?? null) : activeProjectId
+}
+
+/**
  * A phone's finished turn, as the conversation the computer should now hold.
  *
  * The phone used to be the only thing that saved a turn it sent. It writes the
@@ -34,7 +55,9 @@ export function remoteTurnConversation(
   result: Pick<RunGenerationResult, 'content' | 'stats' | 'thinking' | 'checkpoint'> & {
     stopReason?: RunGenerationResult['stopReason']
   },
-  now: number
+  now: number,
+  /** The project open at the computer, for a request that names none. */
+  activeProjectId: string | null = null
 ): Conversation | null {
   const reply: ChatMessage = {
     id: `${request.messageId}:reply`,
@@ -76,7 +99,7 @@ export function remoteTurnConversation(
 
   return {
     id: request.conversationId,
-    projectId: request.projectId ?? null,
+    projectId: projectForRemoteTurn(request, activeProjectId),
     title: titleFrom(request.prompt),
     createdAt: now,
     updatedAt: now,
@@ -101,12 +124,14 @@ export function remoteTurnConversation(
 export function remoteQuestionConversation(
   existing: Conversation | null | undefined,
   request: ChatRequest,
-  now: number
+  now: number,
+  /** The project open at the computer, for a request that names none. */
+  activeProjectId: string | null = null
 ): Conversation | null {
   if (existing) return null
   return {
     id: request.conversationId,
-    projectId: request.projectId ?? null,
+    projectId: projectForRemoteTurn(request, activeProjectId),
     title: titleFrom(request.prompt),
     createdAt: now,
     updatedAt: now,
