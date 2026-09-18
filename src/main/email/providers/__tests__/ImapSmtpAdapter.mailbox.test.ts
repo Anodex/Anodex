@@ -26,6 +26,14 @@ const imap = vi.hoisted(() => ({
    * opened from the computer or the phone, and neither screen said why.
    */
   refusesPunctuatedSearch: false,
+  /**
+   * Stands in for a server whose search disagrees with its own mailbox.
+   *
+   * Gmail does this too, and not only over punctuation: a message sitting in
+   * the inbox it had just listed came back from `HEADER SUBJECT` as nothing at
+   * all, for the whole subject and for a punctuation-free stretch of it alike.
+   */
+  subjectSearchFindsNothing: false,
   failAppend: false
 }))
 
@@ -71,6 +79,7 @@ vi.mock('imapflow', () => {
         )
       }
       if (header?.subject !== undefined) {
+        if (imap.subjectSearchFindsNothing) return Promise.resolve([])
         // A server within its rights to answer nothing for a term it does not
         // like. Nothing in IMAP promises otherwise, and Gmail takes it.
         if (imap.refusesPunctuatedSearch && /[^\p{L}\p{N}\s_-]/u.test(header.subject)) {
@@ -91,6 +100,10 @@ vi.mock('imapflow', () => {
         yield await Promise.resolve({
           uid: message.uid,
           flags: new Set<string>(),
+          // A real server answers with the envelope when it is asked for, and
+          // reading the mailbox by envelope is how a thread is found when the
+          // server's own search will not find it.
+          envelope: { subject: message.subject },
           source: Buffer.from(rfc822(message), 'utf-8')
         })
       }
@@ -158,6 +171,7 @@ beforeEach(() => {
   imap.moves = []
   imap.sentAlreadyHasEveryMessageId = false
   imap.refusesPunctuatedSearch = false
+  imap.subjectSearchFindsNothing = false
   imap.failAppend = false
   smtpSends.length = 0
   adapter = new ImapSmtpAdapter()
@@ -319,5 +333,82 @@ describe('opening a conversation', () => {
       .then((messages) => {
         expect(messages.map((message) => message.subject)).toEqual(['Quarterly report'])
       })
+  })
+})
+
+/**
+ * A conversation you can see in a list can be opened.
+ *
+ * The property, rather than any particular query being right. Two attempts at
+ * finding the right string to hand a search engine both failed against a real
+ * Gmail account — the whole subject, then a punctuation-free stretch of it —
+ * while the message sat in the inbox the same code had just listed. Guessing at
+ * what a search will accept does not converge.
+ *
+ * Reading the mailbox does. It is what the listing already does, it is the same
+ * comparison, and every IMAP server does it the same way.
+ */
+describe('a mailbox whose search disagrees with its contents', () => {
+  beforeEach(() => {
+    imap.subjectSearchFindsNothing = true
+  })
+
+  it('opens the conversation anyway', async () => {
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: 'Quarterly report', messageId: '<a@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages.map((message) => message.subject)).toEqual(['Quarterly report'])
+  })
+
+  it('collects the replies with it', async () => {
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: 'Quarterly report', messageId: '<a@example.com>' },
+      { uid: 2, subject: 'Re: Quarterly report', messageId: '<b@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages).toHaveLength(2)
+  })
+
+  it('does not sweep in the rest of the mailbox', async () => {
+    // Reading the folder means everything in it passes under this code. The
+    // subject comparison is the only thing keeping the thread to itself, and
+    // `applyFlag` and `move` act on whatever a thread resolves to.
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: 'Quarterly report', messageId: '<a@example.com>' },
+      { uid: 2, subject: 'Lunch', messageId: '<c@example.com>' },
+      { uid: 3, subject: 'Quarterly report 2027', messageId: '<d@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages.map((message) => message.subject)).toEqual(['Quarterly report'])
+  })
+
+  it('still answers nothing when the mailbox genuinely has nothing', async () => {
+    // The honest empty. `getThreadMessages` logs it and both readers now say so
+    // rather than drawing a blank page, so this must stay distinguishable from
+    // a server that would not search.
+    imap.messages.set('INBOX', [{ uid: 1, subject: 'Lunch', messageId: '<c@example.com>' }])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages).toEqual([])
   })
 })
