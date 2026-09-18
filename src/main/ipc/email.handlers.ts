@@ -243,6 +243,18 @@ export function registerEmailHandlers(): void {
     }
   })
 
+  ipcMain.handle(
+    IpcChannel.Email.trash,
+    async (_event, request: { threadId?: string; messageId?: string; accountId?: string }) => {
+      try {
+        return ok(await emailService.trash(request))
+      } catch (error) {
+        log.warn('Failed to delete email:', error)
+        return err('email.trash-failed', 'Could not delete that message.', toErrorMessage(error))
+      }
+    }
+  )
+
   ipcMain.handle(IpcChannel.Email.move, async (_event, request: EmailMoveRequest) => {
     try {
       return ok(await emailService.move(request))

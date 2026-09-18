@@ -128,6 +128,11 @@ const REACHABLE_FROM_A_PHONE = [
   'email:save-attachment',
   'email:search',
   'email:send',
+  // Deliberate. Delete on a mail server means moving to the trash, and the trash
+  // is recoverable from any client the owner has -- including the desktop this
+  // phone is paired to. That is what makes it safe to offer on a phone, and why
+  // there is no expunge anywhere in this app.
+  'email:trash',
   'email:set-primary-account',
   'email:set-sync-mode',
   'git:commit',

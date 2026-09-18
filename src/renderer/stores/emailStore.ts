@@ -79,6 +79,8 @@ interface EmailState {
   openThread: (thread: EmailThreadSummary) => Promise<void>
   closeThread: () => void
   applyFlag: (thread: EmailThreadSummary, action: EmailFlagAction) => Promise<void>
+  /** Delete: moves the thread to the account's trash. */
+  trashThread: (thread: EmailThreadSummary) => Promise<void>
   /** Fetches digests for whichever listed threads still lack one. */
   loadDigests: () => Promise<void>
 }
@@ -273,6 +275,27 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   closeThread: () => {
     openRevision += 1
     set({ openThreadId: null, openMessages: [], openLoading: false })
+  },
+
+  trashThread: async (thread) => {
+    set({ busyThreadId: thread.id })
+    try {
+      const result = await anodex.email.trash({
+        threadId: thread.id,
+        accountId: thread.accountId
+      })
+      if (!result.ok) {
+        notifyError('Could not delete that message', result.error.detail ?? result.error.message)
+        return
+      }
+      // Gone from this mailbox, so the list it came from is stale — reload
+      // rather than patching a row that should not exist, the same reasoning
+      // archiving already uses below.
+      if (get().openThreadId === thread.id) get().closeThread()
+      await get().load()
+    } finally {
+      set({ busyThreadId: null })
+    }
   },
 
   applyFlag: async (thread, action) => {
