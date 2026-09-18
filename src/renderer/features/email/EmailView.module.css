@@ -495,6 +495,12 @@
   font-size: var(--text-sm);
 }
 
+/* The second line of an empty state: what to do about it, quieter than the
+   sentence that says what happened. */
+.emptyDetail {
+  color: var(--text-faint);
+}
+
 .emptyState {
   display: flex;
   flex-direction: column;

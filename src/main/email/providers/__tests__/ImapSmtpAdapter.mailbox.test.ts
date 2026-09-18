@@ -17,6 +17,15 @@ const imap = vi.hoisted(() => ({
   moves: [] as Array<{ from: string; uids: string; to: string }>,
   /** Stands in for a server (Gmail) that files its own copy of a sent message. */
   sentAlreadyHasEveryMessageId: false,
+  /**
+   * Stands in for a server whose search disagrees with us about punctuation.
+   *
+   * Gmail does. Two subjects ending in a question mark returned nothing at all
+   * from a mailbox holding both, while subjects with apostrophes, commas and an
+   * em dash in the same inbox came back — so those conversations could not be
+   * opened from the computer or the phone, and neither screen said why.
+   */
+  refusesPunctuatedSearch: false,
   failAppend: false
 }))
 
@@ -62,6 +71,11 @@ vi.mock('imapflow', () => {
         )
       }
       if (header?.subject !== undefined) {
+        // A server within its rights to answer nothing for a term it does not
+        // like. Nothing in IMAP promises otherwise, and Gmail takes it.
+        if (imap.refusesPunctuatedSearch && /[^\p{L}\p{N}\s_-]/u.test(header.subject)) {
+          return Promise.resolve([])
+        }
         // IMAP SEARCH HEADER is a substring test — modelled faithfully, since
         // that is precisely what made an empty subject match everything.
         return Promise.resolve(
@@ -143,6 +157,7 @@ beforeEach(() => {
   imap.appended = []
   imap.moves = []
   imap.sentAlreadyHasEveryMessageId = false
+  imap.refusesPunctuatedSearch = false
   imap.failAppend = false
   smtpSends.length = 0
   adapter = new ImapSmtpAdapter()
@@ -230,5 +245,59 @@ describe('sending', () => {
     // failure must never surface as a failed send.
     await expect(adapter.send(account, outgoing)).resolves.toBeUndefined()
     expect(smtpSends).toHaveLength(1)
+  })
+})
+
+/**
+ * Opening a conversation, against a server that is fussy about the query.
+ *
+ * The failure this covers was silent from end to end: the provider returned no
+ * messages, the thread was rendered empty, and the only words anywhere were
+ * "this conversation has no readable messages" — which reads as a fact about the
+ * mail rather than a failed read, so nobody looked. Two of five conversations in
+ * a real inbox were unopenable for weeks.
+ */
+describe('opening a conversation', () => {
+  const SUBJECT = '"Anyone else dealing with this?"'
+
+  it('opens a thread whose subject the server will not search for', async () => {
+    imap.refusesPunctuatedSearch = true
+    imap.messages.set('INBOX', [{ uid: 1, subject: SUBJECT, messageId: '<a@example.com>' }])
+
+    const messages = await adapter.getThreadMessages(account, encodeThreadId(SUBJECT, 'INBOX', 1))
+
+    // Asking for the whole subject returned nothing here, which is the bug.
+    expect(messages.map((message) => message.subject)).toEqual([SUBJECT])
+  })
+
+  it('still collects the replies, which carry a prefix', async () => {
+    imap.refusesPunctuatedSearch = true
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: SUBJECT, messageId: '<a@example.com>' },
+      { uid: 2, subject: `Re: ${SUBJECT}`, messageId: '<b@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(account, encodeThreadId(SUBJECT, 'INBOX', 1))
+
+    expect(messages).toHaveLength(2)
+  })
+
+  it('does not widen the thread to whatever the looser query matched', async () => {
+    // The term handed to the server is a substring, so it matches more than the
+    // thread. That is only safe because the exact match happens on this side —
+    // without it, loosening the query would quietly merge conversations, and
+    // `applyFlag` and `move` act on whatever a thread resolves to.
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: SUBJECT, messageId: '<a@example.com>' },
+      {
+        uid: 2,
+        subject: `Fwd: ${SUBJECT} - my take`,
+        messageId: '<c@example.com>'
+      }
+    ])
+
+    const messages = await adapter.getThreadMessages(account, encodeThreadId(SUBJECT, 'INBOX', 1))
+
+    expect(messages.map((message) => message.subject)).toEqual([SUBJECT])
   })
 })
