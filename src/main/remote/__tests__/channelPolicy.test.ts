@@ -57,6 +57,38 @@ describe('remote channel policy', () => {
     }
   })
 
+  it('asks about the connection without being able to change it', () => {
+    // The rule is *editing* the connection, and `remote:status` does not edit
+    // it — it reports the host, the port and whether the listener is up. The
+    // events were always delivered, so the phone could be told the status but
+    // not ask for it, and only learned of a change if it was listening at the
+    // moment one happened.
+    expect(decideRemoteChannel('remote:status').allowed).toBe(true)
+
+    // And the carve-out is one channel wide. Everything else under the prefix
+    // is still refused, including anything added later.
+    expect(decideRemoteChannel('remote:set-port').allowed).toBe(false)
+    expect(decideRemoteChannel('remote:set-something-invented-later').allowed).toBe(false)
+  })
+
+  it('refuses critical thinking in both directions, not just outbound', () => {
+    // The token stream was already blocked on the way out, because the phone has
+    // no screen for it and every token was mobile data spent on nothing. The
+    // request side stayed open, so a phone could start, stop, approve or delete
+    // a run it cannot see. Closed on 2026-09-17; the phone calls none of these.
+    for (const channel of [
+      'critical-thinking:create',
+      'critical-thinking:stop',
+      'critical-thinking:approve',
+      'critical-thinking:resume',
+      'critical-thinking:delete',
+      'critical-thinking:list',
+      'critical-thinking:export-pdf'
+    ]) {
+      expect(decideRemoteChannel(channel).allowed, channel).toBe(false)
+    }
+  })
+
   it('still refuses the terminal, the one surface with nothing to confirm', () => {
     // `run_command` is reachable and goes through the approval flow, so a phone
     // can already have the computer run things — with a yes in between. A raw
@@ -73,7 +105,6 @@ describe('remote channel policy', () => {
     // asked for it, in front of nobody, with the phone showing no sign of it.
     for (const channel of [
       'attachments:pick-files',
-      'critical-thinking:export-pdf',
       'diagnostics:save-support-bundle',
       'workspace:open-path',
       'workspace:reveal-in-explorer',
