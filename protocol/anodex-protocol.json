@@ -4107,6 +4107,103 @@
       }
     },
     {
+      "channel": "email:trash",
+      "kind": "invoke",
+      "api": "email.trash",
+      "args": [
+        {
+          "name": "request",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "threadId": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "string"
+                    }
+                  ]
+                }
+              },
+              "messageId": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "string"
+                    }
+                  ]
+                }
+              },
+              "accountId": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "git:commit",
       "kind": "invoke",
       "api": "git.commit",
