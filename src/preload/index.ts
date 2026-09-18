@@ -80,6 +80,7 @@ const api: AnodexApi = {
     onChanged: (listener) => subscribe<AppSettings>(IpcChannel.Settings.changed, listener),
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
     getProfile: () => ipcRenderer.invoke(IpcChannel.Settings.getProfile),
+    getAgent: () => ipcRenderer.invoke(IpcChannel.Settings.getAgent),
     update: (patch) => ipcRenderer.invoke(IpcChannel.Settings.update, patch),
     openModelsDir: () => ipcRenderer.invoke(IpcChannel.Settings.openModelsDir),
     pickPersonalityImage: () => ipcRenderer.invoke(IpcChannel.Settings.pickPersonalityImage),
