@@ -187,6 +187,36 @@ you nothing about which stage regressed.
 Speech starts on the first clause while the model is still writing; the budget
 above is for the _first_ word, not the whole reply.
 
+### Measured, 2026-09-19
+
+Stage 1 ran on the real phone against the real desktop, over Wi-Fi on the home
+LAN. Phone to desktop and back, timed by the phone's own clock:
+
+|                                          |                                 |
+| ---------------------------------------- | ------------------------------- |
+| median round trip                        | **158 ms**                      |
+| range                                    | 16–233 ms                       |
+| frames echoed                            | 134 sent, 134 heard, **0 lost** |
+| unreadable or rate-dropped, desktop side | 0                               |
+
+**The network legs cost about twice what this table budgeted for them** — 158 ms
+measured against 80 ms allowed for the two hops together. Not fatal, but it is
+margin that was being counted on elsewhere, and the first-word target is
+realistically nearer 900 ms than 800 until something is done about it.
+
+Two things this number is not. It excludes the speaker's own buffer, so
+mouth-to-ear is higher than 158 ms by whatever `AudioTrack` is holding. And the
+16–233 ms spread is too wide to be distance: a 970-byte frame every 20 ms over
+TLS on a phone's Wi-Fi has the shape of power-save queueing and Nagle, both of
+which are worth a look before anyone concludes the network is simply slow. That
+belongs to stage 4, where the latency work lives.
+
+**What the gate saved.** Six minutes of open microphone produced 126 KB, because
+silence is never sent. Sending everything would have been about 18 MB. That is
+the single biggest decision in the transport, and it is worth more than any
+compression: an audio codec would save half of a number that is already 0.7% of
+what it could have been.
+
 ---
 
 ## 6. Voice packs — the voice is data
