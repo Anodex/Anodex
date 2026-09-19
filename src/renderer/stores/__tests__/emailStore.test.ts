@@ -23,6 +23,8 @@ const getThreadMessages = vi.fn<Call>()
 const applyFlag = vi.fn<Call>()
 const listMailboxes = vi.fn<Call>()
 const digestThreads = vi.fn<Call>()
+const send = vi.fn<Call>()
+const chatSend = vi.fn<Call>()
 const notifyError = vi.fn<Call>()
 
 vi.mock('../../lib/anodex', () => ({
@@ -35,8 +37,10 @@ vi.mock('../../lib/anodex', () => ({
       getThreadMessages,
       applyFlag,
       listMailboxes,
-      digestThreads
-    }
+      digestThreads,
+      send
+    },
+    chat: { send: chatSend }
   }
 }))
 
@@ -349,5 +353,174 @@ describe('loadDigests', () => {
     await useEmailStore.getState().loadDigests()
 
     expect(useEmailStore.getState().digestBlocked).toBe('failed')
+  })
+})
+
+/**
+ * Sending, which is the one thing on this page that cannot be taken back.
+ *
+ * The compose window is new and the send path had no coverage at all, so what
+ * is pinned here is the handful of decisions that are invisible when right and
+ * expensive when wrong: that a reply is threaded onto the conversation it
+ * answers, that a failure leaves the message on screen rather than losing it,
+ * and that the model's draft lands in the body instead of being sent.
+ */
+describe('emailStore — sending', () => {
+  const draft = {
+    to: 'ada@example.com, grace@example.com',
+    cc: '',
+    subject: 'Quarterly report',
+    body: 'The numbers are attached.',
+    kind: 'New message',
+    inReplyTo: null,
+    accountId: 'account-1'
+  }
+
+  beforeEach(() => {
+    send.mockReset()
+    chatSend.mockReset()
+    notifyError.mockReset()
+    useEmailStore.setState({ ...initialState, composing: null, sending: false, writing: false })
+  })
+
+  it('splits the recipients the way people type them', async () => {
+    send.mockResolvedValue(ok(undefined))
+    useEmailStore.setState({ composing: draft })
+
+    await useEmailStore.getState().sendCompose()
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ['ada@example.com', 'grace@example.com'] })
+    )
+  })
+
+  it('threads a reply onto the conversation it answers', async () => {
+    // Without these the message arrives in the recipient's client as an
+    // unrelated mail, which is the difference between a conversation and a
+    // pile -- and nothing on this screen would look wrong.
+    send.mockResolvedValue(ok(undefined))
+    useEmailStore.setState({
+      composing: {
+        ...draft,
+        kind: 'Reply',
+        inReplyTo: {
+          id: 'm1',
+          threadId: 't1',
+          messageIdHeader: '<original@example.com>',
+          references: ['<older@example.com>'],
+          provider: 'imap',
+          accountId: 'account-1',
+          subject: 'Quarterly report',
+          from: 'Ada <ada@example.com>',
+          to: [],
+          cc: [],
+          bcc: [],
+          date: 0,
+          snippet: '',
+          body: '',
+          attachments: []
+        }
+      }
+    })
+
+    await useEmailStore.getState().sendCompose()
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inReplyTo: '<original@example.com>',
+        references: ['<older@example.com>'],
+        threadId: 't1'
+      })
+    )
+  })
+
+  it('keeps the window open when the send fails', async () => {
+    // A window that closes on click and fails afterwards loses the message
+    // *and* tells somebody it was sent, which is the worst of the three
+    // outcomes available here.
+    send.mockResolvedValue(err('smtp refused'))
+    useEmailStore.setState({ composing: draft })
+
+    const went = await useEmailStore.getState().sendCompose()
+
+    expect(went).toBe(false)
+    expect(useEmailStore.getState().composing).not.toBeNull()
+    expect(notifyError).toHaveBeenCalled()
+  })
+
+  it('closes the window once it has gone', async () => {
+    send.mockResolvedValue(ok(undefined))
+    useEmailStore.setState({ composing: draft })
+
+    const went = await useEmailStore.getState().sendCompose()
+
+    expect(went).toBe(true)
+    expect(useEmailStore.getState().composing).toBeNull()
+  })
+
+  it('refuses to send an unfinished message', async () => {
+    // The button is disabled, so this is the second door: a keyboard, a
+    // double-fire, or a future caller that forgets to check.
+    useEmailStore.setState({ composing: { ...draft, subject: '' } })
+
+    expect(await useEmailStore.getState().sendCompose()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('will not send the same message twice', async () => {
+    send.mockResolvedValue(ok(undefined))
+    useEmailStore.setState({ composing: draft, sending: true })
+
+    expect(await useEmailStore.getState().sendCompose()).toBe(false)
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('emailStore — having the model write it', () => {
+  const draft = {
+    to: 'ada@example.com',
+    cc: '',
+    subject: 'Lunch',
+    body: '',
+    kind: 'New message',
+    inReplyTo: null,
+    accountId: 'account-1'
+  }
+
+  beforeEach(() => {
+    chatSend.mockReset()
+    notifyError.mockReset()
+    useEmailStore.setState({ ...initialState, composing: draft, writing: false })
+  })
+
+  it('puts what it wrote in the body, and sends nothing', async () => {
+    chatSend.mockResolvedValue(ok({ content: 'Tuesday works for me.' }))
+
+    await useEmailStore.getState().writeBody('Say yes to Tuesday.')
+
+    expect(useEmailStore.getState().composing?.body).toBe('Tuesday works for me.')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('asks as a temporary turn, so a mailbox does not fill the chat list', async () => {
+    chatSend.mockResolvedValue(ok({ content: 'Fine.' }))
+
+    await useEmailStore.getState().writeBody('Agree.')
+
+    expect(chatSend).toHaveBeenCalledWith(
+      expect.objectContaining({ temporary: true, projectId: null, history: [] })
+    )
+  })
+
+  it('keeps what was typed when the model answers with nothing', async () => {
+    // This writes into a window somebody may already have started, and losing
+    // their words to a draft that did not arrive is worse than no draft.
+    useEmailStore.setState({ composing: { ...draft, body: 'Half a sentence' } })
+    chatSend.mockResolvedValue(ok({ content: '   ' }))
+
+    await useEmailStore.getState().writeBody('Finish this.')
+
+    expect(useEmailStore.getState().composing?.body).toBe('Half a sentence')
+    expect(notifyError).toHaveBeenCalled()
   })
 })
