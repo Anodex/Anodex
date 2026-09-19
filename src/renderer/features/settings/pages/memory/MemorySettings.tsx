@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useEffect, useState } from 'react'
 import type { MemoryEntry, MemoryKind, MemoryScope } from '@shared/memory.types'
 import { useSettingsStore } from '../../../../stores/settingsStore'
@@ -100,7 +101,7 @@ export function MemorySettings(): JSX.Element {
     if (trimmed) {
       const result = await anodex.memory.update(scopeOf(entry), entry.id, { text: trimmed })
       if (result.ok) await load()
-      else notifyError('Could not update memory', result.error.message)
+      else notifyError('Could not update memory', reasonFor(result.error))
     }
     setEditingId(null)
   }
@@ -108,7 +109,7 @@ export function MemorySettings(): JSX.Element {
   const togglePin = async (entry: MemoryEntry): Promise<void> => {
     const result = await anodex.memory.update(scopeOf(entry), entry.id, { pinned: !entry.pinned })
     if (result.ok) await load()
-    else notifyError('Could not update memory', result.error.message)
+    else notifyError('Could not update memory', reasonFor(result.error))
   }
 
   const toggleArchive = async (entry: MemoryEntry): Promise<void> => {
@@ -116,7 +117,7 @@ export function MemorySettings(): JSX.Element {
       archived: !entry.archived
     })
     if (result.ok) await load()
-    else notifyError('Could not update memory', result.error.message)
+    else notifyError('Could not update memory', reasonFor(result.error))
   }
 
   const remove = (entry: MemoryEntry): void => {
@@ -130,7 +131,7 @@ export function MemorySettings(): JSX.Element {
   const deleteEntry = async (entry: MemoryEntry): Promise<void> => {
     const result = await anodex.memory.delete(scopeOf(entry), entry.id)
     if (result.ok) await load()
-    else notifyError('Could not delete memory', result.error.message)
+    else notifyError('Could not delete memory', reasonFor(result.error))
   }
 
   const addMemory = async (): Promise<void> => {
@@ -145,7 +146,7 @@ export function MemorySettings(): JSX.Element {
       setDraftText('')
       await load()
     } else {
-      notifyError('Could not create memory', result.error.message)
+      notifyError('Could not create memory', reasonFor(result.error))
     }
   }
 

@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { WorkspaceTreeNode } from '@shared/workspaceFiles.types'
@@ -77,7 +78,7 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
   const copyAbsolutePath = async (): Promise<void> => {
     const result = await anodex.workspace.getAbsolutePath(node.path)
     if (result.ok) await navigator.clipboard.writeText(result.value)
-    else notifyError('Could not copy path', result.error.message)
+    else notifyError('Could not copy path', reasonFor(result.error))
   }
 
   const copyRelativePath = async (): Promise<void> => {
@@ -90,12 +91,12 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
 
   const reveal = async (): Promise<void> => {
     const result = await anodex.workspace.revealInFileExplorer(node.path)
-    if (!result.ok) notifyError('Could not open the file explorer', result.error.message)
+    if (!result.ok) notifyError('Could not open the file explorer', reasonFor(result.error))
   }
 
   const openDefault = async (): Promise<void> => {
     const result = await anodex.workspace.openPath(node.path)
-    if (!result.ok) notifyError('Could not open that', result.error.message)
+    if (!result.ok) notifyError('Could not open that', reasonFor(result.error))
   }
 
   const openEditor = (event: React.MouseEvent): void => {
@@ -117,7 +118,7 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
     setConfirmingDelete(false)
     const result = await anodex.workspace.deletePath(node.path)
     if (result.ok) onDeleted()
-    else notifyError('Could not delete that item', result.error.message)
+    else notifyError('Could not delete that item', reasonFor(result.error))
   }
 
   return (

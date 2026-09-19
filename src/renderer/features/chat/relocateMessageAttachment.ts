@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import type { ChatAttachment } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
 import { anodex } from '../../lib/anodex'
@@ -14,7 +15,7 @@ export async function relocateMessageAttachment(
   if (!picked) return { status: 'cancelled' }
 
   const read = await anodex.attachments.readFile(picked.path)
-  if (!read.ok) return { status: 'error', message: read.error.message }
+  if (!read.ok) return { status: 'error', message: reasonFor(read.error) }
   if (read.value.kind !== 'image') {
     return { status: 'error', message: 'Choose a PNG, JPEG, GIF, or BMP image.' }
   }

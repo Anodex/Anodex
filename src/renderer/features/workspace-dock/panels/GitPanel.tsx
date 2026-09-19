@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitWorkspaceStatus } from '@shared/git.types'
 import { Icon } from '../../../components/Icon'
@@ -38,7 +39,7 @@ export function GitPanel(): JSX.Element {
     }
     const result = await anodex.git.getStatus(projectId)
     if (!result.ok) {
-      notifyError('Could not read git status', result.error.message)
+      notifyError('Could not read git status', reasonFor(result.error))
       return
     }
     setStatus(result.value)
@@ -74,7 +75,7 @@ export function GitPanel(): JSX.Element {
     setBranches(null)
     const result = await anodex.git.listBranches(projectId)
     if (!result.ok) {
-      notifyError('Could not list branches', result.error.message)
+      notifyError('Could not list branches', reasonFor(result.error))
       setBranches([])
       return
     }
@@ -87,7 +88,7 @@ export function GitPanel(): JSX.Element {
     try {
       const result = await anodex.git.init(projectId)
       if (!result.ok) {
-        notifyError('Could not initialize repository', result.error.message)
+        notifyError('Could not initialize repository', reasonFor(result.error))
         return
       }
       setStatus(result.value)
@@ -102,7 +103,7 @@ export function GitPanel(): JSX.Element {
     try {
       const result = await anodex.git.switchBranch(projectId, name)
       if (!result.ok) {
-        notifyError('Could not switch branches', result.error.message)
+        notifyError('Could not switch branches', reasonFor(result.error))
         return
       }
       setStatus(result.value)
@@ -119,7 +120,7 @@ export function GitPanel(): JSX.Element {
     try {
       const result = await anodex.git.createBranch(projectId, name)
       if (!result.ok) {
-        notifyError('Could not create branch', result.error.message)
+        notifyError('Could not create branch', reasonFor(result.error))
         return
       }
       setStatus(result.value)
@@ -136,7 +137,7 @@ export function GitPanel(): JSX.Element {
     try {
       const result = await anodex.git.commit(projectId, message)
       if (!result.ok) {
-        notifyError('Could not commit', result.error.message)
+        notifyError('Could not commit', reasonFor(result.error))
         return
       }
       setStatus(result.value)
@@ -152,7 +153,7 @@ export function GitPanel(): JSX.Element {
     try {
       const result = await anodex.git.push(projectId)
       if (!result.ok) {
-        notifyError('Could not push', result.error.message)
+        notifyError('Could not push', reasonFor(result.error))
         return
       }
       notify({ kind: 'success', title: 'Pushed', message: status?.branch ?? undefined })

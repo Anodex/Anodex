@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useEffect, useState } from 'react'
 import {
   defaultRunBudgets,
@@ -236,7 +237,7 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     try {
       const result = await anodex.tools.pickFolder()
       if (!result.ok) {
-        notifyError('Could not select folder', result.error.message)
+        notifyError('Could not select folder', reasonFor(result.error))
         return
       }
       const folderPath = result.value

@@ -64,3 +64,35 @@ export function toErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error
   return 'An unexpected error occurred.'
 }
+
+/**
+ * What to show a person when a call fails.
+ *
+ * `AnodexError` carries two sentences and they are not interchangeable.
+ * `message` is what the handler decided to call it, written before anything had
+ * gone wrong — `'Could not send email.'` is the same three words for a rejected
+ * address, a stale password and an attachment over the size limit. `detail` is
+ * `toErrorMessage(error)`: whatever actually happened.
+ *
+ * Reading `message` alone is the mistake this exists to stop, and it was the
+ * majority: 48 of 62 `notifyError` calls in the renderer showed the placeholder
+ * and dropped the cause. It reads as a working error message, which is why it
+ * survived — the sentence is grammatical, it is on the right screen, and it
+ * describes every possible cause equally.
+ *
+ * Both, where there are both and they differ. `notifyError` has a title and a
+ * body, and passing this as the body puts the headline in *neither* place if it
+ * is dropped — so the pair is kept: 'Could not send email. Invalid login: 535
+ * authentication failed' says what failed and why, and neither half says both.
+ */
+export function reasonFor(error: Pick<AnodexError, 'message' | 'detail'>): string {
+  const headline = error.message?.trim()
+  const cause = error.detail?.trim()
+
+  if (!cause) return headline ?? ''
+  if (!headline) return cause
+  // A handler that passed the same string twice, and a detail the headline
+  // already contains, are one sentence rather than two.
+  if (cause === headline || headline.includes(cause)) return headline
+  return `${headline} ${cause.charAt(0).toUpperCase()}${cause.slice(1)}`
+}

@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useProjectStore } from '../stores/projectStore'
 import { useUiStore, notifyError } from '../stores/uiStore'
 import { anodex } from '../lib/anodex'
@@ -11,7 +12,7 @@ export function useCreateProject(): () => Promise<void> {
   return async () => {
     const result = await anodex.tools.pickWorkspace()
     if (!result.ok) {
-      notifyError('Could not select folder', result.error.message)
+      notifyError('Could not select folder', reasonFor(result.error))
       return
     }
     const folderPath = result.value

@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useCallback, useEffect, useState } from 'react'
 import type { CheckpointHistoryEntry } from '@shared/checkpoint.types'
 import { FileTypeIcon } from '../../../components/FileTypeIcon'
@@ -34,7 +35,7 @@ export function CheckpointsPanel(): JSX.Element {
     }
     const result = await anodex.checkpoints.list(projectId)
     if (!result.ok) {
-      notifyError('Could not load checkpoints', result.error.message)
+      notifyError('Could not load checkpoints', reasonFor(result.error))
       setEntries([])
       return
     }
@@ -69,7 +70,7 @@ export function CheckpointsPanel(): JSX.Element {
         force
       })
       if (!result.ok) {
-        notifyError('Could not undo restore', result.error.message)
+        notifyError('Could not undo restore', reasonFor(result.error))
         return
       }
       if (result.value.conflicts.length > 0) {
