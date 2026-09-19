@@ -91,6 +91,24 @@ describe('EmailService — a thread that cannot be read', () => {
     expect(said).not.toMatch(/has no messages/i)
   })
 
+  it('refuses to summarize a conversation it could not read', async () => {
+    // This string goes to a model, which writes it up as a summary the reader
+    // then believes. "There is nothing in this conversation" is a sentence
+    // with an author once a model has said it.
+    getThreadMessages.mockResolvedValue([])
+
+    await expect(emailService.summarizeThread('subj.abc')).rejects.toThrow(THREAD_UNREADABLE)
+  })
+
+  it('refuses to list attachments it could not read', async () => {
+    // The quietest of the three. An empty list is indistinguishable from the
+    // true one, so the caller draws "no attachments" over a failed read --
+    // and nobody goes looking for an attachment they were told is not there.
+    getThreadMessages.mockResolvedValue([])
+
+    await expect(emailService.listAttachments('subj.abc')).rejects.toThrow(THREAD_UNREADABLE)
+  })
+
   it('still answers normally when there is something to read', async () => {
     getThreadMessages.mockResolvedValue([message()])
 
