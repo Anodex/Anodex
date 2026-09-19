@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useCallback, useEffect, useState } from 'react'
 import type { RemotePairedDevice, RemotePairingCode, RemoteStatus } from '@shared/remote.types'
 import { anodex } from '../../../../lib/anodex'
@@ -69,7 +70,7 @@ export function RemoteSettings(): JSX.Element {
       notify({
         kind: 'error',
         title: 'Could not change remote access',
-        message: result.error.message
+        message: reasonFor(result.error)
       })
       return
     }
@@ -114,7 +115,11 @@ export function RemoteSettings(): JSX.Element {
     const result = await anodex.remote.setPort(parsed)
     setBusy(false)
     if (!result.ok) {
-      notify({ kind: 'error', title: 'Could not change the port', message: result.error.message })
+      notify({
+        kind: 'error',
+        title: 'Could not change the port',
+        message: reasonFor(result.error)
+      })
       return
     }
     setStatus(result.value)
@@ -134,7 +139,7 @@ export function RemoteSettings(): JSX.Element {
       notify({
         kind: 'error',
         title: 'Could not change internet access',
-        message: result.error.message
+        message: reasonFor(result.error)
       })
       return
     }
@@ -150,7 +155,7 @@ export function RemoteSettings(): JSX.Element {
     const result = await anodex.remote.setManualAddress(addressField.trim() || null, port)
     setBusy(false)
     if (!result.ok) {
-      notify({ kind: 'error', title: 'Could not save', message: result.error.message })
+      notify({ kind: 'error', title: 'Could not save', message: reasonFor(result.error) })
       return
     }
     setStatus(result.value)

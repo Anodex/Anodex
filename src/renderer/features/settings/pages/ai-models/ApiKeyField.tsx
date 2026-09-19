@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useCallback, useEffect, useState } from 'react'
 import type { VerifyProviderKeyRequest } from '@shared/ipc'
 import { anodex } from '../../../../lib/anodex'
@@ -71,7 +72,7 @@ export function ApiKeyField({
           setResult(
             response.ok
               ? { key, status: 'valid' }
-              : { key, status: 'invalid', message: response.error.message }
+              : { key, status: 'invalid', message: reasonFor(response.error) }
           )
         })
         .finally(() => setChecking(false))

@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { create } from 'zustand'
 import type {
   EngineState,
@@ -67,13 +68,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   refresh: async () => {
     const result = await anodex.models.list()
     if (result.ok) set({ models: result.value })
-    else notifyError('Could not load models', result.error.message)
+    else notifyError('Could not load models', reasonFor(result.error))
   },
 
   addModel: async () => {
     const result = await anodex.models.add()
     if (!result.ok) {
-      notifyError('Could not add model', result.error.message)
+      notifyError('Could not add model', reasonFor(result.error))
       return
     }
     if (result.value) {
@@ -102,7 +103,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     if (shouldReload) {
       const unloaded = await anodex.models.unload()
       if (!unloaded.ok) {
-        notifyError('Could not reload model', unloaded.error.message)
+        notifyError('Could not reload model', reasonFor(unloaded.error))
         return
       }
       set({ engine: unloaded.value })
@@ -165,7 +166,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   unloadModel: async () => {
     const result = await anodex.models.unload()
     if (result.ok) set({ engine: result.value })
-    else notifyError('Failed to unload model', result.error.message)
+    else notifyError('Failed to unload model', reasonFor(result.error))
   },
 
   deleteModel: async (model) => {
