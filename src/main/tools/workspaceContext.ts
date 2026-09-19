@@ -1,3 +1,4 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { FileTouch, ProjectMemory, ProjectRecallEvent } from '@shared/projectMemory.types'
@@ -360,7 +361,7 @@ function specExcerpt(root: string, limit: number): string | null {
 function readJson(path: string): unknown {
   if (!existsSync(path)) return null
   try {
-    return JSON.parse(readFileSync(path, 'utf-8'))
+    return readJsonSync(path)
   } catch {
     return null
   }

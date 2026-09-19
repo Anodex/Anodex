@@ -1,7 +1,8 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type {
   CreateProjectRequest,
   Project,
@@ -195,7 +196,7 @@ class ProjectStore {
       return DEFAULT_STATE
     }
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as {
+      const raw = readJsonSync(this.filePath) as {
         projects?: Array<Omit<Project, 'pinnedSkillNames'> & { pinnedSkillNames?: string[] }>
         activeProjectId?: string | null
       }

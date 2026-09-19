@@ -1,5 +1,6 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   OAuthClientInformationFull,
@@ -97,7 +98,7 @@ class McpAuthStore {
     this.assertReady()
     if (!existsSync(this.filePath)) return {}
     try {
-      return JSON.parse(readFileSync(this.filePath, 'utf-8')) as RecordStore
+      return readJsonSync(this.filePath) as RecordStore
     } catch (error) {
       // Same reasoning as `EmailAuthStore.read`, which this file is supposed to
       // mirror: falling back to an empty store is right, but returning it

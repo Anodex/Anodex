@@ -1,7 +1,8 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type {
   CreateMemoryRequest,
   MemoryEntry,
@@ -194,7 +195,7 @@ class MemoryStore {
     const file = this.filePath(key)
     if (existsSync(file)) {
       try {
-        const raw = JSON.parse(readFileSync(file, 'utf-8')) as unknown
+        const raw = readJsonSync(file)
         const entries = validateScopeFile(raw)
         this.cache.set(key, entries)
         return entries

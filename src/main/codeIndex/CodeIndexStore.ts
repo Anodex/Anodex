@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type { CodeIndexFile } from '@shared/codeIndex.types'
 import { createLogger } from '../utils/logger'
 import { writeJsonAtomic } from '../utils/atomicWrite'
@@ -37,7 +38,7 @@ class CodeIndexStore {
     const file = this.filePath(projectId)
     if (!existsSync(file)) return undefined
     try {
-      const raw = JSON.parse(readFileSync(file, 'utf-8')) as CodeIndexFile
+      const raw = readJsonSync(file) as CodeIndexFile
       this.cache.set(projectId, raw)
       return raw
     } catch (error) {

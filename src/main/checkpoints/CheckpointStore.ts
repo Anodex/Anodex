@@ -1,3 +1,4 @@
+import { readJsonSync } from '../utils/jsonFile'
 import {
   existsSync,
   mkdirSync,
@@ -350,7 +351,7 @@ class CheckpointStore {
     if (!existsSync(filePath)) return null
     let parsed: unknown
     try {
-      parsed = JSON.parse(readFileSync(filePath, 'utf-8'))
+      parsed = readJsonSync(filePath)
     } catch (error) {
       this.quarantine(filePath, 'could not be parsed', error)
       return null

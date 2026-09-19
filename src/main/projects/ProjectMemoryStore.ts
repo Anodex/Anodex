@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import type {
   FileTouch,
   FileTouchAction,
@@ -106,7 +107,7 @@ class ProjectMemoryStore {
     const file = this.filePath(projectId)
     if (existsSync(file)) {
       try {
-        const raw = JSON.parse(readFileSync(file, 'utf-8')) as unknown
+        const raw = readJsonSync(file)
         // A pre-existing file from before this store recorded structured
         // events (only ever `recentSummaries`) has nothing usable there —
         // it's a small, disposable activity ledger, not durable user data,

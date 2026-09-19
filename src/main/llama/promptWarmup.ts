@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readJsonSync } from '../utils/jsonFile'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type {
   ChatCompletionMessageParam,
@@ -43,7 +44,7 @@ export class PromptPrefixStore {
   /** The prefix last used with this model, or null. */
   load(modelPath: string): PromptPrefix | null {
     try {
-      const parsed = JSON.parse(readFileSync(this.file(), 'utf8')) as PromptPrefix
+      const parsed = readJsonSync(this.file()) as PromptPrefix
       if (parsed?.modelPath !== modelPath || parsed.system?.role !== 'system') return null
       return parsed
     } catch {

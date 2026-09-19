@@ -1,7 +1,8 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type {
   ChartGranularity,
   ChartRange,
@@ -170,7 +171,7 @@ class TokenActivityStore {
   private load(): TokenActivityRecord {
     if (!existsSync(this.filePath)) return emptyTokenActivityRecord()
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<TokenActivityRecord>
+      const raw = readJsonSync(this.filePath) as Partial<TokenActivityRecord>
       return {
         daily: Object.fromEntries(
           Object.entries(raw.daily ?? {}).map(([date, bucket]) => [

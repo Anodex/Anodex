@@ -1,7 +1,8 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { createLogger } from '../utils/logger'
 
@@ -96,7 +97,7 @@ class ModelReliabilityStore {
   private load(): Map<string, ModelReliabilityRecord> {
     if (!existsSync(this.filePath)) return new Map()
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as ModelReliabilityRecord[]
+      const raw = readJsonSync(this.filePath) as ModelReliabilityRecord[]
       return new Map(raw.map((record) => [record.modelId, record]))
     } catch (error) {
       log.warn('Failed to parse model reliability data, starting fresh:', error)

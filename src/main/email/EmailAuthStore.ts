@@ -1,5 +1,6 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../utils/logger'
 
@@ -136,7 +137,7 @@ class EmailAuthStore {
     this.assertReady()
     if (!existsSync(this.filePath)) return {}
     try {
-      return JSON.parse(readFileSync(this.filePath, 'utf-8')) as CredentialStore
+      return readJsonSync(this.filePath) as CredentialStore
     } catch (error) {
       // Falling back to an empty store is right — the app has to start — but
       // returning it without moving the file aside was destructive: the next

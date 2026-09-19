@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { ChatAttachment } from '@shared/chat.types'
 import {
@@ -159,7 +160,7 @@ class AgentRunStore {
   private load(): AgentRun[] {
     if (!existsSync(this.filePath)) return []
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<AgentRun>[]
+      const parsed = readJsonSync(this.filePath) as Partial<AgentRun>[]
       const normalized = parsed.map(normalizeAgentRun)
       const reconciled = reconcileInterruptedRuns(normalized)
       const needsPersist =

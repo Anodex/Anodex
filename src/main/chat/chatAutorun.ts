@@ -1,5 +1,5 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import type { ChatHistoryTurn, ChatRequest } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
@@ -87,7 +87,7 @@ const MODEL_READY_TIMEOUT_MS = 15 * 60 * 1000
 
 async function driveChat(scriptPath: string): Promise<void> {
   try {
-    const script = JSON.parse(readFileSync(scriptPath, 'utf-8')) as ChatAutorunScript
+    const script = readJsonSync(scriptPath) as ChatAutorunScript
     if (!script.prompts?.length) throw new Error(`${scriptPath} lists no prompts.`)
     log.info('Autorun armed:', script.prompts.length, 'prompt(s)')
 
