@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type {
   CreateScheduledTaskRequest,
   ScheduledTask,
@@ -181,7 +182,7 @@ class SchedulerStore {
   private load(): ScheduledTask[] {
     if (!existsSync(this.filePath)) return []
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as ScheduledTask[]
+      const raw = readJsonSync(this.filePath) as ScheduledTask[]
       // Tasks persisted before `runs` existed have no history array yet, and
       // runs recorded before timing/lateness tracking have none of those
       // fields — default them rather than rendering `undefined` in the report.

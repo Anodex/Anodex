@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readJsonSync } from '../utils/jsonFile'
+import { existsSync } from 'node:fs'
 import { buildRunToolNames } from '@shared/tools.types'
 import type { AgentRunProviderId } from '@shared/agentRunProviders'
 import { llamaService } from '../llama/LlamaService'
@@ -145,7 +146,7 @@ async function driveRun(specPath: string): Promise<void> {
 }
 
 function readSpec(specPath: string): AutorunSpec {
-  const spec = JSON.parse(readFileSync(specPath, 'utf-8')) as AutorunSpec
+  const spec = readJsonSync(specPath) as AutorunSpec
   if (!spec?.goal?.trim()) throw new Error(`${specPath} has no goal.`)
   return spec
 }

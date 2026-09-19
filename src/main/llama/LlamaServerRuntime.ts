@@ -1,6 +1,6 @@
+import { readJsonAsync } from '../utils/jsonFile'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { delimiter, dirname, join, resolve, sep } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -410,7 +410,7 @@ async function resolveLlamaServerBinary(): Promise<string> {
     )
   }
 
-  const marker = JSON.parse(await readFile(markerPath, 'utf8')) as RuntimeMarker
+  const marker = (await readJsonAsync(markerPath)) as RuntimeMarker
   if (!marker.binaryRelativePath) {
     throw new Error('The bundled local vision runtime manifest is invalid.')
   }
