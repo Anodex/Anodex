@@ -16,8 +16,22 @@ describe('updateStatusText', () => {
     )
   })
 
-  it('describes up to date', () => {
-    expect(updateStatusText({ state: 'not-available' })).toBe("You're on the latest version.")
+  it('describes up to date, and when that was established', () => {
+    // The timestamp is the feature. GitHub serves the update feed through a
+    // CDN, so a check made minutes after a release is answered from a cache
+    // naming the previous one — and the app relays that, correctly and
+    // uselessly. "Checked 2 hours ago" is a fact somebody can act on; the
+    // sentence without it is one they can only believe.
+    const now = 1_700_000_000_000
+    expect(updateStatusText({ state: 'not-available', checkedAt: now }, now)).toBe(
+      "You're on the latest version, checked just now."
+    )
+    expect(updateStatusText({ state: 'not-available', checkedAt: now - 240_000 }, now)).toBe(
+      "You're on the latest version, checked 4 minutes ago."
+    )
+    expect(updateStatusText({ state: 'not-available', checkedAt: now - 7_200_000 }, now)).toBe(
+      "You're on the latest version, checked 2 hours ago."
+    )
   })
 
   it('describes download progress', () => {
