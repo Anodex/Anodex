@@ -145,6 +145,7 @@ vi.mock('../../../utils/logger', () => ({
 const { ImapSmtpAdapter, encodeThreadId } = await import('../ImapSmtpAdapter')
 
 const SENT = '[Gmail]/Sent Mail'
+const TRASH = '[Gmail]/Trash'
 
 const account: EmailAccount = {
   id: 'acct-1',
@@ -164,7 +165,8 @@ beforeEach(() => {
   imap.mailboxes = [
     { path: 'INBOX' },
     { path: SENT, specialUse: '\\Sent' },
-    { path: 'Archive', specialUse: '\\Archive' }
+    { path: 'Archive', specialUse: '\\Archive' },
+    { path: TRASH, specialUse: '\\Trash' }
   ]
   imap.messages = new Map()
   imap.appended = []
@@ -407,6 +409,80 @@ describe('a mailbox whose search disagrees with its contents', () => {
     const messages = await adapter.getThreadMessages(
       account,
       encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages).toEqual([])
+  })
+})
+
+/**
+ * A message that is not in the inbox.
+ *
+ * Every act on a thread resolves through `getThreadMessages` -- `resolveTargets`
+ * uses it for flag, move and trash alike -- and it searched INBOX and Sent and
+ * nowhere else. So outside those two folders *nothing worked*: a message in the
+ * trash could not be opened, starred, restored or deleted, and the two symptoms
+ * ("this conversation would not open", "that conversation has no messages")
+ * were the same wrong assumption seen from two directions.
+ *
+ * Found by using it. A test swipe put a message in the trash and the app could
+ * not get it back out.
+ */
+describe('a thread outside the inbox', () => {
+  it('can be read', async () => {
+    imap.messages.set(TRASH, [
+      { uid: 5, subject: 'Quarterly report', messageId: '<a@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages.map((message) => message.subject)).toEqual(['Quarterly report'])
+  })
+
+  it('can be moved back to the inbox', async () => {
+    // The act that was impossible: delete something by accident, then put it
+    // back. Move resolves the thread the same way a read does, so it failed for
+    // the same reason and is fixed by the same change.
+    imap.messages.set(TRASH, [
+      { uid: 5, subject: 'Quarterly report', messageId: '<a@example.com>' }
+    ])
+
+    await adapter.move(account, {
+      threadId: encodeThreadId('Quarterly report', 'INBOX', 1),
+      mailbox: 'INBOX'
+    })
+
+    expect(imap.moves).toEqual([{ from: TRASH, uids: '5', to: 'INBOX' }])
+  })
+
+  it('prefers the inbox copy when there is one', async () => {
+    // The fallback must stay a fallback. A thread in the inbox is answered from
+    // the inbox without touching another folder, or every ordinary read would
+    // pay for the rare one.
+    imap.messages.set('INBOX', [
+      { uid: 1, subject: 'Quarterly report', messageId: '<a@example.com>' }
+    ])
+    imap.messages.set(TRASH, [
+      { uid: 5, subject: 'Quarterly report', messageId: '<old@example.com>' }
+    ])
+
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Quarterly report', 'INBOX', 1)
+    )
+
+    expect(messages.map((message) => message.messageIdHeader)).toEqual(['<a@example.com>'])
+  })
+
+  it('still answers nothing when the account genuinely has nothing', async () => {
+    // The honest empty has to survive a wider search, or "this conversation
+    // would not open" stops being true when it is.
+    const messages = await adapter.getThreadMessages(
+      account,
+      encodeThreadId('Never existed', 'INBOX', 1)
     )
 
     expect(messages).toEqual([])
