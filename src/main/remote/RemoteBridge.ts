@@ -2,7 +2,8 @@ import { createServer, type Server as HttpsServer } from 'node:https'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createLogger } from '../utils/logger'
 import type { ClientChannel } from '../clients/ClientChannel'
-import { DESKTOP_CAPABILITIES } from './capabilities'
+import { desktopCapabilities } from './capabilities'
+import { handleVoiceFrame } from '../voice/voiceBridge' // voice:seam
 import {
   REMOTE_CLIENT,
   attachRemoteClient,
@@ -290,7 +291,17 @@ export class RemoteBridge {
       }
     }, HANDSHAKE_TIMEOUT_MS)
 
-    socket.on('message', (raw) => {
+    socket.on('message', (raw, isBinary) => {
+      // voice:seam — audio is binary and goes nowhere near the JSON parser, which
+      // buffers, validates and allocates per frame fifty times a second. Only from
+      // a client that has authenticated: an unauthenticated socket has no identity
+      // to check a capability against.
+      if (isBinary) {
+        if (client)
+          handleVoiceFrame(client, raw as Buffer, (frame) => this.sendBinary(socket, frame))
+        return
+      }
+
       const parsed = parseClientFrame(raw as Buffer)
       if (!parsed.ok) {
         this.refuse(socket, parsed.code, parsed.message)
@@ -335,7 +346,7 @@ export class RemoteBridge {
             addresses: this.reachableAddresses(),
             mobileVersion: EXPECTED_MOBILE_VERSION,
             hostName: hostname(),
-            capabilities: DESKTOP_CAPABILITIES
+            capabilities: desktopCapabilities()
           })
           return
         }
@@ -360,7 +371,7 @@ export class RemoteBridge {
             addresses: this.reachableAddresses(),
             mobileVersion: EXPECTED_MOBILE_VERSION,
             hostName: hostname(),
-            capabilities: DESKTOP_CAPABILITIES
+            capabilities: desktopCapabilities()
           })
           return
         }
@@ -581,6 +592,19 @@ export class RemoteBridge {
 
   private fail(socket: WebSocket, id: string, code: string, message: string): void {
     this.send(socket, { type: 'result', id, ok: false, error: { code, message } })
+  }
+
+  /**
+   * Write a binary frame.
+   *
+   * Deliberately not routed through `send`, which flushes held tokens first to
+   * keep text in order. Audio is a separate stream with its own sequence numbers,
+   * and there is no ordering between a spoken frame and a written one worth
+   * paying 80ms of coalescing for — which is the whole reason it is held.
+   */
+  private sendBinary(socket: WebSocket, frame: Buffer): void {
+    if (socket.readyState !== socket.OPEN) return
+    socket.send(frame, { binary: true })
   }
 
   private refuse(socket: WebSocket, code: string, message: string): void {
