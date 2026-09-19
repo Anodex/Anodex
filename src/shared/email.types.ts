@@ -167,6 +167,48 @@ export interface EmailOutgoingAttachment {
   contentBase64: string
 }
 
+/**
+ * A file the sender has chosen but not yet sent.
+ *
+ * The same three fields the adapter wants, plus the one the person writing the
+ * message needs: how big it is. A composer that cannot say "4.2 MB" next to a
+ * file also cannot explain why the provider refused the message, and the
+ * refusal arrives minutes later from a server rather than immediately from the
+ * window they are looking at.
+ */
+export interface EmailPickedAttachment extends EmailOutgoingAttachment {
+  sizeBytes: number
+}
+
+/**
+ * As much as one message may carry, before base64.
+ *
+ * Every provider caps the *encoded* message, and base64 costs a third on top:
+ * 18MB of files is about 24MB on the wire, which fits under the 25MB that
+ * Gmail, Outlook and most IMAP hosts allow. Checked here rather than left to
+ * the server so the answer arrives while the file is being attached, not in a
+ * bounce an hour later.
+ */
+export const MAX_OUTGOING_ATTACHMENT_BYTES = 18 * 1024 * 1024
+
+/**
+ * A file size in the units mail providers state their limits in.
+ *
+ * Here rather than in either process, because both need it and they have to
+ * agree: a window saying "4.3 MB" beside a refusal saying "4.2 MB" is a window
+ * arguing with itself. It began as two copies with a test pinning that they
+ * matched, which is a worse version of one copy.
+ *
+ * Kilobytes below a tenth of a megabyte. A row reading "report.csv - 0.0 MB"
+ * looks like a file that failed to attach.
+ */
+export function readableAttachmentSize(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 10) return `${Math.round(mb)} MB`
+  if (mb >= 0.1) return `${mb.toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
 export interface EmailDraftRequest extends EmailAccountScoped {
   to: string[]
   cc?: string[]

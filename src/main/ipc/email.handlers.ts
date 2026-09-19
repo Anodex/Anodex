@@ -16,6 +16,7 @@ import type {
   EmailThreadDigestRequest
 } from '@shared/email.types'
 import { chunkOf, withAttachment } from '../email/attachmentChunks'
+import { pickAttachments } from '../email/pickAttachments'
 import { emailService } from '../email/EmailService'
 import { digestThreads } from '../email/threadDigests'
 import { loadRemoteImages } from '../email/remoteImages'
@@ -346,6 +347,18 @@ export function registerEmailHandlers(): void {
       }
     }
   )
+
+  ipcMain.handle(IpcChannel.Email.pickAttachments, async (event, alreadyAttachedBytes?: number) => {
+    try {
+      return ok(await pickAttachments(event, alreadyAttachedBytes ?? 0))
+    } catch (error) {
+      log.warn('Failed to attach files:', error)
+      // The size limit arrives here, and it is the message worth reading --
+      // it names the file and shows the arithmetic. `reasonFor` joins both
+      // halves in the renderer, so the headline stays short.
+      return err('email.attach-failed', 'Could not attach that.', toErrorMessage(error))
+    }
+  })
 
   ipcMain.handle(IpcChannel.Email.createDraft, (_event, request: EmailDraftRequest) => {
     try {

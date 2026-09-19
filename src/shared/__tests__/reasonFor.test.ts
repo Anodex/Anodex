@@ -55,12 +55,27 @@ describe('reasonFor', () => {
     ).toBe('Not connected. Reconnect first.')
   })
 
+  it('does not rename what it is quoting', () => {
+    // The first version uppercased the cause so the pair read as two
+    // sentences. A `detail` is far more often a filename, a hostname or a
+    // command than a sentence, and `video.mov` becoming `Video.mov` is this
+    // function editing the thing it exists to repeat. Caught by a test of the
+    // attachment size limit, which is exactly where a filename leads.
+    expect(
+      reasonFor({ message: 'Could not attach that.', detail: 'video.mov takes this past 18 MB.' })
+    ).toBe('Could not attach that. video.mov takes this past 18 MB.')
+
+    expect(
+      reasonFor({ message: 'Could not reach it.', detail: 'getaddrinfo ENOTFOUND host' })
+    ).toBe('Could not reach it. getaddrinfo ENOTFOUND host')
+  })
+
   it('reads an error straight off a Result', () => {
     // The shape at every call site, so the type has to fit without a cast.
     const result = err('email.send-failed', 'Could not send email.', 'connect ECONNREFUSED')
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(reasonFor(result.error)).toBe('Could not send email. Connect ECONNREFUSED')
+      expect(reasonFor(result.error)).toBe('Could not send email. connect ECONNREFUSED')
     }
   })
 })

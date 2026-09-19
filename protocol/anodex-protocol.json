@@ -3784,6 +3784,70 @@
       }
     },
     {
+      "channel": "email:pick-attachments",
+      "kind": "invoke",
+      "api": "email.pickAttachments",
+      "args": [
+        {
+          "name": "alreadyAttachedBytes",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "array",
+                  "of": {
+                    "$ref": "EmailPickedAttachment"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "email:read-message",
       "kind": "invoke",
       "api": "email.readMessage",
@@ -17656,6 +17720,35 @@
     "EmailOutgoingAttachment": {
       "kind": "object",
       "properties": {
+        "filename": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "mimeType": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "contentBase64": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      }
+    },
+    "EmailPickedAttachment": {
+      "kind": "object",
+      "properties": {
+        "sizeBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
         "filename": {
           "optional": false,
           "type": {

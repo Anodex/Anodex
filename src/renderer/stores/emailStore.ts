@@ -9,7 +9,14 @@ import type {
 } from '@shared/email.types'
 import { anodex } from '../lib/anodex'
 import { notifyError } from './uiStore'
-import { addressList, canSend, draftPrompt, type MailDraft } from '../features/email/composeMail'
+import { reasonFor } from '@shared/result'
+import {
+  addressList,
+  attachedBytes,
+  canSend,
+  draftPrompt,
+  type MailDraft
+} from '../features/email/composeMail'
 
 /** Threads fetched per page, and the increment when asking for more. */
 const PAGE_SIZE = 20
@@ -102,6 +109,12 @@ interface EmailState {
   closeCompose: () => void
   /** Sends what is in the window. Resolves true when it went. */
   sendCompose: () => Promise<boolean>
+  /** Opens a file dialog and adds what was chosen to the open message. */
+  attachFiles: () => Promise<void>
+  /** Takes one file back off, by name. */
+  removeAttachment: (filename: string) => void
+  /** True while the dialog is open, so the paperclip cannot be double-fired. */
+  attaching: boolean
   /** Has the model write the body. The window keeps whatever is typed either way. */
   writeBody: (instruction: string) => Promise<void>
 }
@@ -132,6 +145,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   digestBlocked: null,
   undigestable: {},
   composing: null,
+  attaching: false,
   sending: false,
   writing: false,
 
@@ -471,9 +485,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const result = await anodex.email.send({
         to: addressList(draft.to),
         cc: addressList(draft.cc),
+        bcc: addressList(draft.bcc),
         subject: draft.subject.trim(),
         body: draft.body,
         accountId: draft.accountId,
+        // Only when there are some. An empty array is harmless to every
+        // adapter here, but it lands in the wire log of every plain message
+        // ever sent, and the field is only interesting when it is used.
+        ...(draft.attachments.length > 0 ? { attachments: draft.attachments } : {}),
         // Threading, which is what makes a reply land in the conversation it
         // answers rather than starting a new one beside it.
         ...(draft.inReplyTo?.messageIdHeader ? { inReplyTo: draft.inReplyTo.messageIdHeader } : {}),
@@ -494,6 +513,56 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     } finally {
       set({ sending: false })
     }
+  },
+
+  /**
+   * Adds files to the open message.
+   *
+   * The dialog runs on the computer and hands back the bytes in one call, so
+   * there is no path in the renderer and nothing to point at a file nobody
+   * chose. The running total goes with the request because the limit is on the
+   * message rather than on the click: four files of 6MB are each fine on their
+   * own and refused together, and the refusal has to name which one crossed.
+   */
+  attachFiles: async () => {
+    const draft = get().composing
+    if (!draft || get().attaching) return
+
+    set({ attaching: true })
+    try {
+      const result = await anodex.email.pickAttachments(attachedBytes(draft))
+      if (!result.ok) {
+        notifyError('Could not attach that', reasonFor(result.error))
+        return
+      }
+      if (result.value.length === 0) return
+
+      // Re-read rather than closed over. The dialog is modal to the window but
+      // not to this store: a model finishing a draft while the picker was open
+      // would otherwise be overwritten by the draft as it was a minute ago.
+      const current = get().composing
+      if (!current) return
+
+      // By name, because attaching the same file twice is a slip rather than
+      // an intention, and two identical rows give no way to tell which is
+      // which when removing one.
+      const names = new Set(current.attachments.map((one) => one.filename))
+      const added = result.value.filter((one) => !names.has(one.filename))
+      set({ composing: { ...current, attachments: [...current.attachments, ...added] } })
+    } finally {
+      set({ attaching: false })
+    }
+  },
+
+  removeAttachment: (filename) => {
+    const draft = get().composing
+    if (!draft) return
+    set({
+      composing: {
+        ...draft,
+        attachments: draft.attachments.filter((one) => one.filename !== filename)
+      }
+    })
   },
 
   /**

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EmailThreadSummary } from '@shared/email.types'
+import type { EmailPickedAttachment, EmailThreadSummary } from '@shared/email.types'
 
 /**
  * First coverage for the store behind the Email page. It is plain state with no
@@ -24,6 +24,7 @@ const applyFlag = vi.fn<Call>()
 const listMailboxes = vi.fn<Call>()
 const digestThreads = vi.fn<Call>()
 const send = vi.fn<Call>()
+const pickAttachments = vi.fn<Call>()
 const chatSend = vi.fn<Call>()
 const notifyError = vi.fn<Call>()
 
@@ -38,7 +39,8 @@ vi.mock('../../lib/anodex', () => ({
       applyFlag,
       listMailboxes,
       digestThreads,
-      send
+      send,
+      pickAttachments
     },
     chat: { send: chatSend }
   }
@@ -369,6 +371,8 @@ describe('emailStore — sending', () => {
   const draft = {
     to: 'ada@example.com, grace@example.com',
     cc: '',
+    bcc: '',
+    attachments: [],
     subject: 'Quarterly report',
     body: 'The numbers are attached.',
     kind: 'New message',
@@ -480,6 +484,8 @@ describe('emailStore — having the model write it', () => {
   const draft = {
     to: 'ada@example.com',
     cc: '',
+    bcc: '',
+    attachments: [],
     subject: 'Lunch',
     body: '',
     kind: 'New message',
@@ -522,5 +528,163 @@ describe('emailStore — having the model write it', () => {
 
     expect(useEmailStore.getState().composing?.body).toBe('Half a sentence')
     expect(notifyError).toHaveBeenCalled()
+  })
+})
+
+/**
+ * Putting a file on a message.
+ *
+ * The dialog itself belongs to Electron and is not the risky part. The risky
+ * parts are all here: that the bytes chosen are the bytes sent, that a
+ * running total goes with the request so the size limit is about the message
+ * rather than the click, and that a draft finished by the model while the
+ * picker was open is not overwritten by the draft as it was a minute ago.
+ */
+describe('emailStore — attaching files', () => {
+  const draft = {
+    to: 'ada@example.com',
+    cc: '',
+    bcc: '',
+    subject: 'Quarterly report',
+    body: 'The numbers are attached.',
+    attachments: [],
+    kind: 'New message',
+    inReplyTo: null,
+    accountId: 'account-1'
+  }
+
+  const file = (filename: string, sizeBytes = 1024): EmailPickedAttachment => ({
+    filename,
+    mimeType: 'application/pdf',
+    contentBase64: 'AAAA',
+    sizeBytes
+  })
+
+  beforeEach(() => {
+    pickAttachments.mockReset()
+    send.mockReset()
+    notifyError.mockReset()
+    useEmailStore.setState({ ...initialState, composing: draft, attaching: false })
+  })
+
+  it('adds what was chosen', async () => {
+    pickAttachments.mockResolvedValue(ok([file('report.pdf', 2048)]))
+
+    await useEmailStore.getState().attachFiles()
+
+    expect(useEmailStore.getState().composing?.attachments).toEqual([file('report.pdf', 2048)])
+  })
+
+  it('tells the computer how much is already on the message', async () => {
+    // The limit is on the message, not on the click. Four files of 6MB are
+    // each fine on their own and refused together, and the far end can only
+    // know that if the running total goes with the request.
+    pickAttachments.mockResolvedValue(ok([]))
+    useEmailStore.setState({
+      composing: { ...draft, attachments: [file('a.pdf', 1000), file('b.pdf', 2000)] }
+    })
+
+    await useEmailStore.getState().attachFiles()
+
+    expect(pickAttachments).toHaveBeenCalledWith(3000)
+  })
+
+  it('treats a cancelled dialog as nothing happening', async () => {
+    pickAttachments.mockResolvedValue(ok([]))
+
+    await useEmailStore.getState().attachFiles()
+
+    expect(useEmailStore.getState().composing?.attachments).toEqual([])
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it('will not attach the same file twice', async () => {
+    // A slip rather than an intention, and two identical rows give no way to
+    // tell which is which when removing one.
+    useEmailStore.setState({ composing: { ...draft, attachments: [file('report.pdf')] } })
+    pickAttachments.mockResolvedValue(ok([file('report.pdf'), file('notes.txt')]))
+
+    await useEmailStore.getState().attachFiles()
+
+    expect(useEmailStore.getState().composing?.attachments.map((one) => one.filename)).toEqual([
+      'report.pdf',
+      'notes.txt'
+    ])
+  })
+
+  it('keeps a body the model wrote while the picker was open', async () => {
+    // The dialog is modal to the window, not to this store. Closing over the
+    // draft would put the message back as it was before the model answered.
+    pickAttachments.mockImplementation(() => {
+      useEmailStore.setState({
+        composing: { ...useEmailStore.getState().composing!, body: 'Written while picking.' }
+      })
+      return Promise.resolve(ok([file('report.pdf')]))
+    })
+
+    await useEmailStore.getState().attachFiles()
+
+    const after = useEmailStore.getState().composing
+    expect(after?.body).toBe('Written while picking.')
+    expect(after?.attachments).toHaveLength(1)
+  })
+
+  it('says why when the computer refuses', async () => {
+    // The size limit arrives here, and it names the file and shows the
+    // arithmetic. Dropping it for a generic sentence is the bug this repo
+    // keeps having.
+    // Built here rather than through the `err` helper above, which carries no
+    // `detail` -- and `detail` is the entire point of this test.
+    pickAttachments.mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'email.attach-failed',
+        message: 'Could not attach that.',
+        detail: 'video.mov takes this message past 18 MB.'
+      }
+    })
+
+    await useEmailStore.getState().attachFiles()
+
+    expect(notifyError).toHaveBeenCalledWith(
+      'Could not attach that',
+      expect.stringContaining('video.mov')
+    )
+  })
+
+  it('takes one back off by name', () => {
+    useEmailStore.setState({
+      composing: { ...draft, attachments: [file('a.pdf'), file('b.pdf')] }
+    })
+
+    useEmailStore.getState().removeAttachment('a.pdf')
+
+    expect(useEmailStore.getState().composing?.attachments.map((one) => one.filename)).toEqual([
+      'b.pdf'
+    ])
+  })
+
+  it('sends the files and the blind copies with the message', async () => {
+    send.mockResolvedValue(ok(undefined))
+    useEmailStore.setState({
+      composing: { ...draft, bcc: 'quiet@example.com', attachments: [file('report.pdf')] }
+    })
+
+    await useEmailStore.getState().sendCompose()
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bcc: ['quiet@example.com'],
+        attachments: [file('report.pdf')]
+      })
+    )
+  })
+
+  it('leaves the attachments field off a message with none', async () => {
+    send.mockResolvedValue(ok(undefined))
+
+    await useEmailStore.getState().sendCompose()
+
+    expect(send.mock.calls[0][0]).not.toHaveProperty('attachments')
   })
 })
