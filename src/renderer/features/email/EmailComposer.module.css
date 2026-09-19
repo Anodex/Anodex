@@ -108,3 +108,81 @@
   justify-content: space-between;
   gap: var(--space-4);
 }
+
+/*
+ * Cc and Bcc, until they are wanted.
+ *
+ * A link rather than two empty fields. Most messages copy nobody, and a
+ * window that opens with four labelled boxes above the writing area reads as
+ * a form to complete rather than a place to say something.
+ */
+.copiesToggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0 0 0 var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.copiesToggle:hover {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+/*
+ * The files, as a row of chips.
+ *
+ * Above the assist bar and below the body, which is where every mail client
+ * puts them and, more to the point, where the eye lands last before Send --
+ * the one moment somebody would notice they are about to mail the wrong
+ * spreadsheet.
+ */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.attachmentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18rem;
+}
+
+.attachmentSize {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.attachmentRemove {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.attachmentRemove:hover {
+  color: var(--danger);
+}

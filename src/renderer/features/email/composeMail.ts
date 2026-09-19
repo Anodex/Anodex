@@ -1,4 +1,10 @@
-import type { EmailMessage } from '@shared/email.types'
+import {
+  readableAttachmentSize,
+  type EmailMessage,
+  type EmailPickedAttachment
+} from '@shared/email.types'
+
+export { readableAttachmentSize as readableSize }
 
 /**
  * A message being written at the computer.
@@ -12,8 +18,19 @@ import type { EmailMessage } from '@shared/email.types'
 export interface MailDraft {
   to: string
   cc: string
+  /**
+   * Blind copies.
+   *
+   * Its own field rather than a mode on `cc`, because the difference is the
+   * whole point of it and a window that hides which of the two you are typing
+   * into is how somebody discloses a list of addresses they meant to keep
+   * apart. Hidden until asked for, like Cc, since most messages want neither.
+   */
+  bcc: string
   subject: string
   body: string
+  /** Files chosen for this message, already read. */
+  attachments: EmailPickedAttachment[]
   /** What the window calls itself: "New message", "Reply", "Reply all", "Forward". */
   kind: string
   /** The message being answered, for threading and for the model's context. */
@@ -22,7 +39,17 @@ export interface MailDraft {
 }
 
 export function blankDraft(accountId?: string): MailDraft {
-  return { to: '', cc: '', subject: '', body: '', kind: 'New message', inReplyTo: null, accountId }
+  return {
+    to: '',
+    cc: '',
+    bcc: '',
+    subject: '',
+    body: '',
+    attachments: [],
+    kind: 'New message',
+    inReplyTo: null,
+    accountId
+  }
 }
 
 export function replyDraft(message: EmailMessage, all: boolean): MailDraft {
@@ -35,8 +62,13 @@ export function replyDraft(message: EmailMessage, all: boolean): MailDraft {
           .filter((address) => !sameAddress(address, message.from))
           .join(', ')
       : '',
+    bcc: '',
     subject: replySubject(message.subject),
     body: '',
+    // Not carried over from the message being answered. A reply is a new
+    // message that happens to quote an old one, and inheriting its files would
+    // send somebody their own attachment back.
+    attachments: [],
     kind: all ? 'Reply all' : 'Reply',
     inReplyTo: message,
     accountId: message.accountId
@@ -47,8 +79,16 @@ export function forwardDraft(message: EmailMessage): MailDraft {
   return {
     to: '',
     cc: '',
+    bcc: '',
     subject: forwardSubject(message.subject),
     body: quoted(message),
+    // Empty here too, which is the one place it is arguably wrong: forwarding
+    // a message with a file in it usually means forwarding the file. Getting
+    // that right needs the original's bytes, which are not in hand at this
+    // point -- they are fetched a chunk at a time from the server. Left for
+    // when there is somewhere to put the fetch, rather than silently dropping
+    // an attachment the reader can still see quoted below.
+    attachments: [],
     // No `inReplyTo`: a forward starts a conversation with somebody who was not
     // in the old one, and threading it onto the original files it under a
     // subject they have never seen.
@@ -76,6 +116,11 @@ export function forwardSubject(subject: string): string {
  */
 export function canSend(draft: MailDraft): boolean {
   return addressList(draft.to).length > 0 && draft.subject.trim() !== '' && draft.body.trim() !== ''
+}
+
+/** What the files on this message weigh, for the limit and for the label. */
+export function attachedBytes(draft: MailDraft): number {
+  return draft.attachments.reduce((total, one) => total + one.sizeBytes, 0)
 }
 
 /** `a@b.com, c@d.com` as a list, forgiving about semicolons and spacing. */
