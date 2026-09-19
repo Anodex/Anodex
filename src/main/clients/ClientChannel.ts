@@ -21,6 +21,16 @@ export interface ClientChannel {
   readonly id: string
 
   /**
+   * What this client announced it can do, or absent for a client that announced
+   * nothing — which covers both a renderer window, where the question does not
+   * arise, and any phone built before capabilities existed.
+   *
+   * Optional precisely so that neither of those has to change. Read it through
+   * `hasCapability` in `../remote/capabilities`, which treats absent as none.
+   */
+  readonly capabilities?: readonly string[]
+
+  /**
    * Best-effort delivery. Never throws.
    *
    * Delivery to a client that has gone away is not an error worth propagating:

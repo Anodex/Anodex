@@ -2,6 +2,7 @@ import { createServer, type Server as HttpsServer } from 'node:https'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createLogger } from '../utils/logger'
 import type { ClientChannel } from '../clients/ClientChannel'
+import { DESKTOP_CAPABILITIES } from './capabilities'
 import {
   REMOTE_CLIENT,
   attachRemoteClient,
@@ -325,7 +326,7 @@ export class RemoteBridge {
             return
           }
           clearTimeout(handshakeTimer)
-          client = this.attach(socket, auth.device.deviceId, peerAddress)
+          client = this.attach(socket, auth.device.deviceId, peerAddress, frame.capabilities)
           this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'welcome',
@@ -333,7 +334,8 @@ export class RemoteBridge {
             protocolVersion: PROTOCOL_VERSION,
             addresses: this.reachableAddresses(),
             mobileVersion: EXPECTED_MOBILE_VERSION,
-            hostName: hostname()
+            hostName: hostname(),
+            capabilities: DESKTOP_CAPABILITIES
           })
           return
         }
@@ -346,7 +348,7 @@ export class RemoteBridge {
             return
           }
           clearTimeout(handshakeTimer)
-          client = this.attach(socket, outcome.device.deviceId, peerAddress)
+          client = this.attach(socket, outcome.device.deviceId, peerAddress, frame.capabilities)
           this.onReachedAt(frame.reachedAt)
           this.send(socket, {
             type: 'paired',
@@ -357,7 +359,8 @@ export class RemoteBridge {
             // the LAN already knows every other route before it first leaves home.
             addresses: this.reachableAddresses(),
             mobileVersion: EXPECTED_MOBILE_VERSION,
-            hostName: hostname()
+            hostName: hostname(),
+            capabilities: DESKTOP_CAPABILITIES
           })
           return
         }
@@ -428,7 +431,12 @@ export class RemoteBridge {
     }
   }
 
-  private attach(socket: WebSocket, deviceId: string, peerAddress?: string): ClientChannel {
+  private attach(
+    socket: WebSocket,
+    deviceId: string,
+    peerAddress: string | undefined,
+    capabilities: readonly string[]
+  ): ClientChannel {
     this.socketDevice.set(socket, deviceId)
     this.socketPeer.set(socket, peerAddress)
     // Reported only for a socket that authenticated. An unauthenticated stranger
@@ -446,6 +454,15 @@ export class RemoteBridge {
 
     const client: ClientChannel = {
       id: `remote:${deviceId}`,
+      /**
+       * What this phone said it can do, read once at the handshake.
+       *
+       * Held on the channel rather than looked up later because it belongs to the
+       * connection: the same phone reconnecting after an update announces a
+       * different list, and anything cached by device id would be stale in exactly
+       * the case the list exists to cover.
+       */
+      capabilities,
       /**
        * The one place an event becomes a frame on this socket, and therefore the
        * one place the outbound policy belongs.
