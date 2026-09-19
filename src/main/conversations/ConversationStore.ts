@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import type { Conversation, ConversationState } from '@shared/conversation.types'
 import {
   reconcileInterruptedConversation,
@@ -485,7 +486,7 @@ class ConversationStore {
       return this.stateCache
     }
     try {
-      const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as ConversationState
+      const raw = readJsonSync(filePath) as ConversationState
       this.stateCache = { activeConversationId: raw.activeConversationId ?? null }
       return this.stateCache
     } catch (error) {
@@ -588,7 +589,7 @@ class ConversationStore {
 
   private readFile(filePath: string): Conversation | null {
     try {
-      const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf-8'))
+      const parsed: unknown = readJsonSync(filePath)
       if (!isConversationShaped(parsed)) {
         log.warn('Ignoring conversation file with unexpected shape:', filePath)
         return null

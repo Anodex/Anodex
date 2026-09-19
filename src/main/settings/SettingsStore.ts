@@ -1,7 +1,8 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app, safeStorage } from 'electron'
 import { writeJsonAtomic } from '../utils/atomicWrite'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import type { AppSettings, DeepPartial, SettingsPatch } from '@shared/settings.types'
 import type { EmailAccount } from '@shared/email.types'
 import { MAX_ASSISTANT_STYLE_CHARS, isRemovableSetting } from '@shared/settings.types'
@@ -89,7 +90,7 @@ class SettingsStore {
       return defaults
     }
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Record<string, unknown>
+      const parsed = readJsonSync(this.filePath) as Record<string, unknown>
       const retired = stripRetiredGeneralSettings(parsed)
       const raw = retired.settings as DeepPartial<AppSettings> & {
         ui?: { systemPrompt?: string }

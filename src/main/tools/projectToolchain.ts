@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readJsonAsync } from '../utils/jsonFile'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveInWorkspace } from './workspace'
@@ -276,7 +276,7 @@ async function nodeToolchain(workspaceRoot: string, base: Toolchain): Promise<To
 async function readPackageScripts(workspaceRoot: string): Promise<Record<string, string> | null> {
   try {
     const file = resolveInWorkspace(workspaceRoot, 'package.json')
-    const parsed = JSON.parse(await readFile(file, 'utf-8')) as {
+    const parsed = (await readJsonAsync(file)) as {
       scripts?: Record<string, string>
     }
     return parsed.scripts ?? {}

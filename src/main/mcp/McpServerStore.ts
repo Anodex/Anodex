@@ -1,6 +1,7 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import type { McpLocalServerConfig, McpNewServerConfig, McpServerConfig } from '@shared/mcp.types'
 import { createLogger } from '../utils/logger'
 import { writeJsonAtomic } from '../utils/atomicWrite'
@@ -90,7 +91,7 @@ class McpServerStore {
       return DEFAULT_STATE
     }
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf-8')) as Partial<McpServersState>
+      const raw = readJsonSync(this.filePath) as Partial<McpServersState>
       return { servers: raw.servers ?? [] }
     } catch (error) {
       log.warn('Failed to parse MCP servers, falling back to defaults:', error)

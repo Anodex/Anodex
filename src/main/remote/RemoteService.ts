@@ -1,5 +1,6 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { collectHostAddresses, connectionRoute, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
@@ -793,7 +794,7 @@ export class RemoteService {
   private load(): void {
     if (!existsSync(this.filePath)) return
     try {
-      this.state = JSON.parse(readFileSync(this.filePath, 'utf-8')) as PersistedState
+      this.state = readJsonSync(this.filePath) as PersistedState
     } catch (error) {
       log.warn('remote.json is unreadable; starting from a clean state:', error)
       this.state = { enabled: false }

@@ -1,5 +1,6 @@
+import { readJsonSync } from '../utils/jsonFile'
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { writeJsonAtomicAsync } from '../utils/atomicWrite'
 import { join } from 'node:path'
@@ -69,7 +70,7 @@ export class CriticalThinkingEvidenceStore {
     const path = this.pathFor(runId)
     if (!existsSync(path)) return []
     try {
-      const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+      const parsed: unknown = readJsonSync(path)
       if (!Array.isArray(parsed)) return []
       const artifacts = parsed.filter(isToolArtifact)
       if (artifacts.length !== parsed.length) {
