@@ -2,6 +2,7 @@ import type { ClientChannel } from '../clients/ClientChannel'
 import { hasCapability } from '../remote/capabilities'
 import { createLogger } from '../utils/logger'
 import { VOICE_CAPABILITY, voiceEnabled } from './voiceCapability'
+import { UtteranceAssembler } from './utterance'
 import {
   encodeControl,
   encodeVoiceFrame,
@@ -45,6 +46,18 @@ const MAX_FRAMES_PER_SECOND = 200
 const BURST_FRAMES = 100
 
 interface VoiceSession {
+  /**
+   * Where one thing somebody said ends and the next begins.
+   *
+   * Runs alongside the echo rather than instead of it: the echo is what measures
+   * the loop, and segmenting the same stream costs nothing extra. When there is a
+   * recogniser to hand an utterance to, the echo is what goes.
+   */
+  assembler: UtteranceAssembler
+  /** Utterances heard this session, for the line at the end. */
+  utterances: number
+  /** Seconds of speech, as opposed to seconds with the microphone open. */
+  spokenMs: number
   /** Tokens left in this second's allowance. */
   allowance: number
   /** When the allowance was last topped up. */
@@ -70,6 +83,20 @@ function sessionFor(client: ClientChannel, now: number): VoiceSession {
   if (existing) return existing
 
   const created: VoiceSession = {
+    assembler: new UtteranceAssembler((utterance) => {
+      created.utterances += 1
+      created.spokenMs += (utterance.samples.length / 16_000) * 1000
+      // Logged rather than acted on, because there is nothing yet to act with.
+      // It is still the first thing worth knowing: that this end can find the
+      // edges of a sentence in a real stream from a real room, which is the half
+      // of recognition that owes nothing to a model.
+      log.info(
+        `${client.id}: heard ${(utterance.samples.length / 16_000).toFixed(2)}s ` +
+          `across ${utterance.frames} frames`
+      )
+    }),
+    utterances: 0,
+    spokenMs: 0,
     allowance: BURST_FRAMES,
     refilledAt: now,
     framesIn: 0,
@@ -158,6 +185,10 @@ export function handleVoiceFrame(
     return
   }
 
+  // Segmented on the way past. The assembler keeps its own buffer, so this neither
+  // delays the echo nor depends on it.
+  session.assembler.accept(frame.payload, frame.atMs, now)
+
   // The echo. `seq` and `atMs` go back exactly as they arrived — the phone is
   // timing itself, and a header rewritten here would be a measurement of this
   // code's clock instead.
@@ -190,6 +221,9 @@ function handleControl(
       session.droppedRate = 0
       session.droppedBad = 0
       session.startedAt = now
+      session.assembler.reset()
+      session.utterances = 0
+      session.spokenMs = 0
       log.info(`${client.id}: voice started`)
       // Answered so the phone knows the far end is listening before it spends
       // battery on a microphone. An unanswered start is indistinguishable from a
@@ -199,12 +233,15 @@ function handleControl(
     }
 
     case 'stop': {
+      // Whatever was being said when the button was pressed was still said.
+      session.assembler.flush()
       const seconds = Math.max(1, Math.round((now - session.startedAt) / 1000))
       log.info(
         `${client.id}: voice stopped after ${seconds}s — ` +
           `${session.framesIn} in, ${session.framesOut} out, ` +
           `${Math.round(session.bytesIn / 1024)}KB, ` +
-          `${session.droppedRate} dropped for rate, ${session.droppedBad} unreadable`
+          `${session.droppedRate} dropped for rate, ${session.droppedBad} unreadable, ` +
+          `${session.utterances} utterances totalling ${(session.spokenMs / 1000).toFixed(1)}s`
       )
       reply(encodeControl(frame.seq, frame.atMs, { type: 'stopped' }))
       return
