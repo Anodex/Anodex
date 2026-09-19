@@ -9,6 +9,7 @@ import type {
 } from '@shared/email.types'
 import { anodex } from '../lib/anodex'
 import { notifyError } from './uiStore'
+import { addressList, canSend, draftPrompt, type MailDraft } from '../features/email/composeMail'
 
 /** Threads fetched per page, and the increment when asking for more. */
 const PAGE_SIZE = 20
@@ -68,6 +69,19 @@ interface EmailState {
    */
   undigestable: Record<string, string>
 
+  /**
+   * The message being written, or null when none is.
+   *
+   * There was no such thing here until now. This app could read mail and ask
+   * the model to answer it, and could not send three words without a model
+   * writing them — while the phone could. The model is offered inside this
+   * window rather than instead of it.
+   */
+  composing: MailDraft | null
+  sending: boolean
+  /** True while the model is writing a body somebody asked for. */
+  writing: boolean
+
   load: () => Promise<void>
   /** Refreshes only the unread count, for the sidebar badge. */
   refreshUnreadCount: () => Promise<void>
@@ -83,6 +97,13 @@ interface EmailState {
   trashThread: (thread: EmailThreadSummary) => Promise<void>
   /** Fetches digests for whichever listed threads still lack one. */
   loadDigests: () => Promise<void>
+  startCompose: (draft: MailDraft) => void
+  updateCompose: (draft: MailDraft) => void
+  closeCompose: () => void
+  /** Sends what is in the window. Resolves true when it went. */
+  sendCompose: () => Promise<boolean>
+  /** Has the model write the body. The window keeps whatever is typed either way. */
+  writeBody: (instruction: string) => Promise<void>
 }
 
 let loadRevision = 0
@@ -110,6 +131,9 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   digesting: false,
   digestBlocked: null,
   undigestable: {},
+  composing: null,
+  sending: false,
+  writing: false,
 
   load: async () => {
     const revision = ++loadRevision
@@ -422,6 +446,99 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       // Only the newest pass owns the flag; a superseded one bowing out must
       // not clear the indicator for the pass that replaced it.
       if (revision === digestRevision) set({ digesting: false })
+    }
+  },
+
+  startCompose: (draft) => set({ composing: draft }),
+
+  updateCompose: (draft) => set({ composing: draft }),
+
+  closeCompose: () => set({ composing: null, writing: false }),
+
+  /**
+   * Send it.
+   *
+   * The window stays open until the computer says it went. A window that closes
+   * on click and fails afterwards loses the message *and* tells somebody it was
+   * sent, which is the worst of the three outcomes available here.
+   */
+  sendCompose: async () => {
+    const draft = get().composing
+    if (!draft || !canSend(draft) || get().sending) return false
+
+    set({ sending: true })
+    try {
+      const result = await anodex.email.send({
+        to: addressList(draft.to),
+        cc: addressList(draft.cc),
+        subject: draft.subject.trim(),
+        body: draft.body,
+        accountId: draft.accountId,
+        // Threading, which is what makes a reply land in the conversation it
+        // answers rather than starting a new one beside it.
+        ...(draft.inReplyTo?.messageIdHeader ? { inReplyTo: draft.inReplyTo.messageIdHeader } : {}),
+        ...(draft.inReplyTo?.references ? { references: draft.inReplyTo.references } : {}),
+        ...(draft.inReplyTo?.threadId ? { threadId: draft.inReplyTo.threadId } : {})
+      })
+
+      if (!result.ok) {
+        notifyError('Could not send that message', result.error.detail ?? result.error.message)
+        return false
+      }
+
+      set({ composing: null })
+      // The sent copy belongs in whatever folder is showing it, and a reply
+      // changes the thread it answers. Cheaper to re-read than to guess.
+      void get().load()
+      return true
+    } finally {
+      set({ sending: false })
+    }
+  },
+
+  /**
+   * Have the model write the body.
+   *
+   * A temporary turn with no history and no project: the mail being answered is
+   * in the prompt, and a draft written against whichever project happened to be
+   * open would pick up that project's instructions — a reply to a friend in the
+   * register of a codebase's contributing guide.
+   *
+   * Whatever is typed survives a failure. This writes into a window somebody may
+   * already have started, and losing their words to a draft that did not arrive
+   * would be worse than the draft not arriving.
+   */
+  writeBody: async (instruction) => {
+    const draft = get().composing
+    if (!draft || get().writing) return
+
+    set({ writing: true })
+    try {
+      const id = crypto.randomUUID()
+      const result = await anodex.chat.send({
+        conversationId: `email-draft-${id}`,
+        messageId: id,
+        projectId: null,
+        history: [],
+        prompt: draftPrompt(draft, instruction),
+        temporary: true
+      })
+
+      if (!result.ok) {
+        notifyError('Anodex could not write that', result.error.detail ?? result.error.message)
+        return
+      }
+
+      const written = result.value.content?.trim()
+      if (!written) {
+        notifyError('Anodex did not write anything', 'It answered with nothing to put in the body.')
+        return
+      }
+
+      const current = get().composing
+      if (current) set({ composing: { ...current, body: written } })
+    } finally {
+      set({ writing: false })
     }
   }
 }))
