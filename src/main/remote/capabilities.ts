@@ -32,6 +32,8 @@
  * whole connection.
  */
 
+import { VOICE_CAPABILITY, voiceEnabled } from '../voice/voiceCapability' // voice:seam
+
 /**
  * The most capabilities that will be read from one handshake.
  *
@@ -47,14 +49,19 @@ const MAX_CAPABILITIES = 32
 const MAX_CAPABILITY_LENGTH = 64
 
 /**
- * What this desktop can do.
+ * What this desktop can do, asked fresh at each handshake.
  *
- * Empty today. Capabilities are added here as the features that need them land —
- * this file exists ahead of any of them because the negotiation has to be in the
- * field *before* the first feature can rely on it, and a phone only learns what a
- * desktop supports from a desktop that already knows how to say.
+ * A function rather than a constant because the answer can change while the app
+ * runs: a feature switched on after launch has to be announced to the next phone
+ * that connects, not to the next phone that connects after a restart.
  */
-export const DESKTOP_CAPABILITIES: readonly string[] = []
+export function desktopCapabilities(): readonly string[] {
+  const announced: string[] = []
+  // voice:seam — the one line that puts voice on the wire. Removing voice is
+  // removing this line; nothing else here knows the feature exists.
+  if (voiceEnabled()) announced.push(VOICE_CAPABILITY)
+  return announced
+}
 
 /**
  * Read a capability list off the wire, never throwing.
