@@ -392,7 +392,12 @@ class EmailService {
     if (!id) throw new Error('thread id is required.')
     const { account, adapter } = this.resolve(accountId)
     const messages = await adapter.getThreadMessages(account, id)
-    if (messages.length === 0) return 'No messages found in this thread.'
+    // Refused rather than described. This string goes to a model, which
+    // writes it up as a summary the reader then believes -- "there is nothing
+    // in this conversation" is a sentence with an author once a model has
+    // said it, and it was never true: the thread was listed moments earlier
+    // and the provider simply could not produce it again.
+    if (messages.length === 0) throw new Error(THREAD_UNREADABLE)
 
     const ordered = [...messages].sort((left, right) => left.date - right.date)
     const participants = dedupeParticipants(
@@ -428,6 +433,12 @@ class EmailService {
     if (!id) throw new Error('thread id is required.')
     const { account, adapter } = this.resolve(accountId)
     const messages = await adapter.getThreadMessages(account, id)
+    // A thread with no messages is not a thread with no attachments. The empty
+    // list is indistinguishable from the true one, so the caller draws "no
+    // attachments" over a read that failed -- the same laundering as the
+    // reader, two doors down and quieter, because nobody goes looking for an
+    // attachment they were told is not there.
+    if (messages.length === 0) throw new Error(THREAD_UNREADABLE)
     return messages.flatMap((message) => message.attachments)
   }
 
