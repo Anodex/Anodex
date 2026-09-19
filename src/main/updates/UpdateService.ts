@@ -52,6 +52,20 @@ class UpdateService extends EventEmitter {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = false
 
+    // Ask the origin, not whatever a cache remembers.
+    //
+    // The feed is `latest.yml`, a GitHub release asset, and release assets are
+    // served through a CDN: a response to this very check came back
+    // `X-Cache: MISS, HIT` with `Age: 499`, meaning eight minutes stale. So for
+    // several minutes after a release, "check for updates" is answered with the
+    // *previous* version's file and the app correctly reports that it is
+    // current. Pressing the button again later finds it, which is exactly what
+    // it looks like from the outside: a button that does not work the first time.
+    //
+    // A revalidation request is the standard way to say "not from a cache", and
+    // the check runs at most a few times a day, so nothing is lost by asking.
+    autoUpdater.requestHeaders = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+
     autoUpdater.on('checking-for-update', () => this.setStatus({ state: 'checking' }))
     autoUpdater.on('update-available', (info) => {
       this.pendingVersion = info.version
@@ -61,7 +75,9 @@ class UpdateService extends EventEmitter {
         void this.download()
       }
     })
-    autoUpdater.on('update-not-available', () => this.setStatus({ state: 'not-available' }))
+    autoUpdater.on('update-not-available', () =>
+      this.setStatus({ state: 'not-available', checkedAt: Date.now() })
+    )
     autoUpdater.on('download-progress', (progress) =>
       this.setStatus({
         state: 'downloading',

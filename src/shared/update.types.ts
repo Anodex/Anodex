@@ -3,7 +3,17 @@ export type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
   | { state: 'available'; version: string }
-  | { state: 'not-available' }
+  /**
+   * Nothing newer — and when that was established.
+   *
+   * The timestamp is the point. "You're up to date" with nothing beside it is
+   * indistinguishable from "I did not really look", and GitHub serves the
+   * update feed through a CDN that will hand back a cached answer naming the
+   * previous release for several minutes after a new one is published. Somebody
+   * checking straight after a release is told they are current, correctly
+   * relaying something that is no longer true.
+   */
+  | { state: 'not-available'; checkedAt: number }
   // Carries the version being downloaded so the UI can keep naming it: the
   // `download-progress` event itself has no version, and without it the
   // notice fell back to "Anodex null is available" the moment a download began.

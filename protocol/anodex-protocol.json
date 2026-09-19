@@ -8262,6 +8262,12 @@
                   "kind": "literal",
                   "value": "not-available"
                 }
+              },
+              "checkedAt": {
+                "optional": false,
+                "type": {
+                  "kind": "number"
+                }
               }
             }
           },
@@ -8437,6 +8443,12 @@
                 "type": {
                   "kind": "literal",
                   "value": "not-available"
+                }
+              },
+              "checkedAt": {
+                "optional": false,
+                "type": {
+                  "kind": "number"
                 }
               }
             }
