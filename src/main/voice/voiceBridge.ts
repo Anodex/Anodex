@@ -2,6 +2,7 @@ import type { ClientChannel } from '../clients/ClientChannel'
 import { hasCapability } from '../remote/capabilities'
 import { createLogger } from '../utils/logger'
 import { VOICE_CAPABILITY, voiceEnabled } from './voiceCapability'
+import { captureUtterance } from './captureStore'
 import { UtteranceAssembler } from './utterance'
 import {
   encodeControl,
@@ -94,6 +95,9 @@ function sessionFor(client: ClientChannel, now: number): VoiceSession {
         `${client.id}: heard ${(utterance.samples.length / 16_000).toFixed(2)}s ` +
           `across ${utterance.frames} frames`
       )
+      // Only when a second switch says so, and never by default — see
+      // `captureStore.ts`, and D9.
+      captureUtterance(utterance.samples)
     }),
     utterances: 0,
     spokenMs: 0,
