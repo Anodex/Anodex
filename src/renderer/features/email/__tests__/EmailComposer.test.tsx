@@ -122,26 +122,27 @@ describe('EmailComposer — copies and files', () => {
     sizeBytes
   })
 
-  it('keeps Cc and Bcc out of the way until they are asked for', () => {
-    // Most messages copy nobody. A window that opens with four labelled boxes
-    // above the writing area reads as a form to complete rather than a place
-    // to say something.
+  it('leaves Cc exactly where it already was', () => {
+    // Additive, deliberately. Gmail folds Cc away too and it was tempting to
+    // match, but Cc is visible in this window today and moving something
+    // somebody already reaches for is a decision about their habits rather
+    // than about mail.
     state.composing = blankDraft('account-1')
     render(<EmailComposer />)
 
+    expect(screen.getByText('Cc')).toBeTruthy()
     expect(screen.queryByText('Bcc')).toBeNull()
-    expect(screen.getByText('Cc / Bcc')).toBeTruthy()
+    expect(screen.getByText('Add Bcc')).toBeTruthy()
   })
 
-  it('shows them anyway when the message already copies somebody', () => {
-    // The case that matters. A populated Cc behind a collapsed toggle is how
-    // somebody sends a message to a person they did not know was on it --
-    // and on a reply-all, that field is populated for them.
-    state.composing = { ...blankDraft('account-1'), cc: 'grace@example.com' }
+  it('opens Bcc by itself when the message already has one', () => {
+    // The case that matters. A populated Bcc behind a collapsed toggle is how
+    // a message goes to somebody the writer has forgotten is there.
+    state.composing = { ...blankDraft('account-1'), bcc: 'quiet@example.com' }
     render(<EmailComposer />)
 
     expect(screen.getByText('Bcc')).toBeTruthy()
-    expect(screen.queryByText('Cc / Bcc')).toBeNull()
+    expect(screen.queryByText('Add Bcc')).toBeNull()
   })
 
   it('says what Bcc does, because almost nobody is certain', () => {

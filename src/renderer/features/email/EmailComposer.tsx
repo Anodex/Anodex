@@ -52,7 +52,15 @@ export function EmailComposer(): JSX.Element | null {
   // Open if they were asked for, and open if a reply arrived with people
   // already on it -- a Cc that is populated and hidden is the version of this
   // that sends a message to somebody the writer did not know was included.
-  const copiesOpen = showingCopies || draft.cc.trim() !== '' || draft.bcc.trim() !== ''
+  // Only Bcc hides. Gmail folds Cc away too and it was tempting to match,
+  // but Cc is visible in this window today, and moving something somebody
+  // already reaches for is a decision about their habits rather than about
+  // mail. The Gmail arrangement is one line from here if it is ever wanted.
+  //
+  // Open if asked for, and open if the message already has blind copies on
+  // it -- a populated Bcc behind a collapsed toggle is the version of this
+  // that sends to somebody the writer has forgotten is there.
+  const bccOpen = showingCopies || draft.bcc.trim() !== ''
 
   const discard = (): void => {
     if (!written || confirmingDiscard) close()
@@ -80,38 +88,36 @@ export function EmailComposer(): JSX.Element | null {
           />
         </label>
 
-        {copiesOpen ? (
-          <>
-            <label className={styles.field}>
-              <span className={styles.label}>Cc</span>
-              <input
-                className={styles.input}
-                value={draft.cc}
-                placeholder="Nobody else"
-                onChange={(event) => update({ ...draft, cc: event.target.value })}
-              />
-            </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Cc</span>
+          <input
+            className={styles.input}
+            value={draft.cc}
+            placeholder="Nobody else"
+            onChange={(event) => update({ ...draft, cc: event.target.value })}
+          />
+        </label>
 
-            <label className={styles.field}>
-              <span className={styles.label}>Bcc</span>
-              <input
-                className={styles.input}
-                value={draft.bcc}
-                /* Said rather than implied. Everyone knows roughly what Bcc
-                   does and almost nobody is certain, and the cost of being
-                   wrong falls on people who are not in the room. */
-                placeholder="Hidden from everyone else on the message"
-                onChange={(event) => update({ ...draft, bcc: event.target.value })}
-              />
-            </label>
-          </>
+        {bccOpen ? (
+          <label className={styles.field}>
+            <span className={styles.label}>Bcc</span>
+            <input
+              className={styles.input}
+              value={draft.bcc}
+              /* Said rather than implied. Everyone knows roughly what Bcc does
+                 and almost nobody is certain, and the cost of being wrong falls
+                 on people who are not in the room. */
+              placeholder="Hidden from everyone else on the message"
+              onChange={(event) => update({ ...draft, bcc: event.target.value })}
+            />
+          </label>
         ) : (
           <button
             type="button"
             className={styles.copiesToggle}
             onClick={() => setShowingCopies(true)}
           >
-            Cc / Bcc
+            Add Bcc
           </button>
         )}
 
