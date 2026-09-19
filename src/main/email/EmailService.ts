@@ -96,6 +96,22 @@ export interface PreparedOutgoing {
 }
 
 /**
+ * What to say when a conversation cannot be read.
+ *
+ * Says what happened rather than what is true of the mailbox. "That
+ * conversation has no messages" is a statement about the mail, so it is read
+ * as one and nobody investigates -- the conversation was listed moments
+ * earlier and almost certainly still exists. What actually happened is that
+ * the provider could not produce it again.
+ *
+ * The second sentence is there because the likeliest cause is the one the
+ * reader can check: it moved, or it went, since the list was drawn.
+ */
+export const THREAD_UNREADABLE =
+  'Could not read that conversation from the mail server. ' +
+  'It may have been moved or deleted since this list was loaded.'
+
+/**
  * The single entry point for everything email, across every linked account.
  *
  * Its two jobs are resolving which account a request targets and dispatching to
@@ -343,7 +359,17 @@ class EmailService {
     const { account, adapter } = this.resolve(accountId)
     const messages = await adapter.getThreadMessages(account, id)
     if (messages.length === 0) {
+      // The line above this used to say "zero messages is a fault, not a
+      // result", and then the next line returned it as a result. Every reader
+      // drew the empty array as an empty conversation, which is a claim --
+      // "there is nothing in here" -- about a lookup that failed.
+      //
+      // Seen again in the user's own log on 2026-09-19, one warning followed
+      // eighteen seconds later by a failed archive on the same thread: they
+      // had opened a conversation, been shown nothing, and reached for the
+      // only other thing available.
       log.warn(`Thread ${id} has no messages the ${account.provider} account can read.`)
+      throw new Error(THREAD_UNREADABLE)
     }
     return [...messages].sort((left, right) => left.date - right.date)
   }

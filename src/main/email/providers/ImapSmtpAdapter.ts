@@ -698,7 +698,17 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       if (existing) existing.push(uid)
       else result.set(mailbox, [uid])
     }
-    if (result.size === 0) throw new Error('That conversation has no messages.')
+    // Not "has no messages", which is a claim about the mailbox and reads as
+    // one. Acting on a thread resolves it exactly the way reading it does, so
+    // this is the same failed lookup wearing a different sentence -- and now
+    // that the phone repeats what the computer says, this string is what
+    // somebody standing in a kitchen actually reads.
+    if (result.size === 0) {
+      throw new Error(
+        'Could not find that conversation on the mail server. ' +
+          'It may have been moved or deleted since this list was loaded.'
+      )
+    }
     return result
   }
 
