@@ -110,6 +110,7 @@ import type {
   EmailMailbox,
   EmailMessage,
   EmailMoveRequest,
+  EmailPickedAttachment,
   EmailSearchRequest,
   EmailSendRequest,
   EmailSyncMode,
@@ -658,6 +659,18 @@ export const IpcChannel = {
     getAttachmentChunk: 'email:get-attachment-chunk',
     /** Resolves an opened message's remote images to inline `data:` URIs. */
     loadRemoteImages: 'email:load-remote-images',
+    /**
+     * Opens a file dialog on the computer and reads what was chosen.
+     *
+     * One call rather than a picker and a reader, because the two together are
+     * a capability neither is on its own. A channel that turns a path into
+     * bytes would let anything holding it read any file on the disk and mail
+     * it out; this one only ever returns what a person standing at the machine
+     * selected in a dialog. It is denied to a paired phone for the ordinary
+     * reason -- a dialog on an empty desk is a prompt nobody will answer --
+     * but that is not the only reason it is shaped this way.
+     */
+    pickAttachments: 'email:pick-attachments',
     createDraft: 'email:create-draft',
     send: 'email:send'
   },
@@ -1250,6 +1263,11 @@ export interface AnodexApi {
      * blocked; it is never an error worth interrupting the reader over.
      */
     loadRemoteImages(urls: string[]): Promise<Result<Record<string, string>>>
+    /**
+     * Asks the person for files and returns them ready to send. An empty list
+     * means the dialog was cancelled, which is not a failure.
+     */
+    pickAttachments(alreadyAttachedBytes?: number): Promise<Result<EmailPickedAttachment[]>>
     createDraft(request: EmailDraftRequest): Promise<Result<EmailDraft>>
     send(request: EmailSendRequest): Promise<Result<void>>
   }

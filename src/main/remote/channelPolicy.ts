@@ -128,6 +128,18 @@ export const DENIED_CHANNELS = [
   'email:open-webmail',
 
   /**
+   * A file dialog on the host, and the files it chose.
+   *
+   * Same category as the entries above -- nobody is at the desk to answer it.
+   * Worth its own note because the alternative shape, a channel that reads a
+   * named path into base64, would have been genuinely dangerous here rather
+   * than merely useless: mail is an outbound pipe, so any-file-by-path plus
+   * send is a way to post the contents of a disk somewhere. Paired devices are
+   * trusted, and this still should not be the thing that trusts them.
+   */
+  'email:pick-attachments',
+
+  /**
    * A native save sheet on the host. The first category above, and
    * `diagnostics:reveal-log` — its sibling, one handler over — was already here.
    */

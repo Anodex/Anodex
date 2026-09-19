@@ -323,6 +323,8 @@ const api: AnodexApi = {
     getAttachmentChunk: (request) =>
       ipcRenderer.invoke(IpcChannel.Email.getAttachmentChunk, request),
     loadRemoteImages: (urls) => ipcRenderer.invoke(IpcChannel.Email.loadRemoteImages, urls),
+    pickAttachments: (alreadyAttachedBytes) =>
+      ipcRenderer.invoke(IpcChannel.Email.pickAttachments, alreadyAttachedBytes),
     createDraft: (request) => ipcRenderer.invoke(IpcChannel.Email.createDraft, request),
     send: (request) => ipcRenderer.invoke(IpcChannel.Email.send, request)
   },

@@ -94,5 +94,15 @@ export function reasonFor(error: Pick<AnodexError, 'message' | 'detail'>): strin
   // A handler that passed the same string twice, and a detail the headline
   // already contains, are one sentence rather than two.
   if (cause === headline || headline.includes(cause)) return headline
-  return `${headline} ${cause.charAt(0).toUpperCase()}${cause.slice(1)}`
+  // Joined exactly as it was written, with no capital forced onto it.
+  //
+  // The first version of this uppercased the cause so the pair read as two
+  // sentences, which is fine for prose and wrong for everything else a
+  // `detail` actually contains: `video.mov takes this past 18 MB` became
+  // `Video.mov`, and `getaddrinfo ENOTFOUND …` would become `Getaddrinfo`.
+  // Filenames, hostnames and command names are the common case here, and
+  // renaming one in an error message is worse than a lowercase letter after
+  // a full stop. The whole point of this function is to repeat what the other
+  // end said; editing it is not repeating it.
+  return `${headline} ${cause}`
 }
