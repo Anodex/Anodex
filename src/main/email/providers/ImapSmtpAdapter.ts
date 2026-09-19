@@ -168,10 +168,62 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
    * inbox. Both are searched and the results merged.
    */
   async getThreadMessages(account: EmailAccount, threadId: string): Promise<EmailMessage[]> {
-    return this.threadMessagesIn(account, threadId, [
-      'INBOX',
-      ...(await this.findSentMailbox(account))
-    ])
+    const usual = ['INBOX', ...(await this.findSentMailbox(account))]
+    const found = await this.threadMessagesIn(account, threadId, usual)
+    if (found.length > 0) return found
+
+    // Not where mail usually is, so look where it actually is.
+    //
+    // Everything a thread can have done to it comes through here --
+    // `resolveTargets` resolves flag, move and trash against this same call --
+    // so searching only INBOX and Sent meant that outside those two folders
+    // *nothing worked*. A message in Trash could not be opened, starred,
+    // restored or deleted; the reader said the conversation would not open and
+    // the log said it had no messages. Both were describing the same wrong
+    // assumption about where to look.
+    //
+    // Found by using it: a test swipe put a message in the trash and the app
+    // could not get it back out.
+    //
+    // Only on the miss, and ordered so the answer usually arrives in the first
+    // folder tried. A thread that genuinely is not in the account costs one
+    // listing per folder, which is the price of being certain rather than
+    // assuming.
+    const elsewhere = await this.otherMailboxes(account, usual)
+    return elsewhere.length > 0 ? this.threadMessagesIn(account, threadId, elsewhere) : found
+  }
+
+  /**
+   * Every other folder on the account, likeliest first.
+   *
+   * Trash and Spam lead because those are where a message goes when somebody
+   * acts on it and then changes their mind, which is the case that brought this
+   * about. `\\All` comes next: on Gmail it holds everything archived, so a
+   * thread missing from the inbox is usually there.
+   */
+  private async otherMailboxes(
+    account: EmailAccount,
+    alreadySearched: string[]
+  ): Promise<string[]> {
+    const skip = new Set(alreadySearched.map((path) => path.toLowerCase()))
+    return this.withClient(account, async (client) => {
+      const mailboxes = await client.list()
+      const rank = (mailbox: { path: string; specialUse?: string }): number => {
+        if (mailbox.specialUse === '\\Trash') return 0
+        if (mailbox.specialUse === '\\Junk') return 1
+        if (mailbox.specialUse === '\\All' || mailbox.specialUse === '\\Archive') return 2
+        return 3
+      }
+      return (
+        mailboxes
+          .filter((mailbox) => !skip.has(mailbox.path.toLowerCase()))
+          // A container with no messages of its own -- `[Gmail]` is one -- cannot
+          // be selected, and asking would be an error per folder.
+          .filter((mailbox) => !mailbox.flags?.has?.('\\Noselect'))
+          .sort((left, right) => rank(left) - rank(right))
+          .map((mailbox) => mailbox.path)
+      )
+    })
   }
 
   /**
