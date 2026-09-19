@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useEffect, useState } from 'react'
 import type { WorkspaceFileContent } from '@shared/workspaceFileContent.types'
 import { anodex } from '../../lib/anodex'
@@ -79,7 +80,7 @@ export function FileViewerPanel(): JSX.Element | null {
       if (cancelled) return
       setLoading(false)
       if (!res.ok) {
-        notifyError('Could not open that file', res.error.message)
+        notifyError('Could not open that file', reasonFor(res.error))
         close()
         return
       }
@@ -116,7 +117,7 @@ export function FileViewerPanel(): JSX.Element | null {
     const res = await anodex.workspace.readFileContent(path)
     setExternalChangePending(false)
     if (!res.ok) {
-      notifyError('Could not reload that file', res.error.message)
+      notifyError('Could not reload that file', reasonFor(res.error))
       close()
       return
     }
@@ -181,7 +182,7 @@ export function FileViewerPanel(): JSX.Element | null {
     const res = await anodex.workspace.writeFileContent(path, value)
     setSaving(false)
     if (!res.ok) {
-      notifyError('Could not save file', res.error.message)
+      notifyError('Could not save file', reasonFor(res.error))
       return false
     }
     setOriginalValue(value)
@@ -198,14 +199,14 @@ export function FileViewerPanel(): JSX.Element | null {
   async function handleOpenPreviewWindow(): Promise<void> {
     if (!path) return
     const res = await anodex.workspace.openHtmlPreviewWindow(path, fileName, value)
-    if (!res.ok) notifyError('Could not open a preview window', res.error.message)
+    if (!res.ok) notifyError('Could not open a preview window', reasonFor(res.error))
   }
 
   async function handleEnableAiControl(): Promise<void> {
     if (!path) return
     const opened = await anodex.workspace.openHtmlPreviewWindow(path, fileName, value)
     if (!opened.ok) {
-      notifyError('Could not open a preview window', opened.error.message)
+      notifyError('Could not open a preview window', reasonFor(opened.error))
       return
     }
     const conversationId = activeConversationId ?? useChatStore.getState().newConversation()
@@ -215,7 +216,7 @@ export function FileViewerPanel(): JSX.Element | null {
       scope: allowProjectNavigation ? 'project-preview' : 'single-preview'
     })
     if (!result.ok) {
-      notifyError('Could not enable AI control', result.error.message)
+      notifyError('Could not enable AI control', reasonFor(result.error))
       return
     }
     setCompletedControlSession(null)
@@ -229,7 +230,7 @@ export function FileViewerPanel(): JSX.Element | null {
       target: 'file-viewer'
     })
     if (!result.ok) {
-      notifyError('Could not enable Anodex UI control', result.error.message)
+      notifyError('Could not enable Anodex UI control', reasonFor(result.error))
       return
     }
     setCompletedControlSession(null)
@@ -241,7 +242,7 @@ export function FileViewerPanel(): JSX.Element | null {
     const result = await anodex.computerControl.listDesktopTargets()
     setLoadingDesktopTargets(false)
     if (!result.ok) {
-      notifyError('Desktop control is unavailable', result.error.message)
+      notifyError('Desktop control is unavailable', reasonFor(result.error))
       return
     }
     setDesktopTargets(result.value)
@@ -255,7 +256,7 @@ export function FileViewerPanel(): JSX.Element | null {
       desktopWindowHandle: target.handle
     })
     if (!result.ok) {
-      notifyError('Could not enable desktop control', result.error.message)
+      notifyError('Could not enable desktop control', reasonFor(result.error))
       return
     }
     setDesktopTargets(null)
@@ -267,7 +268,7 @@ export function FileViewerPanel(): JSX.Element | null {
     if (!controlSession) return
     const result = await anodex.computerControl[action](controlSession.conversationId)
     if (!result.ok) {
-      notifyError('Could not update AI control', result.error.message)
+      notifyError('Could not update AI control', reasonFor(result.error))
       return
     }
     setControlSession(result.value)

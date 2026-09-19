@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useEffect, useState } from 'react'
 import type {
   AppSettings,
@@ -105,7 +106,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
     try {
       const result = await anodex.diagnostics.getSupportBundlePreview()
       if (result.ok) setBundlePreview(result.value)
-      else setBundleError(result.error.message)
+      else setBundleError(reasonFor(result.error))
     } finally {
       setBundleLoading(false)
     }
@@ -117,7 +118,7 @@ export function DiagnosticsSettings({ settings, update }: DiagnosticsSettingsPro
     try {
       const result = await anodex.diagnostics.saveSupportBundle()
       if (result.ok) setBundleSavedPath(result.value.path)
-      else setBundleError(result.error.message)
+      else setBundleError(reasonFor(result.error))
     } finally {
       setBundleSaving(false)
     }

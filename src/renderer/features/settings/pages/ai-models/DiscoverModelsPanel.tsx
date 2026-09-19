@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { ModelInfo } from '@shared/model.types'
@@ -55,7 +56,7 @@ export function DiscoverModelsPanel({
       setResults(result.value)
     } else {
       setResults([])
-      setError(result.error.message)
+      setError(reasonFor(result.error))
     }
   }
 

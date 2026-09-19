@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useRef, useState, type DragEvent } from 'react'
 import { notifyError } from '../../../stores/uiStore'
 import { anodex } from '../../../lib/anodex'
@@ -89,7 +90,7 @@ export function useComposerAttachments({
         const { path, name } = JSON.parse(internalPayload) as { path: string; name: string }
         void anodex.workspace.getAbsolutePath(path).then((resolved) => {
           if (resolved.ok) void attachFiles([{ path: resolved.value, name }])
-          else notifyError('Could not attach file', resolved.error.message)
+          else notifyError('Could not attach file', reasonFor(resolved.error))
         })
       } catch {
         // Ignore a malformed drag payload from outside the trusted file list.

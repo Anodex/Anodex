@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import type {
@@ -340,7 +341,7 @@ export function CriticalThinkingView(): JSX.Element {
         reportHtml: reportRef.current.innerHTML
       })
       if (!result.ok) {
-        notify({ kind: 'error', title: 'PDF export failed', message: result.error.message })
+        notify({ kind: 'error', title: 'PDF export failed', message: reasonFor(result.error) })
         return
       }
       if (result.value) {

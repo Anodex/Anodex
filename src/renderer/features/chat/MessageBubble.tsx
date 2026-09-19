@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { memo, useEffect, useState } from 'react'
 import type { ChatMessage } from '@shared/chat.types'
 import { AnodexLogo } from '../../components/AnodexLogo'
@@ -125,7 +126,7 @@ function MessageBubbleImpl({
     if (!projectId || !pageToOpen) return
     const opened = await anodex.projects.openInBrowser(projectId, pageToOpen)
     if (!opened.ok) {
-      notify({ kind: 'error', title: 'Could not open the page', message: opened.error.message })
+      notify({ kind: 'error', title: 'Could not open the page', message: reasonFor(opened.error) })
     }
   }
 

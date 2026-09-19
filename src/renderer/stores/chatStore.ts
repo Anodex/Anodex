@@ -22,7 +22,7 @@ import {
   withLedgerRevision
 } from '@shared/context.types'
 import { TOOL_CATALOG, type ToolActivityEvent, type ToolCall } from '@shared/tools.types'
-import { err } from '@shared/result'
+import { err, reasonFor } from '@shared/result'
 import { stripToolCallText } from '@shared/toolCallText'
 import {
   messageToHistoryTurn,
@@ -1171,7 +1171,7 @@ export const useChatStore = create<ChatState>()(
 
       if (!result.ok) {
         // Also triggers the error chime via `uiStore.notify()`.
-        notifyError('Generation failed', result.error.message)
+        notifyError('Generation failed', reasonFor(result.error))
       } else if (failureNote) {
         // The turn came back with its work intact but ended on a real fault
         // (the provider failed, the runtime stalled, a call was never
@@ -1275,7 +1275,7 @@ export const useChatStore = create<ChatState>()(
           })
         if (!rollback) return { status: 'failed' }
         if (!rollback.ok) {
-          notifyError('Could not edit message', rollback.error.message)
+          notifyError('Could not edit message', reasonFor(rollback.error))
           return { status: 'failed' }
         }
         if (rollback.value.conflicts.length > 0) {
@@ -1377,7 +1377,7 @@ export const useChatStore = create<ChatState>()(
       })
 
       if (!result.ok) {
-        notifyError('Could not compact chat', result.error.message)
+        notifyError('Could not compact chat', reasonFor(result.error))
         return
       }
       if (!result.value) {
@@ -1577,7 +1577,7 @@ export const useChatStore = create<ChatState>()(
         messageId
       })
       if (!result.ok) {
-        notifyError('Could not inspect checkpoint', result.error.message)
+        notifyError('Could not inspect checkpoint', reasonFor(result.error))
         return null
       }
       return result.value
@@ -1602,7 +1602,7 @@ export const useChatStore = create<ChatState>()(
         force
       })
       if (!result.ok) {
-        notifyError('Could not restore checkpoint', result.error.message)
+        notifyError('Could not restore checkpoint', reasonFor(result.error))
         return null
       }
 

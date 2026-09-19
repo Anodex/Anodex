@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import type { AttachmentContent } from '@shared/chat.types'
 import type { Result } from '@shared/result'
 
@@ -104,7 +105,7 @@ export async function intakeAttachments(
 
     const result = await intake.readFile(path)
     if (!result.ok) {
-      intake.notifyError('Could not attach file', result.error.message)
+      intake.notifyError('Could not attach file', reasonFor(result.error))
       continue
     }
 

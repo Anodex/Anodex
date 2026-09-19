@@ -1,3 +1,4 @@
+import { reasonFor } from '@shared/result'
 import { create } from 'zustand'
 import type {
   McpNewServerConfig,
@@ -56,7 +57,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     try {
       const result = await anodex.mcp.add(config, credentials)
       if (!result.ok) {
-        notifyError('Could not add MCP server', result.error.message)
+        notifyError('Could not add MCP server', reasonFor(result.error))
         return null
       }
       set((state) => ({ servers: [...state.servers, result.value] }))
@@ -71,7 +72,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     try {
       const result = await anodex.mcp.update(id, patch, credentials)
       if (!result.ok) {
-        notifyError('Could not update MCP server', result.error.message)
+        notifyError('Could not update MCP server', reasonFor(result.error))
         return
       }
       set((state) => ({
@@ -86,7 +87,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     try {
       const result = await anodex.mcp.remove(id)
       if (!result.ok) {
-        notifyError('Could not remove MCP server', result.error.message)
+        notifyError('Could not remove MCP server', reasonFor(result.error))
         return
       }
       set((state) => {
@@ -110,7 +111,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   setStaticToken: async (id, token) => {
     try {
       const result = await anodex.mcp.setStaticToken(id, token)
-      if (!result.ok) notifyError('Could not save the access token', result.error.message)
+      if (!result.ok) notifyError('Could not save the access token', reasonFor(result.error))
       await get().refreshTools()
     } catch (error) {
       notifyError(
@@ -123,7 +124,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   connect: async (id) => {
     try {
       const result = await anodex.mcp.connect(id)
-      if (!result.ok) notifyError('Could not connect to the MCP server', result.error.message)
+      if (!result.ok) notifyError('Could not connect to the MCP server', reasonFor(result.error))
       await get().refreshTools()
     } catch (error) {
       notifyError(
@@ -137,7 +138,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     try {
       const result = await anodex.mcp.testConnection(config)
       if (!result.ok) {
-        notifyError('Connection test failed', result.error.message)
+        notifyError('Connection test failed', reasonFor(result.error))
         return null
       }
       return result.value
@@ -150,7 +151,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   disconnectAuth: async (id) => {
     try {
       const result = await anodex.mcp.disconnectAuth(id)
-      if (!result.ok) notifyError('Could not disconnect', result.error.message)
+      if (!result.ok) notifyError('Could not disconnect', reasonFor(result.error))
       await get().refreshTools()
     } catch (error) {
       notifyError('Could not disconnect', error instanceof Error ? error.message : undefined)
