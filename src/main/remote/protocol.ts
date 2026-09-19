@@ -9,6 +9,8 @@
  * a hostile client can send is reachable from a unit test.
  */
 
+import { parseCapabilities } from './capabilities'
+
 /** Everything a client may send. */
 export type ClientFrame =
   /**
@@ -30,6 +32,14 @@ export type ClientFrame =
       deviceKey: string
       deviceName?: string
       reachedAt?: string
+      /**
+       * What this client can do, beyond what the protocol version guarantees.
+       *
+       * Always an array here, `[]` when the client sent none — which is what every
+       * client built before capabilities existed sends. See `capabilities.ts` for
+       * why a feature announces itself rather than moving `PROTOCOL_VERSION`.
+       */
+      capabilities: string[]
     }
   | {
       type: 'pair'
@@ -37,6 +47,8 @@ export type ClientFrame =
       secret: string
       deviceName?: string
       reachedAt?: string
+      /** As on `hello`. A phone announces itself at pairing as well as at reconnect. */
+      capabilities: string[]
     }
   | { type: 'invoke'; id: string; channel: string; args: unknown[] }
   | { type: 'ping' }
@@ -79,6 +91,14 @@ export type ServerFrame =
        * having to pair again.
        */
       hostName: string
+      /**
+       * What this desktop can do.
+       *
+       * Sent on every handshake, not only at pairing, so a phone picks up a feature
+       * the computer gained since it last connected without re-pairing — the same
+       * reasoning as `hostName` above.
+       */
+      capabilities: readonly string[]
     }
   | {
       type: 'paired'
@@ -88,6 +108,8 @@ export type ServerFrame =
       addresses: string[]
       mobileVersion: string
       hostName: string
+      /** As on `welcome`. */
+      capabilities: readonly string[]
     }
   | { type: 'result'; id: string; ok: true; result: unknown }
   | { type: 'result'; id: string; ok: false; error: { code: string; message: string } }
@@ -171,7 +193,8 @@ export function parseClientFrame(raw: string | Buffer): ParsedFrame {
           protocolVersion,
           deviceKey,
           deviceName: asString(frame.deviceName),
-          reachedAt: asString(frame.reachedAt)
+          reachedAt: asString(frame.reachedAt),
+          capabilities: parseCapabilities(frame.capabilities)
         }
       }
     }
@@ -193,7 +216,8 @@ export function parseClientFrame(raw: string | Buffer): ParsedFrame {
           protocolVersion,
           secret,
           deviceName: asString(frame.deviceName),
-          reachedAt: asString(frame.reachedAt)
+          reachedAt: asString(frame.reachedAt),
+          capabilities: parseCapabilities(frame.capabilities)
         }
       }
     }
