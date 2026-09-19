@@ -41,6 +41,7 @@ import { SenderToneMenu, type SenderToneTarget } from './SenderToneMenu'
 import { describeQuietRun, groupQuietRuns } from './quietZone'
 import { EmailComposer } from './EmailComposer'
 import { blankDraft, forwardDraft, replyDraft } from './composeMail'
+import { applyMailIntent, isTypingIn, mailIntentFor } from './mailShortcuts'
 import styles from './EmailView.module.css'
 
 /** How far one arrow-key press nudges the rail's edge. */
@@ -63,6 +64,7 @@ export function EmailView(): JSX.Element {
   const activeAccountId = useEmailStore((s) => s.activeAccountId)
   const startCompose = useEmailStore((s) => s.startCompose)
   const openThreadId = useEmailStore((s) => s.openThreadId)
+  const composing = useEmailStore((s) => s.composing)
   const openMessages = useEmailStore((s) => s.openMessages)
   const openLoading = useEmailStore((s) => s.openLoading)
   const busyThreadId = useEmailStore((s) => s.busyThreadId)
@@ -97,6 +99,8 @@ export function EmailView(): JSX.Element {
   const [railHidden, setRailHidden] = useState(false)
   const [railWidth, setRailWidth] = useState(loadRailWidth)
   const panelRef = useRef<HTMLElement>(null)
+  /** So `/` can put the cursor in the search box, the way it does everywhere. */
+  const searchRef = useRef<HTMLInputElement>(null)
 
   // The rail carries the tool-approval card, so it is genuinely unmounted on a
   // narrow window rather than hidden — an approval prompt the user cannot see
@@ -117,6 +121,76 @@ export function EmailView(): JSX.Element {
   useEffect(() => {
     setQueryInput(storedQuery)
   }, [storedQuery])
+
+  /**
+   * Keys for triage.
+   *
+   * An inbox is mostly decided rather than read, and doing that with a mouse
+   * is a round trip per message. The phone has had a swipe for this since
+   * yesterday, which is how the desktop came to be the slower of the two for
+   * the one job mail is mostly made of.
+   *
+   * The guard is the part that matters, and it is in `mailShortcuts.ts` with
+   * its own tests: a bare `e` is both "archive this" and a letter in a word
+   * somebody is typing, and the only thing that tells them apart is where the
+   * focus is. Escape is handled before the guard rather than after, because
+   * leaving the search box is the one thing a person needs to be able to do
+   * from inside a field without reaching for the mouse.
+   */
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent): void => {
+      const focused = document.activeElement as HTMLElement | null
+
+      if (isTypingIn(focused)) {
+        if (event.key === 'Escape') focused?.blur()
+        return
+      }
+
+      // A composer is open somewhere with focus outside its fields -- on a
+      // button, or nowhere after a click on its chrome. Its keystrokes are
+      // its own.
+      if (composing) return
+
+      const intent = mailIntentFor(event)
+      if (!intent) return
+
+      const handled = applyMailIntent(intent, {
+        threads,
+        openThreadId,
+        newest: orderThreadMessagesNewestFirst(openMessages)[0] ?? null,
+        open: (thread) => void openThread(thread),
+        close: closeThread,
+        flag: (thread, action) => void applyFlag(thread, action),
+        trash: (thread) => void trashThread(thread),
+        reply: (message, all) => startCompose(replyDraft(message, all)),
+        forward: (message) => startCompose(forwardDraft(message)),
+        compose: () => startCompose(blankDraft(activeAccountId ?? undefined)),
+        focusSearch: () => {
+          searchRef.current?.focus()
+          searchRef.current?.select()
+        }
+      })
+
+      // Only once something was actually done with it. Swallowing a key the
+      // mailbox declined -- `e` with nothing open, `r` on an empty thread --
+      // would stop it reaching anything else that wanted it.
+      if (handled) event.preventDefault()
+    }
+
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [
+    activeAccountId,
+    applyFlag,
+    closeThread,
+    composing,
+    openMessages,
+    openThread,
+    openThreadId,
+    startCompose,
+    threads,
+    trashThread
+  ])
 
   const accounts = status?.accounts ?? []
   const active =
@@ -305,6 +379,7 @@ export function EmailView(): JSX.Element {
           <form className={styles.searchInline} onSubmit={submitSearch}>
             <Icon name="search" size={14} />
             <input
+              ref={searchRef}
               className={styles.searchInput}
               value={queryInput}
               placeholder="Search mail"
@@ -863,19 +938,21 @@ function ThreadRow({
             icon="star"
             active={thread.starred}
             disabled={busy}
+            shortcut="S"
             onClick={() => onFlag(thread.starred ? 'unstar' : 'star')}
           />
           <IconAction
             label="Archive"
             icon="archive"
             disabled={busy}
+            shortcut="E"
             onClick={() => onFlag('archive')}
           />
           {/* Delete moves to trash, which is what every mail client means by it
               and the only kind worth a one-click button: IMAP's `\Deleted` plus
               an expunge destroys a message with nothing to undo it with. Last in
               the row, furthest from the actions somebody uses while reading. */}
-          <IconAction label="Delete" icon="trash" disabled={busy} onClick={onTrash} />
+          <IconAction label="Delete" icon="trash" disabled={busy} shortcut="#" onClick={onTrash} />
         </div>
       </div>
     </div>
@@ -943,6 +1020,8 @@ interface IconActionProps {
   active?: boolean
   disabled: boolean
   onClick: () => void
+  /** The key that does the same thing, shown in the tooltip. */
+  shortcut?: string
 }
 
 function IconAction({
@@ -950,13 +1029,19 @@ function IconAction({
   icon,
   active = false,
   disabled,
+  shortcut,
   onClick
 }: IconActionProps): JSX.Element {
   return (
     <button
       type="button"
       className={`${styles.iconAction} ${active ? styles.iconActionActive : ''}`}
-      title={label}
+      // The key goes in the tooltip and not in the label a screen reader
+      // reads out. This is the only place the shortcuts are advertised, and a
+      // shortcut nobody can find is half a feature -- but "Archive E" read
+      // aloud on every pass through the toolbar is a worse trade than not
+      // advertising it to that reader at all.
+      title={shortcut ? `${label} (${shortcut})` : label}
       aria-label={label}
       aria-pressed={active}
       disabled={disabled}
