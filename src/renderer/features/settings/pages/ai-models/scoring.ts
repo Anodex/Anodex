@@ -50,13 +50,26 @@ const TIER_WEIGHT = {
  * workstation that can comfortably run larger models, a 1B or 3B model is
  * fast but needlessly weak, so retain enough capability for the card to be a
  * practical daily driver. Small machines retain access to their fitting tier.
+ *
+ * The floor is measured against what fits in fast memory, not against
+ * everything the machine can load. Those are different questions once RAM is
+ * plentiful and the graphics card is not: a 32GB PC with an 8GB card can
+ * *open* a 30B model, so the old floor promoted "Fastest" to 14B-and-up and
+ * offered a 27B — which on that card runs mostly on the CPU and is the
+ * slowest thing in the list. Whatever fits on the card is the honest pool;
+ * if nothing does, fall back to the full set rather than showing no card.
  */
 function fastestAppropriateCandidates(
-  candidates: { model: RecommendedModel; score: number }[]
+  candidates: { model: RecommendedModel; score: number }[],
+  hardware: HardwareInfo | null
 ): { model: RecommendedModel; score: number }[] {
-  const largestTier = Math.max(...candidates.map((candidate) => TIER_WEIGHT[candidate.model.tier]))
+  const fastGb = hardware ? fastMemoryGb(hardware) : 0
+  const fitting =
+    fastGb > 0 ? candidates.filter((candidate) => modelSizeGb(candidate.model) <= fastGb) : []
+  const pool = fitting.length > 0 ? fitting : candidates
+  const largestTier = Math.max(...pool.map((candidate) => TIER_WEIGHT[candidate.model.tier]))
   const minimumTier = largestTier >= 32 ? 14 : largestTier >= 14 ? 7 : largestTier >= 7 ? 3 : 1
-  return candidates.filter((candidate) => TIER_WEIGHT[candidate.model.tier] >= minimumTier)
+  return pool.filter((candidate) => TIER_WEIGHT[candidate.model.tier] >= minimumTier)
 }
 
 export function basename(path: string): string {
@@ -143,12 +156,47 @@ export function hardwareFitLabel(hardware: HardwareInfo): string {
  * array instead of the actually stronger one. Clamp only when rendering a
  * badge via `clampScore`.
  */
+/**
+ * What a model of this size is worth when nobody has rated it.
+ *
+ * A hand-curated entry carries measured `qualityRank`/`speedRank`; a live
+ * Hugging Face entry carries neither, and defaulting both to a flat 3 told
+ * the scorer that a 0.6B model is exactly as capable, and exactly as fast, as
+ * a 30B one. Nothing else in the score knows how big a model is, so among
+ * live entries capability simply did not exist — and since small models
+ * always fit, always score a perfect memory ratio and never take a headroom
+ * penalty, they won. Measured before this: Best Overall on a 16GB laptop was
+ * `Qwen3-0.6B`.
+ *
+ * The numbers are the curated catalog's own median rank per tier, so a live
+ * entry lands where a hand-rated model of that size already sits rather than
+ * on a scale invented here. It is a prior, not a rating: a real
+ * `qualityRank` always wins, because this is only consulted when there is
+ * none.
+ */
+const TIER_PRIOR = {
+  '1b': { quality: 1, speed: 5 },
+  '3b': { quality: 3, speed: 5 },
+  '7b': { quality: 5, speed: 4 },
+  '14b': { quality: 7, speed: 3 },
+  '32b': { quality: 9, speed: 2 },
+  '70b': { quality: 10, speed: 1 }
+} as const
+
+export function qualityRankOf(model: RecommendedModel): number {
+  return model.qualityRank ?? TIER_PRIOR[model.tier].quality
+}
+
+export function speedRankOf(model: RecommendedModel): number {
+  return model.speedRank ?? TIER_PRIOR[model.tier].speed
+}
+
 export function scoreRecommendedModel(
   model: RecommendedModel,
   hardware: HardwareInfo | null,
   now: number = Date.now()
 ): number {
-  if (!hardware) return 70 + (model.qualityRank ?? 1) * 2 + freshnessAdjustment(model, now)
+  if (!hardware) return 70 + qualityRankOf(model) * 2 + freshnessAdjustment(model, now)
 
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
@@ -156,8 +204,8 @@ export function scoreRecommendedModel(
   const idealRatio = model.idealRamGb ? Math.min(1, ramGb / model.idealRamGb) : 1
 
   let score = 48
-  score += (model.qualityRank ?? 3) * 4
-  score += (model.speedRank ?? 3) * 2
+  score += qualityRankOf(model) * 4
+  score += speedRankOf(model) * 2
   score += idealRatio * 12
   score += usesTheMachine(model, hardware)
   // One coding signal, counted once.
@@ -223,10 +271,36 @@ function modelSizeGb(model: RecommendedModel): number {
  * that and not much more — spilling past it means running partly on the CPU,
  * which works and crawls.
  */
-function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
+/**
+ * The memory a model can actually run *fast* in, in GB.
+ *
+ * A graphics card only decides this when there is enough of it to hold a
+ * model worth running. Below `recommendModel`'s own four-gigabyte bar the
+ * card is an integrated one sharing system memory, and llama.cpp puts most
+ * of the layers in RAM regardless — so measuring against its one or two
+ * gigabytes made a 0.6B model look like a perfect fit for a laptop and a 9B
+ * model look like it overflowed. Measured: on 16GB with a 1GB iGPU that was a
+ * 19-point swing in the toy model's favour, and it won Best Overall.
+ *
+ * System memory is discounted because it is never all available and is
+ * slower than a card besides.
+ */
+export function fastMemoryGb(hardware: HardwareInfo): number {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  const runsFastIn = hardware.unifiedMemory ? ramGb * 0.7 : vramGb > 0 ? vramGb : ramGb * 0.6
+  if (hardware.unifiedMemory) return ramGb * 0.7
+  return vramGb >= 4 ? vramGb : ramGb * 0.6
+}
+
+function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
+  // A graphics card only decides this when there is enough of it to hold a
+  // model worth running. Below `recommendModel`'s own four-gigabyte bar the
+  // card is an integrated one sharing system memory, and llama.cpp puts most
+  // of the layers in RAM regardless — so measuring against its one or two
+  // gigabytes made a 0.6B model look like a perfect fit for a laptop and a
+  // 9B model look like it overflowed. Measured: on 16GB with a 1GB iGPU that
+  // was a 19-point swing in the toy model's favour, and it won Best Overall.
+  const runsFastIn = fastMemoryGb(hardware)
   if (runsFastIn <= 0) return 0
 
   const used = modelSizeGb(model) / runsFastIn
@@ -352,7 +426,7 @@ export function buildRecommendedSlots(
     .map((model) => ({ model, score: scoreRecommendedModel(model, hardware, now) }))
     .sort((a, b) => b.score - a.score)
   const byScore = scored.map((entry) => entry.model)
-  const speedCandidates = fastestAppropriateCandidates(scored)
+  const speedCandidates = fastestAppropriateCandidates(scored, hardware)
 
   const used = new Set<string>()
   const usedFamilies = new Set<string>()
@@ -466,7 +540,7 @@ export function buildRecommendedSlots(
     'Best choice when quick responses matter more than maximum quality.',
     () =>
       [...speedCandidates]
-        .sort((a, b) => (b.model.speedRank ?? 0) - (a.model.speedRank ?? 0) || b.score - a.score)
+        .sort((a, b) => speedRankOf(b.model) - speedRankOf(a.model) || b.score - a.score)
         .map((entry) => entry.model)
   )
 

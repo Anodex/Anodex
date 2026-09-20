@@ -10,6 +10,7 @@ import { clearLoadRecovery, getLoadRecovery } from '../llama/loadSentinel'
 import { describeModel, isVisionProjectorFileName, scanModels } from '../llama/modelScanner'
 import { cancelDownload, downloadModel } from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
+import { recallTopModels, rememberTopModels } from '../models/topModelsCache'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { forgetModelSettings } from './modelSettingsCleanup'
@@ -233,7 +234,18 @@ export function registerModelHandlers(): void {
     searchHuggingFaceModels(query)
   )
 
-  ipcMain.handle(IpcChannel.Models.fetchTopModels, () => fetchTopModels())
+  // A failed fetch falls back to the last list that did arrive, rather than
+  // to the built-in catalog — see `topModelsCache` for why a months-old live
+  // list is still the better answer.
+  ipcMain.handle(IpcChannel.Models.fetchTopModels, async () => {
+    const result = await fetchTopModels()
+    if (result.ok) {
+      void rememberTopModels(result.value)
+      return result
+    }
+    const remembered = await recallTopModels()
+    return remembered ? ok(remembered) : result
+  })
 
   // Reads an in-memory value captured at startup, so unlike its neighbours
   // there is nothing here that can fail — no Result wrapper, same as getState.

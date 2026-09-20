@@ -132,11 +132,41 @@ describe('pickVisionProjector', () => {
 })
 
 describe('estimateRamRequirements', () => {
-  it('is generous enough to comfortably cover a real curated catalog entry', () => {
-    // Qwen2.5 Coder 7B: real GGUF ~4.7 GB, real curated minRamGb is 16.
-    const { minRamGb } = estimateRamRequirements(4.7 * 1024 ** 3)
-    expect(minRamGb).toBeGreaterThan(0)
-    expect(minRamGb).toBeLessThan(30) // sane bound, not wildly overestimating either
+  /**
+   * Real llama.cpp load reports, all at an 8192 context, taken off this
+   * project's own machine. `total` is every buffer the report lists: weights,
+   * KV cache, recurrent state, compute and output.
+   */
+  const MEASURED = [
+    { name: 'Qwen3-4B Q4_K_M', fileGb: 2.33, totalGb: 3.85 },
+    { name: 'Devstral-Small 23.6B Q4_K_M', fileGb: 13.35, totalGb: 14.9 },
+    { name: 'Qwen3.8-27B Q4_K_M', fileGb: 15.33, totalGb: 16.1 }
+  ]
+
+  it.each(MEASURED)('leaves $name room to run and room for the OS', ({ fileGb, totalGb }) => {
+    const { minRamGb } = estimateRamRequirements(fileGb * 1024 ** 3)
+    // Above what the model actually takes...
+    expect(minRamGb).toBeGreaterThan(totalGb)
+    // ...with at least two gigabytes over for the operating system, since
+    // this is compared against total RAM rather than free RAM.
+    expect(minRamGb - totalGb).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each(MEASURED)('does not price $name out of a machine that fits it', ({ fileGb, totalGb }) => {
+    const { minRamGb } = estimateRamRequirements(fileGb * 1024 ** 3)
+    // The old estimate was `size * 2.8 + 3`, which asked 49GB for a model
+    // needing 16 and left a 32GB gaming PC with nothing but 3B models. Twice
+    // the real requirement is the line: past it, ordinary machines start
+    // being told they cannot run what they can.
+    expect(minRamGb).toBeLessThan(totalGb * 2)
+  })
+
+  it('still lets a 4GB machine hold a 1B model', () => {
+    // At a flat +5 of headroom the smallest model in the catalog needed 6GB
+    // and the smallest machine was offered nothing at all, which is worse
+    // than offering it the one thing it can just about hold.
+    const { minRamGb } = estimateRamRequirements(0.8 * 1024 ** 3)
+    expect(minRamGb).toBeLessThanOrEqual(4)
   })
 
   it('idealRamGb is always at least minRamGb', () => {

@@ -92,6 +92,20 @@ export interface RecommendedModel {
   hfLikes?: number
 }
 
+/**
+ * The built-in catalog, used when Hugging Face is unreachable and as the
+ * hand-verified half of the merged pool.
+ *
+ * `minRamGb`/`idealRamGb` here follow the same measured rule as
+ * `estimateRamRequirements` — the file size plus a fifth again for llama.cpp's
+ * own buffers, plus three gigabytes for the operating system, since these are
+ * compared against *total* RAM rather than free RAM. They used to be two to three
+ * times higher, which priced ordinary machines out of models they run
+ * perfectly well: this list told a 32GB PC it could not open a 14B model
+ * needing 10GB. Keeping the two halves on one rule also matters for ranking,
+ * since `idealRamGb` feeds the score directly — on different rules a curated
+ * entry and a live one of the same size were not being compared fairly.
+ */
 export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
     id: 'llama-3.2-1b-q4',
@@ -103,7 +117,7 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     approxSize: '0.8 GB',
     minRam: '4 GB',
     minRamGb: 4,
-    idealRamGb: 6,
+    idealRamGb: 7,
     downloadUrl:
       'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
     tags: ['chat', 'lightweight'],
@@ -123,9 +137,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '3b',
     description: 'Fast, capable coding assistant that runs comfortably on modest hardware.',
     approxSize: '2.0 GB',
-    minRam: '8 GB',
-    minRamGb: 8,
-    idealRamGb: 12,
+    minRam: '6 GB',
+    minRamGb: 6,
+    idealRamGb: 8,
     downloadUrl:
       'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf',
     tags: ['coding', 'fast'],
@@ -145,9 +159,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '3b',
     description: 'Well-rounded general chat model with strong instruction following.',
     approxSize: '2.0 GB',
-    minRam: '8 GB',
-    minRamGb: 8,
-    idealRamGb: 12,
+    minRam: '6 GB',
+    minRamGb: 6,
+    idealRamGb: 8,
     downloadUrl:
       'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     tags: ['chat', 'general'],
@@ -168,9 +182,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     description:
       'A modern all-rounder for coding, reasoning, and tool-driven work, with optional thinking mode.',
     approxSize: '4.7 GB',
-    minRam: '16 GB',
-    minRamGb: 16,
-    idealRamGb: 24,
+    minRam: '9 GB',
+    minRamGb: 9,
+    idealRamGb: 12,
     downloadUrl: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf',
     tags: ['coding', 'tools', 'thinking'],
     primaryUse: 'agentic-coding',
@@ -190,9 +204,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '7b',
     description: 'Well-rounded general model with strong instruction following and long context.',
     approxSize: '4.4 GB',
-    minRam: '16 GB',
-    minRamGb: 16,
-    idealRamGb: 24,
+    minRam: '9 GB',
+    minRamGb: 9,
+    idealRamGb: 12,
     downloadUrl:
       'https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
     tags: ['chat', 'general'],
@@ -213,9 +227,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     description:
       'A compact multimodal generalist for image understanding and long-document chat on modest hardware.',
     approxSize: '3.2 GB',
-    minRam: '16 GB',
-    minRamGb: 16,
-    idealRamGb: 20,
+    minRam: '7 GB',
+    minRamGb: 7,
+    idealRamGb: 10,
     downloadUrl:
       'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf',
     visionProjectorUrl:
@@ -240,9 +254,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     description:
       'A Microsoft general-reasoning model for math, code, and detailed instruction following.',
     approxSize: '8.4 GB',
-    minRam: '32 GB',
-    minRamGb: 32,
-    idealRamGb: 48,
+    minRam: '14 GB',
+    minRamGb: 14,
+    idealRamGb: 17,
     downloadUrl: 'https://huggingface.co/microsoft/phi-4-gguf/resolve/main/phi-4-Q4_K_S.gguf',
     tags: ['reasoning', 'general', 'code'],
     primaryUse: 'general',
@@ -262,9 +276,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '14b',
     description: 'The most reliable local coding model for high-memory machines.',
     approxSize: '9.0 GB',
-    minRam: '32 GB',
-    minRamGb: 32,
-    idealRamGb: 48,
+    minRam: '14 GB',
+    minRamGb: 14,
+    idealRamGb: 18,
     downloadUrl:
       'https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q4_k_m.gguf',
     tags: ['coding', 'quality'],
@@ -285,9 +299,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     description:
       'Mixture-of-experts coding model — only ~2.4B active params per token, so it runs faster than its size suggests.',
     approxSize: '10.4 GB',
-    minRam: '36 GB',
-    minRamGb: 36,
-    idealRamGb: 56,
+    minRam: '16 GB',
+    minRamGb: 16,
+    idealRamGb: 20,
     downloadUrl:
       'https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf',
     tags: ['coding', 'quality'],
@@ -307,9 +321,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '14b',
     description: "Mistral's dedicated code model — strong quality, heavier than the 14B class.",
     approxSize: '13.3 GB',
-    minRam: '40 GB',
-    minRamGb: 40,
-    idealRamGb: 60,
+    minRam: '19 GB',
+    minRamGb: 19,
+    idealRamGb: 24,
     minVramGb: 12,
     downloadUrl:
       'https://huggingface.co/bartowski/Codestral-22B-v0.1-GGUF/resolve/main/Codestral-22B-v0.1-Q4_K_M.gguf',
@@ -330,9 +344,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     tier: '32b',
     description: 'Near top-tier local coding quality for high-memory workstations.',
     approxSize: '19.8 GB',
-    minRam: '48 GB',
-    minRamGb: 48,
-    idealRamGb: 64,
+    minRam: '27 GB',
+    minRamGb: 27,
+    idealRamGb: 33,
     minVramGb: 16,
     requiresGpuRecommended: false,
     downloadUrl:
@@ -355,9 +369,9 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     description:
       'The largest recommended general-chat model, for high-end multi-GPU or huge-RAM machines.',
     approxSize: '42.5 GB',
-    minRam: '96 GB',
-    minRamGb: 96,
-    idealRamGb: 128,
+    minRam: '54 GB',
+    minRamGb: 54,
+    idealRamGb: 65,
     minVramGb: 48,
     requiresGpuRecommended: true,
     downloadUrl:
