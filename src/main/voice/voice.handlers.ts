@@ -1,5 +1,6 @@
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
+import { err, ok, type Result } from '../../shared/result'
 import { createLogger } from '../utils/logger'
 import {
   silencePcm,
@@ -10,6 +11,14 @@ import {
   type SpokenChunk
 } from './Speaker'
 import { voiceEnabled } from './voiceCapability'
+import {
+  cancelVoiceModelDownload,
+  downloadVoiceModel,
+  removeVoiceModel,
+  VOICE_MODEL_BYTES,
+  voiceModelBytesPresent,
+  voiceModelDownloading
+} from './voiceModel'
 
 const log = createLogger('voice')
 
@@ -48,8 +57,60 @@ export function registerVoiceHandlers(): void {
     // is missing from this build.
     enabled: voiceEnabled(),
     modelReady: voiceModelReady(),
-    ready: canSpeak()
+    ready: canSpeak(),
+    modelBytes: VOICE_MODEL_BYTES,
+    modelBytesPresent: voiceModelBytesPresent(),
+    downloading: voiceModelDownloading()
   }))
+
+  ipcMain.handle(IpcChannel.Voice.download, async (): Promise<Result<void>> => {
+    try {
+      await downloadVoiceModel((progress) => {
+        // Broadcast, unlike speaking progress: a 2.3 GB download belongs to the
+        // machine rather than to the window that happened to start it, and a
+        // second window showing a stalled bar for a download that is running
+        // fine is a bug report waiting to happen.
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) {
+            window.webContents.send(IpcChannel.Voice.downloadProgress, progress)
+          }
+        }
+      })
+      return ok(undefined)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The download failed'
+      // Cancelling is not failing. `downloadFile` aborts through an
+      // AbortController, which surfaces as an error either way, and reporting
+      // "download failed" to somebody who just pressed Cancel is the app
+      // telling them their own decision went wrong.
+      if (error instanceof Error && error.name === 'AbortError') {
+        log.info('the download was cancelled')
+        return err('voice.download-cancelled', 'The download was cancelled')
+      }
+      log.error('the voice could not be fetched:', message)
+      return err('voice.download-failed', message)
+    }
+  })
+
+  ipcMain.handle(IpcChannel.Voice.cancelDownload, () => {
+    cancelVoiceModelDownload()
+    return true
+  })
+
+  ipcMain.handle(IpcChannel.Voice.removeModel, async (): Promise<Result<void>> => {
+    if (voiceModelDownloading()) {
+      return err('voice.busy', 'The voice is downloading — cancel that first')
+    }
+    try {
+      await removeVoiceModel()
+      return ok(undefined)
+    } catch (error) {
+      return err(
+        'voice.remove-failed',
+        error instanceof Error ? error.message : 'The voice could not be removed'
+      )
+    }
+  })
 
   ipcMain.handle(IpcChannel.Voice.speak, async (event, text: unknown) => {
     if (typeof text !== 'string' || !text.trim()) return null
