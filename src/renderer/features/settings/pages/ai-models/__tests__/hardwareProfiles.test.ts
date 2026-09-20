@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
-import { RECOMMENDED_MODELS } from '@shared/recommendedModels'
-import { recommendModel } from '@shared/modelRecommendation'
-import { buildRecommendedSlots, fastMemoryGb, scoreRecommendedModel } from '../scoring'
+import { pickTier } from '@shared/modelRecommendation'
+import {
+  buildRecommendedSlots,
+  fastMemoryGb,
+  hardwareFitLabel,
+  scoreRecommendedModel
+} from '../scoring'
 
 const GB = 1024 ** 3
 
@@ -99,16 +103,11 @@ function slotsFor(
   hw: HardwareInfo,
   catalog: RecommendedModel[]
 ): ReturnType<typeof buildRecommendedSlots> {
-  const recommendation = recommendModel({
-    ramBytes: hw.ramBytes,
-    vramBytes: hw.vramBytes,
-    unified: hw.unifiedMemory
-  })
-  return buildRecommendedSlots(hw, recommendation, undefined, catalog)
+  return buildRecommendedSlots(hw, undefined, catalog)
 }
 
-/** Everything the merged pool would contain in the app. */
-const MERGED = [...RECOMMENDED_MODELS, ...LIVE_POOL]
+/** The live Hugging Face pool is the only pool there is now. */
+const MERGED = LIVE_POOL
 
 describe('recommendations across the machines this ships to', () => {
   it.each(PROFILES)('offers $name something it can actually work with', ({ hw }) => {
@@ -161,5 +160,17 @@ describe('recommendations across the machines this ships to', () => {
     expect(fastMemoryGb(hardware(16, 1))).toBeGreaterThan(8)
     // A real card is where the model lives, so it still decides.
     expect(fastMemoryGb(hardware(32, 8))).toBe(8)
+  })
+})
+
+describe('one ladder, not two', () => {
+  it.each(PROFILES)('describes $name the way it recommends to it', ({ hw }) => {
+    // The hardware panel used to carry its own thresholds and disagree with
+    // the recommendation directly beneath it: a 63GB machine with a 24GB card
+    // read "best target: 14B Q4 or 7B Q4" above a card offering a 32B.
+    const label = hardwareFitLabel(hw)
+    const tier = pickTier(hw.ramBytes / GB, hw.unifiedMemory || (hw.vramBytes ?? 0) / GB >= 4)
+    expect(tier).not.toBeNull()
+    expect(label).toContain(tier!.toUpperCase())
   })
 })

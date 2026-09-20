@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HardwareInfo } from '@shared/system.types'
-import { RECOMMENDED_MODELS } from '@shared/recommendedModels'
+import { CATALOG_FIXTURE } from '@shared/__tests__/fixtures/catalog'
 import { buildRecommendedSlots } from '../scoring'
 
 const GB = 1024 ** 3
@@ -24,7 +24,7 @@ function machine(overrides: Partial<HardwareInfo>): HardwareInfo {
 }
 
 const overallFor = (hardware: HardwareInfo): string | undefined =>
-  buildRecommendedSlots(hardware, null, undefined, RECOMMENDED_MODELS, NOW).find(
+  buildRecommendedSlots(hardware, undefined, CATALOG_FIXTURE, NOW).find(
     (slot) => slot.id === 'overall'
   )?.model.id
 
@@ -37,7 +37,7 @@ describe('the model each machine is offered', () => {
   it('gives a small laptop something it can actually run', () => {
     const offered = overallFor(machine({ ramBytes: 8 * GB }))
 
-    const model = RECOMMENDED_MODELS.find((candidate) => candidate.id === offered)
+    const model = CATALOG_FIXTURE.find((candidate) => candidate.id === offered)
     expect(model, 'a machine this size must still be offered something').toBeDefined()
     expect(model!.minRamGb).toBeLessThanOrEqual(8)
   })
@@ -54,7 +54,7 @@ describe('the model each machine is offered', () => {
   it('offers a machine with a big card a model that uses it', () => {
     const offered = overallFor(machine({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Test GPU' }))
 
-    const model = RECOMMENDED_MODELS.find((candidate) => candidate.id === offered)
+    const model = CATALOG_FIXTURE.find((candidate) => candidate.id === offered)
     // Anything under a quarter of a 24GB card leaves most of the machine idle.
     expect(model!.minRamGb).toBeGreaterThanOrEqual(16)
   })

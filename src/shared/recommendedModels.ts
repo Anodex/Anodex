@@ -1,8 +1,19 @@
 /**
- * A curated list of recommended local models, shared by the renderer (to guide
- * users on what to download) and the future in-app downloader in the main
- * process. It is deliberately data-only: a downloader can read `downloadUrl`,
- * write the file into the models directory, then trigger a re-scan.
+ * The shape of a model Anodex can offer to download, and the helpers that read
+ * it.
+ *
+ * This file used to also hold `RECOMMENDED_MODELS`, a hand-written list of
+ * twelve. It is gone. Every model here has to be fetched over the network, so
+ * a list kept for the offline case helped exactly nobody — and a list nobody
+ * could update without shipping a new Anodex went stale immediately: on the
+ * day it was removed, every entry was between twenty and twenty-eight months
+ * old, and a user with no connection was being told the best model for their
+ * machine was one from November 2024 that they also could not download.
+ *
+ * What replaced it: `huggingFaceCatalog` fetches the current list,
+ * `topModelsCache` keeps the last one that arrived, and `modelRecommendation`
+ * answers "what size suits this machine" from hardware alone, which never
+ * needed a catalog in the first place.
  */
 
 /**
@@ -93,301 +104,6 @@ export interface RecommendedModel {
 }
 
 /**
- * The built-in catalog, used when Hugging Face is unreachable and as the
- * hand-verified half of the merged pool.
- *
- * `minRamGb`/`idealRamGb` here follow the same measured rule as
- * `estimateRamRequirements` — the file size plus a fifth again for llama.cpp's
- * own buffers, plus three gigabytes for the operating system, since these are
- * compared against *total* RAM rather than free RAM. They used to be two to three
- * times higher, which priced ordinary machines out of models they run
- * perfectly well: this list told a 32GB PC it could not open a 14B model
- * needing 10GB. Keeping the two halves on one rule also matters for ranking,
- * since `idealRamGb` feeds the score directly — on different rules a curated
- * entry and a live one of the same size were not being compared fairly.
- */
-export const RECOMMENDED_MODELS: RecommendedModel[] = [
-  {
-    id: 'llama-3.2-1b-q4',
-    name: 'Llama 3.2 1B Instruct',
-    publishedAt: '2024-09-25',
-    family: 'meta',
-    tier: '1b',
-    description: 'Minimal footprint chat model for low-memory or older machines.',
-    approxSize: '0.8 GB',
-    minRam: '4 GB',
-    minRamGb: 4,
-    idealRamGb: 7,
-    downloadUrl:
-      'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
-    tags: ['chat', 'lightweight'],
-    primaryUse: 'general',
-    qualityRank: 1,
-    speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'qwen2.5-coder-3b-q4',
-    name: 'Qwen2.5 Coder 3B',
-    publishedAt: '2024-11-09',
-    family: 'qwen',
-    tier: '3b',
-    description: 'Fast, capable coding assistant that runs comfortably on modest hardware.',
-    approxSize: '2.0 GB',
-    minRam: '6 GB',
-    minRamGb: 6,
-    idealRamGb: 8,
-    downloadUrl:
-      'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf',
-    tags: ['coding', 'fast'],
-    primaryUse: 'coding',
-    qualityRank: 3,
-    speedRank: 5,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'llama-3.2-3b-q4',
-    name: 'Llama 3.2 3B Instruct',
-    publishedAt: '2024-09-25',
-    family: 'meta',
-    tier: '3b',
-    description: 'Well-rounded general chat model with strong instruction following.',
-    approxSize: '2.0 GB',
-    minRam: '6 GB',
-    minRamGb: 6,
-    idealRamGb: 8,
-    downloadUrl:
-      'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-    tags: ['chat', 'general'],
-    primaryUse: 'general',
-    qualityRank: 2,
-    speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'qwen3-8b-q4',
-    name: 'Qwen3 8B',
-    publishedAt: '2025-05-03',
-    family: 'qwen',
-    tier: '7b',
-    description:
-      'A modern all-rounder for coding, reasoning, and tool-driven work, with optional thinking mode.',
-    approxSize: '4.7 GB',
-    minRam: '9 GB',
-    minRamGb: 9,
-    idealRamGb: 12,
-    downloadUrl: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf',
-    tags: ['coding', 'tools', 'thinking'],
-    primaryUse: 'agentic-coding',
-    qualityRank: 5,
-    speedRank: 4,
-    supportsTools: true,
-    supportsThinking: true,
-    nativeContextTokens: 32768,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'mistral-7b-instruct-v0.3-q4',
-    name: 'Mistral 7B Instruct v0.3',
-    publishedAt: '2024-05-22',
-    family: 'mistral',
-    tier: '7b',
-    description: 'Well-rounded general model with strong instruction following and long context.',
-    approxSize: '4.4 GB',
-    minRam: '9 GB',
-    minRamGb: 9,
-    idealRamGb: 12,
-    downloadUrl:
-      'https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
-    tags: ['chat', 'general'],
-    primaryUse: 'general',
-    qualityRank: 4,
-    speedRank: 4,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'gemma-3-4b-it-q4',
-    name: 'Gemma 3 4B IT',
-    publishedAt: '2025-03-12',
-    family: 'google',
-    tier: '3b',
-    description:
-      'A compact multimodal generalist for image understanding and long-document chat on modest hardware.',
-    approxSize: '3.2 GB',
-    minRam: '7 GB',
-    minRamGb: 7,
-    idealRamGb: 10,
-    downloadUrl:
-      'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf',
-    visionProjectorUrl:
-      'https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf',
-    visionProjectorFileName: 'gemma-3-4b-it-mmproj-model-f16.gguf',
-    tags: ['vision', 'long context', 'general'],
-    primaryUse: 'general',
-    qualityRank: 4,
-    speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    nativeContextTokens: 131072,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'phi-4-q4-k-s',
-    name: 'Phi-4',
-    publishedAt: '2025-01-08',
-    family: 'microsoft',
-    tier: '14b',
-    description:
-      'A Microsoft general-reasoning model for math, code, and detailed instruction following.',
-    approxSize: '8.4 GB',
-    minRam: '14 GB',
-    minRamGb: 14,
-    idealRamGb: 17,
-    downloadUrl: 'https://huggingface.co/microsoft/phi-4-gguf/resolve/main/phi-4-Q4_K_S.gguf',
-    tags: ['reasoning', 'general', 'code'],
-    primaryUse: 'general',
-    qualityRank: 7,
-    speedRank: 3,
-    supportsTools: false,
-    supportsThinking: false,
-    nativeContextTokens: 16384,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'qwen2.5-coder-14b-q4',
-    name: 'Qwen2.5 Coder 14B',
-    publishedAt: '2024-11-09',
-    family: 'qwen',
-    tier: '14b',
-    description: 'The most reliable local coding model for high-memory machines.',
-    approxSize: '9.0 GB',
-    minRam: '14 GB',
-    minRamGb: 14,
-    idealRamGb: 18,
-    downloadUrl:
-      'https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/qwen2.5-coder-14b-instruct-q4_k_m.gguf',
-    tags: ['coding', 'quality'],
-    primaryUse: 'coding',
-    qualityRank: 7,
-    speedRank: 3,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'deepseek-coder-v2-lite-instruct-q4',
-    name: 'DeepSeek Coder V2 Lite',
-    publishedAt: '2024-06-17',
-    family: 'deepseek',
-    tier: '14b',
-    description:
-      'Mixture-of-experts coding model — only ~2.4B active params per token, so it runs faster than its size suggests.',
-    approxSize: '10.4 GB',
-    minRam: '16 GB',
-    minRamGb: 16,
-    idealRamGb: 20,
-    downloadUrl:
-      'https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf',
-    tags: ['coding', 'quality'],
-    primaryUse: 'coding',
-    qualityRank: 8,
-    speedRank: 4,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'codestral-22b-v0.1-q4',
-    name: 'Codestral 22B',
-    publishedAt: '2024-05-29',
-    family: 'mistral',
-    tier: '14b',
-    description: "Mistral's dedicated code model — strong quality, heavier than the 14B class.",
-    approxSize: '13.3 GB',
-    minRam: '19 GB',
-    minRamGb: 19,
-    idealRamGb: 24,
-    minVramGb: 12,
-    downloadUrl:
-      'https://huggingface.co/bartowski/Codestral-22B-v0.1-GGUF/resolve/main/Codestral-22B-v0.1-Q4_K_M.gguf',
-    tags: ['coding', 'quality'],
-    primaryUse: 'coding',
-    qualityRank: 8,
-    speedRank: 2,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'qwen2.5-coder-32b-q4',
-    name: 'Qwen2.5 Coder 32B',
-    publishedAt: '2024-11-09',
-    family: 'qwen',
-    tier: '32b',
-    description: 'Near top-tier local coding quality for high-memory workstations.',
-    approxSize: '19.8 GB',
-    minRam: '27 GB',
-    minRamGb: 27,
-    idealRamGb: 33,
-    minVramGb: 16,
-    requiresGpuRecommended: false,
-    downloadUrl:
-      'https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/qwen2.5-coder-32b-instruct-q4_k_m.gguf',
-    tags: ['coding', 'quality'],
-    primaryUse: 'coding',
-    qualityRank: 9,
-    speedRank: 2,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  },
-  {
-    id: 'llama-3.3-70b-q4',
-    name: 'Llama 3.3 70B Instruct',
-    publishedAt: '2024-12-06',
-    family: 'meta',
-    tier: '70b',
-    description:
-      'The largest recommended general-chat model, for high-end multi-GPU or huge-RAM machines.',
-    approxSize: '42.5 GB',
-    minRam: '54 GB',
-    minRamGb: 54,
-    idealRamGb: 65,
-    minVramGb: 48,
-    requiresGpuRecommended: true,
-    downloadUrl:
-      'https://huggingface.co/bartowski/Llama-3.3-70B-Instruct-GGUF/resolve/main/Llama-3.3-70B-Instruct-Q4_K_M.gguf',
-    tags: ['chat', 'quality'],
-    primaryUse: 'general',
-    qualityRank: 10,
-    speedRank: 1,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
-  }
-]
-
-/**
  * The filename a model's GGUF is saved as, derived from its download URL.
  * Shared by the downloader (to pick the target path) and the renderer (to
  * detect a model that's already been downloaded), so they can never disagree.
@@ -419,11 +135,10 @@ export function recommendedVisionProjectorFileName(model: RecommendedModel): str
 }
 
 /**
- * Best-effort family detection for an arbitrary installed GGUF (a user-added
- * file, not necessarily one from `RECOMMENDED_MODELS`), so its logo can still
- * show up correctly. Matched against the filename/model name, not the catalog
- * — a manually downloaded Qwen or Llama variant should still get its real
- * logo even though it isn't one of the exact curated entries above.
+ * Best-effort family detection for an arbitrary installed GGUF, so its logo
+ * can still show up correctly. Matched against the filename or model name, so
+ * a manually downloaded Qwen or Llama variant gets its real logo without
+ * anything having to recognise the specific release.
  */
 export function inferModelFamily(name: string): ModelFamily {
   const n = name.toLowerCase()
