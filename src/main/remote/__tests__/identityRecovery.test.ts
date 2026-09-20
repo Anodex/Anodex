@@ -122,6 +122,84 @@ describe('chooseRemoteIdentity', () => {
     expect(choice.serve?.certPem).toBe(paired.certPem)
   })
 
+  /**
+   * The state a fallback leaves behind, and the one that made the phone look
+   * intermittently broken.
+   *
+   * Taken from a real machine: four devices all pinned `1e747be6a675fd56`,
+   * which was sitting readable in the archive, while `dda71f3866996f74` was
+   * current. Every launch that could read `dda7…` served it and reported the
+   * pairing as fine; the phone worked again only on the launches that happened
+   * to fail to decrypt it.
+   */
+  it('puts the paired identity back when the current one is merely readable', async () => {
+    const [paired, stepped] = await identities()
+
+    const choice = chooseRemoteIdentity({
+      current: stepped,
+      archived: [paired],
+      decrypt: reader('enc:first', 'enc:second'),
+      pairedFingerprint: fingerprintOf(paired.certPem)
+    })
+
+    expect(choice.serve?.certPem).toBe(paired.certPem)
+    expect(choice.current).toBe(paired)
+    expect(choice.breaksPairing).toBe(false)
+    expect(choice.movedBecause).toBe('not-the-paired-one')
+    // Nothing is dropped, here as everywhere else in this module.
+    expect(choice.archived).toContainEqual(stepped)
+    expect(choice.archived).not.toContainEqual(paired)
+  })
+
+  it('keeps serving a readable identity when the paired one cannot be read', async () => {
+    // Nothing better exists on disk, so the wrong identity is still the best
+    // answer — but it must not be reported as a working pairing.
+    const [paired, stepped] = await identities()
+
+    const choice = chooseRemoteIdentity({
+      current: stepped,
+      archived: [paired],
+      decrypt: reader('enc:second'),
+      pairedFingerprint: fingerprintOf(paired.certPem)
+    })
+
+    expect(choice.outcome).toBe('current')
+    expect(choice.serve?.certPem).toBe(stepped.certPem)
+    expect(choice.breaksPairing).toBe(true)
+    expect(choice.archived).toContainEqual(paired)
+  })
+
+  it('does not go looking when no device has pinned anything', async () => {
+    // Without a pinned fingerprint there is no "right" identity to prefer, and
+    // swapping on a guess would break the very thing this protects.
+    const [first, second] = await identities()
+
+    const choice = chooseRemoteIdentity({
+      current: second,
+      archived: [first],
+      decrypt: reader('enc:first', 'enc:second')
+    })
+
+    expect(choice.outcome).toBe('current')
+    expect(choice.serve?.certPem).toBe(second.certPem)
+    expect(choice.movedBecause).toBeUndefined()
+  })
+
+  it('survives a certificate in the archive that will not parse', async () => {
+    // A corrupt entry is one identity that cannot be matched, not a reason to
+    // throw on startup and leave the machine unreachable.
+    const [paired, stepped] = await identities()
+
+    const choice = chooseRemoteIdentity({
+      current: stepped,
+      archived: [{ certPem: 'NOT A CERTIFICATE', encryptedKeyPem: 'enc:junk' }, paired],
+      decrypt: reader('enc:first', 'enc:second', 'enc:junk'),
+      pairedFingerprint: fingerprintOf(paired.certPem)
+    })
+
+    expect(choice.serve?.certPem).toBe(paired.certPem)
+  })
+
   it('falls back to any readable identity when the pairing predates the record', async () => {
     // Devices paired before `certFingerprint` existed have no answer. Guessing the
     // newest readable one is no worse than the old behaviour and still loses nothing.
