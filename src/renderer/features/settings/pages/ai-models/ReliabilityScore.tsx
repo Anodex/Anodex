@@ -2,12 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ModelReliabilityRecord, ToolReliabilityStats } from '@shared/modelReliability.types'
 import { computeReliabilityScore } from '@shared/modelReliability.types'
+import { useAnchoredPosition } from '../../../../hooks/useAnchoredPosition'
 import styles from './AiModelsSettings.module.css'
-
-interface PopoverPosition {
-  top: number
-  left: number
-}
 
 type ToolEntry = [string, ToolReliabilityStats]
 
@@ -46,8 +42,12 @@ export function ReliabilityScore({
   const popoverRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const hideTimerRef = useRef<number | null>(null)
-  const [position, setPosition] = useState<PopoverPosition | null>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  // Measured rather than estimated from the number of tools: the estimate was
+  // only ever right for a middling list, and a wrong one puts the card through
+  // the bottom of the window.
+  const popoverStyle = useAnchoredPosition(anchor, popoverRef, { align: 'start', gap: 8 })
   const popoverTitleId = useId()
   const dialogTitleId = useId()
   const score = computeReliabilityScore(record)
@@ -62,13 +62,13 @@ export function ReliabilityScore({
 
   const hidePopover = (): void => {
     cancelScheduledHide()
-    setPosition(null)
+    setAnchor(null)
   }
 
   const schedulePopoverHide = (): void => {
     cancelScheduledHide()
     hideTimerRef.current = window.setTimeout(() => {
-      setPosition(null)
+      setAnchor(null)
       hideTimerRef.current = null
     }, 140)
   }
@@ -76,14 +76,8 @@ export function ReliabilityScore({
   const showPopover = (): void => {
     if (dialogOpen) return
     cancelScheduledHide()
-    const rect = buttonRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const estimatedHeight = Math.min(430, 184 + toolEntries.length * 30)
-    const fitsBelow = rect.bottom + 8 + estimatedHeight < window.innerHeight
-    setPosition({
-      top: fitsBelow ? rect.bottom + 8 : Math.max(8, rect.top - estimatedHeight - 8),
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 328))
-    })
+    if (anchor) return
+    setAnchor(buttonRef.current?.getBoundingClientRect() ?? null)
   }
 
   const openDialog = (): void => {
@@ -148,14 +142,14 @@ export function ReliabilityScore({
         </small>
       </button>
 
-      {position &&
+      {anchor &&
         createPortal(
           <div
             ref={popoverRef}
             role="dialog"
             aria-labelledby={popoverTitleId}
             className={styles.reliabilityPopover}
-            style={{ top: position.top, left: position.left }}
+            style={popoverStyle}
             onMouseEnter={cancelScheduledHide}
             onMouseLeave={schedulePopoverHide}
           >

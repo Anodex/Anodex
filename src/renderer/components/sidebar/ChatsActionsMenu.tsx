@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../Icon'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import styles from './ChatsActionsMenu.module.css'
+
+const FLYOUT_WIDTH = 190
 
 export type ChatSortMode = 'recent' | 'title'
 
@@ -29,6 +32,14 @@ export function ChatsActionsMenu({
   const [sortRect, setSortRect] = useState<DOMRect | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const flyoutRef = useRef<HTMLDivElement>(null)
+  // One flyout is open at a time, so one measured placement serves both. Beside
+  // the row it belongs to, flipping to its other side and riding up off the
+  // bottom edge rather than being cut off by it.
+  const flyoutStyle = useAnchoredPosition(
+    organizeOpen ? organizeRect : sortOpen ? sortRect : null,
+    flyoutRef,
+    { side: 'right', gap: 6 }
+  )
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
@@ -139,7 +150,7 @@ export function ChatsActionsMenu({
           <div
             ref={flyoutRef}
             className={styles.flyout}
-            style={flyoutStyle(organizeRect)}
+            style={{ ...flyoutStyle, width: FLYOUT_WIDTH }}
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -174,7 +185,7 @@ export function ChatsActionsMenu({
           <div
             ref={flyoutRef}
             className={styles.flyout}
-            style={flyoutStyle(sortRect)}
+            style={{ ...flyoutStyle, width: FLYOUT_WIDTH }}
             onClick={(event) => event.stopPropagation()}
           >
             <button type="button" className={styles.item} onClick={() => updateSortMode('recent')}>
@@ -190,14 +201,4 @@ export function ChatsActionsMenu({
         )}
     </div>
   )
-}
-
-function flyoutStyle(rect: DOMRect): CSSProperties {
-  const width = 190
-  const left = Math.min(rect.right + 6, window.innerWidth - width - 8)
-  return {
-    top: rect.top,
-    left,
-    width
-  }
 }

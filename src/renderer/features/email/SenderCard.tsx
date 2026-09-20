@@ -1,10 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../components/Icon'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import type { Sender } from './threadRow'
 import styles from './EmailView.module.css'
-
-const VIEWPORT_MARGIN = 8
 
 /**
  * How long the card survives the pointer leaving it.
@@ -33,13 +32,23 @@ export function SenderCard({
   triggerClassName
 }: SenderCardProps): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number>()
+  // Measured before it is placed, so a name near the bottom of the window does
+  // not open a card that runs off it.
+  const cardStyle = useAnchoredPosition(open ? anchor : null, cardRef, {
+    align: 'start',
+    gap: 6
+  })
 
   const show = (): void => {
     window.clearTimeout(closeTimer.current)
+    // Only on the way open: `show` also fires when the pointer travels onto
+    // the card itself, and re-reading the trigger there would be state churn
+    // for an answer that has not changed.
+    if (!open) setAnchor(triggerRef.current?.getBoundingClientRect() ?? null)
     setOpen(true)
   }
 
@@ -70,28 +79,6 @@ export function SenderCard({
     }
   }, [open])
 
-  // Measured before it is placed, so a name near the bottom of the window does
-  // not open a card that runs off it.
-  useLayoutEffect(() => {
-    if (!open) {
-      setPosition(null)
-      return
-    }
-    const trigger = triggerRef.current?.getBoundingClientRect()
-    const card = cardRef.current?.getBoundingClientRect()
-    if (!trigger || !card) return
-
-    const below = trigger.bottom + 6
-    const fitsBelow = below + card.height <= window.innerHeight - VIEWPORT_MARGIN
-    setPosition({
-      x: Math.min(
-        Math.max(trigger.left, VIEWPORT_MARGIN),
-        window.innerWidth - card.width - VIEWPORT_MARGIN
-      ),
-      y: fitsBelow ? below : Math.max(VIEWPORT_MARGIN, trigger.top - card.height - 6)
-    })
-  }, [open])
-
   return (
     <>
       <button
@@ -113,11 +100,7 @@ export function SenderCard({
           <div
             ref={cardRef}
             className={styles.senderCard}
-            style={{
-              left: position?.x ?? 0,
-              top: position?.y ?? 0,
-              visibility: position ? 'visible' : 'hidden'
-            }}
+            style={cardStyle}
             onPointerEnter={show}
             onPointerLeave={hide}
             // React's focus events bubble through the portal, so focus landing
