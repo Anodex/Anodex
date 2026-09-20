@@ -35,7 +35,9 @@ const ALLOWED_SEAMS = new Set([
   // Registers the handlers behind reading a reply aloud.
   join('src', 'main', 'ipc', 'index.ts'),
   // Puts the listen control in a reply's footer.
-  join('src', 'renderer', 'features', 'chat', 'MessageBubble.tsx')
+  join('src', 'renderer', 'features', 'chat', 'MessageBubble.tsx'),
+  // Gives the Voice page a place in Settings.
+  join('src', 'renderer', 'features', 'settings', 'SettingsView.tsx')
 ])
 
 /**

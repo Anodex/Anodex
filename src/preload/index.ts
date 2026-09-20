@@ -3,6 +3,7 @@ import {
   IpcChannel,
   type AnodexApi,
   type ContextMenuRequest,
+  type VoiceModelDownload,
   type VoiceProgress
 } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
@@ -111,7 +112,20 @@ const api: AnodexApi = {
       const handler = (_event: IpcRendererEvent, progress: VoiceProgress): void =>
         listener(progress)
       ipcRenderer.on(IpcChannel.Voice.progress, handler)
-      return () => ipcRenderer.removeListener(IpcChannel.Voice.progress, handler)
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Voice.progress, handler)
+      }
+    },
+    download: () => ipcRenderer.invoke(IpcChannel.Voice.download),
+    cancelDownload: () => ipcRenderer.invoke(IpcChannel.Voice.cancelDownload),
+    removeModel: () => ipcRenderer.invoke(IpcChannel.Voice.removeModel),
+    onDownloadProgress: (listener) => {
+      const handler = (_event: IpcRendererEvent, progress: VoiceModelDownload): void =>
+        listener(progress)
+      ipcRenderer.on(IpcChannel.Voice.downloadProgress, handler)
+      return () => {
+        ipcRenderer.removeListener(IpcChannel.Voice.downloadProgress, handler)
+      }
     }
   },
   skills: {
