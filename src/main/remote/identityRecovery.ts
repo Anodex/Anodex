@@ -42,6 +42,16 @@ export interface IdentityChoice {
    * the user re-pairs in a minute and one they spend an evening on.
    */
   breaksPairing: boolean
+  /**
+   * Why the identity being served is not the one that was current, when it is
+   * not. Absent when `current` was served.
+   *
+   * The caller writes a different line for each, and they are genuinely
+   * different events: `unreadable` means a launch could not decrypt a key and
+   * something else had to be served, while `not-the-paired-one` means the key
+   * was perfectly readable and simply belonged to the wrong identity.
+   */
+  movedBecause?: 'unreadable' | 'not-the-paired-one'
 }
 
 /**
@@ -78,6 +88,16 @@ export interface IdentityChoice {
  * point of recovering at all is to make a phone work again — restoring one no
  * device has ever seen achieves nothing and costs the one that was working.
  *
+ * That preference applies on **every** launch, not only the ones that have to
+ * recover. It used to apply only when the current identity could not be read,
+ * which left a fallback permanently in place: having stepped down to a
+ * non-paired identity once, every later launch read it successfully, served it,
+ * and reported the pairing as fine. Measured on a real machine — four devices
+ * all pinned to `1e747be6a675fd56`, sitting readable in the archive, while the
+ * desktop listened as `dda71f3866996f74` and said nothing was wrong. The phone
+ * worked again only on the launches that happened to fail to decrypt the wrong
+ * identity, which is why it looked intermittent.
+ *
  * @param decrypt returns null when the key cannot be read *this launch*. Injected
  *   so the rules can be tested without `safeStorage`, the way `PairingService`
  *   takes its store.
@@ -96,16 +116,79 @@ export function chooseRemoteIdentity({
   pairedFingerprint?: string
 }): IdentityChoice {
   const readable = (identity: StoredIdentity) => decrypt(identity.encryptedKeyPem)
+  /**
+   * Whether this identity is the one the paired device pinned.
+   *
+   * Tolerant of a certificate that will not parse: a corrupt entry in the
+   * archive is one identity that cannot be matched, not a reason to fail the
+   * launch and leave the machine unreachable.
+   */
+  const matchesPairing = (identity: StoredIdentity): boolean => {
+    if (pairedFingerprint === undefined) return false
+    try {
+      return fingerprintOf(identity.certPem) === pairedFingerprint
+    } catch {
+      return false
+    }
+  }
 
   // The ordinary path, and the overwhelmingly common one.
   const currentKey = current ? readable(current) : null
-  if (current && currentKey) {
+  if (current && currentKey && (pairedFingerprint === undefined || matchesPairing(current))) {
     return {
       serve: { certPem: current.certPem, privateKeyPem: currentKey },
       current,
       archived,
       outcome: 'current',
       breaksPairing: false
+    }
+  }
+
+  // The current identity is readable but is not the one the devices pinned.
+  //
+  // This is the state a fallback leaves behind, and it used to be permanent. A
+  // launch that could not read the paired identity recovers the next best one
+  // and *promotes it to current* — correctly, since something has to be served.
+  // But every later launch then took the branch above, served that identity
+  // because it decrypted, and reported `breaksPairing: false` without ever
+  // comparing it to the pairing. Observed on a real machine: four devices all
+  // pinned to `1e747be6a675fd56`, which sat readable in the archive, while the
+  // desktop listened as `dda71f3866996f74` launch after launch and said nothing
+  // was wrong. The pairing only came back on the launches that happened to fail
+  // to decrypt the wrong identity.
+  //
+  // So the preference the recovery branch already applies belongs here too: if
+  // the identity the devices actually pinned can be read, put it back.
+  if (current && currentKey) {
+    const pairedInArchive = archived
+      .map((identity) => ({ identity, privateKeyPem: readable(identity) }))
+      .find(
+        (candidate): candidate is { identity: StoredIdentity; privateKeyPem: string } =>
+          candidate.privateKeyPem !== null && matchesPairing(candidate.identity)
+      )
+    if (pairedInArchive) {
+      return {
+        serve: {
+          certPem: pairedInArchive.identity.certPem,
+          privateKeyPem: pairedInArchive.privateKeyPem
+        },
+        current: pairedInArchive.identity,
+        // The identity being stepped down keeps its place, exactly as in the
+        // recovery branch: nothing is ever dropped.
+        archived: [current, ...archived.filter((entry) => entry !== pairedInArchive.identity)],
+        outcome: 'recovered',
+        breaksPairing: false,
+        movedBecause: 'not-the-paired-one'
+      }
+    }
+    // Nothing better to serve. Serve what can be read, and say plainly that the
+    // pairing is not being honoured instead of claiming it is.
+    return {
+      serve: { certPem: current.certPem, privateKeyPem: currentKey },
+      current,
+      archived,
+      outcome: 'current',
+      breaksPairing: true
     }
   }
 
@@ -122,11 +205,7 @@ export function chooseRemoteIdentity({
 
   // The one the phone is actually paired to, if it is among them.
   const preferred =
-    candidates.find(
-      (candidate) =>
-        pairedFingerprint !== undefined &&
-        fingerprintOf(candidate.identity.certPem) === pairedFingerprint
-    ) ?? candidates[0]
+    candidates.find((candidate) => matchesPairing(candidate.identity)) ?? candidates[0]
 
   if (!preferred) {
     return {
@@ -148,8 +227,7 @@ export function chooseRemoteIdentity({
     current: preferred.identity,
     archived: rest,
     outcome: 'recovered',
-    breaksPairing:
-      pairedFingerprint !== undefined &&
-      fingerprintOf(preferred.identity.certPem) !== pairedFingerprint
+    breaksPairing: !matchesPairing(preferred.identity) && pairedFingerprint !== undefined,
+    movedBecause: 'unreadable'
   }
 }
