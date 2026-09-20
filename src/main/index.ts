@@ -81,6 +81,10 @@ if (process.platform === 'win32') app.setAppUserModelId('com.anodex.app')
 
 // Enforce a single running instance; focus the existing window on relaunch.
 if (!app.requestSingleInstanceLock()) {
+  // Exiting here is a success as far as the shell is concerned, so a dev run that
+  // loses this race looks like `npm run dev` having quietly done nothing at all.
+  // Say why on the way out; `scripts/dev-preflight.mjs` clears the blocker first.
+  console.error('[anodex] Another instance is already running; this one is exiting.')
   app.quit()
 } else {
   // Before anything else: an unhandled failure during startup itself is exactly

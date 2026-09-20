@@ -101,7 +101,13 @@ try {
 
   process.stdout.write('Extracting llama-server...\n')
   if (asset.endsWith('.zip')) {
-    execFileSync('tar.exe', ['-xf', archive, '-C', extracted], { stdio: 'inherit' })
+    // Windows ships bsdtar at a fixed path. Resolving it by name instead picks up
+    // MSYS tar when this runs from Git Bash, and MSYS tar reads `C:\...` as a
+    // remote `host:path` and fails with "Cannot connect to C: resolve failed".
+    const systemRoot = process.env['SystemRoot']
+    const bsdtar = systemRoot ? join(systemRoot, 'System32', 'tar.exe') : ''
+    const tarBin = bsdtar && existsSync(bsdtar) ? bsdtar : 'tar.exe'
+    execFileSync(tarBin, ['-xf', archive, '-C', extracted], { stdio: 'inherit' })
   } else {
     execFileSync('tar', ['-xzf', archive, '-C', extracted], { stdio: 'inherit' })
   }

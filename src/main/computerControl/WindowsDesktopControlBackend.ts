@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { app } from 'electron'
 import type { ComputerAction, DesktopControlWindowInfo } from '@shared/computerControl.types'
 
 const HELPER_TIMEOUT_MS = 15_000
@@ -183,6 +184,10 @@ function sameBounds(
 }
 
 function helperPath(): string {
-  const base = process.resourcesPath || join(process.cwd(), 'resources')
+  // `process.resourcesPath` is always set, and in a dev run it points at Electron's
+  // own resources directory rather than the checkout — so the old `||` fallback
+  // never fired and desktop control could not work outside a package. `isPackaged`
+  // is the real question, the same way LlamaServerRuntime asks it.
+  const base = app.isPackaged ? process.resourcesPath : join(process.cwd(), 'resources')
   return join(base, 'windows-control', 'win32-x64', 'Anodex.WindowsControl.exe')
 }

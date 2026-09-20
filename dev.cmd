@@ -2,6 +2,10 @@
 REM ============================================================
 REM  Anodex - launch the app in development mode (hot reload)
 REM  Double-click this file, or run `dev.cmd` from a terminal.
+REM
+REM  `npm run dev` runs scripts/dev-preflight.mjs first (as its
+REM  `predev` step), which stages the runtimes a packaged build
+REM  gets and closes any instance that would block this one.
 REM ============================================================
 
 cd /d "%~dp0"
@@ -25,13 +29,12 @@ if not exist "node_modules" (
 )
 
 echo   Launching Anodex ^(close the app window to stop^)...
-echo.
 call npm run dev
 
-REM Keep the window open if the app exits with an error so you can read it.
-if errorlevel 1 (
-  echo.
-  echo   Anodex exited with an error. See the output above.
-  echo.
-  pause
-)
+REM Always pause. Electron exits 0 when it hands over to another instance, so
+REM an error branch alone would close this window on exactly the run you need
+REM to read.
+echo.
+echo   Anodex has exited.
+echo.
+pause
