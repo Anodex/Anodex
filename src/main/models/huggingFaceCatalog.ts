@@ -263,20 +263,47 @@ function isVisionProjectorFile(filename: string): boolean {
 }
 
 /**
- * Estimated RAM needed to run a model of this file size — used only for
- * Hugging Face discoveries, where (unlike the hand-curated catalog) nobody
- * has measured the real number. Deliberately generous: it's built from the
- * curated catalog's own size-to-RAM ratios but rounded up, since
- * under-recommending risks a native OOM crash (a real, previously-hit failure
- * mode in this app) while over-recommending just means a cautious estimate.
+ * Estimated RAM needed to run a model of this file size.
+ *
+ * This was `size * 2.8 + 3`, inherited from the curated catalog's own
+ * size-to-RAM ratios and deliberately generous, on the reasoning that
+ * over-estimating only costs caution while under-estimating risks an OOM
+ * crash. The caution turned out not to be free. Three real llama.cpp load
+ * reports, all at an 8192 context:
+ *
+ * | model                  | file     | weights  | KV      | compute | total    | old estimate |
+ * | ---------------------- | -------- | -------- | ------- | ------- | -------- | ------------ |
+ * | Qwen3-4B Q4_K_M        | 2.33 GiB | 2.62 GiB | 1.13 GiB| 0.10 GiB| 3.85 GiB | 10 GB        |
+ * | Devstral-Small Q4_K_M  | 13.4 GiB | 13.3 GiB | 1.25 GiB| 0.26 GiB| 14.9 GiB | 41 GB        |
+ * | Qwen3.8-27B Q4_K_M     | 15.3 GiB | 15.0 GiB | 0.65 GiB| 0.43 GiB| 16.1 GiB | 49 GB        |
+ *
+ * So the old figure over-stated the real requirement by 2.6x to 3.0x across
+ * the whole range, and the cost was not caution — it was that a 32GB gaming
+ * PC was told it could not run a 27B model that in fact needs 16GB, and was
+ * offered 3B models instead. On a 16GB laptop the only things left standing
+ * were toys.
+ *
+ * What the reports actually show: weights track the file almost exactly, and
+ * everything else (KV cache, compute buffers, output) lands between 0.6 and
+ * 1.4 GiB regardless of model size. The 1.2 multiplier covers that overhead
+ * with room to spare; the +3 is the operating system's own working set, since
+ * this is compared against *total* RAM rather than free RAM. Every measured
+ * model lands above its real requirement — the 27B comes out at 22 GB against
+ * a measured 16.1, the Devstral at 19 against 14.9 — without pricing
+ * mid-range machines out.
+ *
+ * The constant is 3 rather than 5 because the reserve has to stay smaller
+ * than the smallest machine anyone runs this on: at +5 a 1B model needed 6GB
+ * and a 4GB netbook was offered nothing at all, which is worse than offering
+ * it the one model it can just about hold.
  */
 export function estimateRamRequirements(sizeBytes: number): {
   minRamGb: number
   idealRamGb: number
 } {
   const sizeGb = sizeBytes / 1024 ** 3
-  const minRamGb = Math.ceil(sizeGb * 2.8 + 3)
-  const idealRamGb = Math.ceil(sizeGb * 4 + 4)
+  const minRamGb = Math.ceil(sizeGb * 1.2 + 3)
+  const idealRamGb = Math.ceil(sizeGb * 1.4 + 5)
   return { minRamGb, idealRamGb }
 }
 
