@@ -8623,78 +8623,6 @@
       }
     },
     {
-      "channel": "voice:available",
-      "kind": "invoke",
-      "api": "voice.available",
-      "args": [],
-      "result": {
-        "$ref": "VoiceReadiness"
-      }
-    },
-    {
-      "channel": "voice:progress",
-      "kind": "event",
-      "servedBy": "push",
-      "args": [],
-      "payload": {
-        "kind": "object",
-        "properties": {
-          "id": {
-            "optional": false,
-            "type": {
-              "kind": "string"
-            }
-          },
-          "index": {
-            "optional": false,
-            "type": {
-              "kind": "number"
-            }
-          },
-          "total": {
-            "optional": false,
-            "type": {
-              "kind": "number"
-            }
-          }
-        }
-      }
-    },
-    {
-      "channel": "voice:speak",
-      "kind": "invoke",
-      "api": "voice.speak",
-      "args": [
-        {
-          "name": "text",
-          "optional": false,
-          "type": {
-            "kind": "string"
-          }
-        }
-      ],
-      "result": {
-        "kind": "union",
-        "of": [
-          {
-            "kind": "null"
-          },
-          {
-            "$ref": "ArrayBuffer"
-          }
-        ]
-      }
-    },
-    {
-      "channel": "voice:stop",
-      "kind": "invoke",
-      "api": "voice.stop",
-      "args": [],
-      "result": {
-        "kind": "boolean"
-      }
-    },
-    {
       "channel": "window:close",
       "kind": "invoke",
       "api": "windowControls.close",
@@ -10252,31 +10180,6 @@
           "optional": false,
           "type": {
             "$ref": "EmailSettings"
-          }
-        }
-      }
-    },
-    "ArrayBuffer": {
-      "kind": "object",
-      "properties": {
-        "byteLength": {
-          "optional": false,
-          "type": {
-            "kind": "number"
-          }
-        },
-        "slice": {
-          "optional": false,
-          "type": {
-            "kind": "function",
-            "note": "not transferable"
-          }
-        },
-        "__@toStringTag@1048": {
-          "optional": false,
-          "type": {
-            "kind": "literal",
-            "value": "ArrayBuffer"
           }
         }
       }
@@ -25601,29 +25504,6 @@
           "optional": false,
           "type": {
             "kind": "number"
-          }
-        }
-      }
-    },
-    "VoiceReadiness": {
-      "kind": "object",
-      "properties": {
-        "enabled": {
-          "optional": false,
-          "type": {
-            "kind": "boolean"
-          }
-        },
-        "modelReady": {
-          "optional": false,
-          "type": {
-            "kind": "boolean"
-          }
-        },
-        "ready": {
-          "optional": false,
-          "type": {
-            "kind": "boolean"
           }
         }
       }

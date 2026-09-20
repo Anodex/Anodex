@@ -4,14 +4,15 @@ import type { ModelInfo } from '@shared/model.types'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { contextSizeFor } from '@shared/modelRecommendation'
 import type { RecommendedModel } from '@shared/recommendedModels'
-import { RECOMMENDED_MODELS, recommendedModelFileName } from '@shared/recommendedModels'
+import { recommendedModelFileName } from '@shared/recommendedModels'
+import { CATALOG_FIXTURE } from '@shared/__tests__/fixtures/catalog'
 import {
   ctxSizeWarning,
   buildRecommendedSlots,
   bytesToGb,
   freshnessAdjustment,
-  mergeCatalogs,
-  reliabilityScoreForRecommended
+  reliabilityScoreForRecommended,
+  scoreRecommendedModel
 } from '../scoring'
 
 const GB = 1024 ** 3
@@ -34,7 +35,7 @@ function hardware(overrides: Partial<HardwareInfo>): HardwareInfo {
 }
 
 function installedFor(modelId: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
-  const model = RECOMMENDED_MODELS.find((m) => m.id === modelId)
+  const model = CATALOG_FIXTURE.find((m) => m.id === modelId)
   if (!model) throw new Error(`No catalog model ${modelId}`)
   return {
     id: `installed-${modelId}`,
@@ -165,19 +166,31 @@ describe('buildRecommendedSlots — Large Context', () => {
     // 63 GB is below the 70B model's 96 GB minimum. Sorting by raw minRamGb
     // (the original bug) would still pick it here, since it's the largest
     // minRamGb in the whole catalog — regardless of whether it can load at all.
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 63 * GB, unifiedMemory: true }), null)
+    const slots = buildRecommendedSlots(
+      hardware({ ramBytes: 63 * GB, unifiedMemory: true }),
+      undefined,
+      CATALOG_FIXTURE
+    )
     const largeContext = slots.find((slot) => slot.id === 'large-context')
     expect(largeContext?.model.id).not.toBe('llama-3.3-70b-q4')
   })
 
   it('picks a model that actually fits, among those tied on achievable context size', () => {
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 63 * GB, unifiedMemory: true }), null)
+    const slots = buildRecommendedSlots(
+      hardware({ ramBytes: 63 * GB, unifiedMemory: true }),
+      undefined,
+      CATALOG_FIXTURE
+    )
     const largeContext = slots.find((slot) => slot.id === 'large-context')
     expect(largeContext?.model.minRamGb).toBeLessThanOrEqual(63)
   })
 
   it('can recommend the 70B model once RAM genuinely supports it', () => {
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 128 * GB, unifiedMemory: true }), null)
+    const slots = buildRecommendedSlots(
+      hardware({ ramBytes: 128 * GB, unifiedMemory: true }),
+      undefined,
+      CATALOG_FIXTURE
+    )
     const largeContext = slots.find((slot) => slot.id === 'large-context')
     expect(largeContext?.model.minRamGb).toBeLessThanOrEqual(128)
   })
@@ -189,20 +202,20 @@ describe('buildRecommendedSlots — Large Context', () => {
     // exercises the exact dedup-fallback path that used to abandon the
     // context criterion entirely once 32B was already claimed.
     const hw = hardware({ ramBytes: 63.1 * GB, vramBytes: 55.8 * GB, gpu: 'Test GPU' })
-    const slots = buildRecommendedSlots(hw, null)
+    const slots = buildRecommendedSlots(hw, undefined, CATALOG_FIXTURE)
     const largeContext = slots.find((slot) => slot.id === 'large-context')
     expect(largeContext).toBeDefined()
     expect(largeContext?.model.id).not.toBe('qwen2.5-coder-32b-q4') // claimed by Best Overall
 
     const ramGb = bytesToGb(hw.ramBytes)
     const vramGb = bytesToGb(hw.vramBytes ?? 0)
-    const eligible = RECOMMENDED_MODELS.filter(
+    const eligible = CATALOG_FIXTURE.filter(
       (model) => model.recommended !== false && ramGb >= model.minRamGb
     )
     const bestPossibleContext = Math.max(
-      ...eligible.map((model) => contextSizeFor(model, ramGb, vramGb))
+      ...eligible.map((model) => contextSizeFor(model.tier, ramGb, vramGb))
     )
-    expect(contextSizeFor(largeContext!.model, ramGb, vramGb)).toBe(bestPossibleContext)
+    expect(contextSizeFor(largeContext!.model.tier, ramGb, vramGb)).toBe(bestPossibleContext)
   })
 })
 
@@ -214,7 +227,8 @@ describe('buildRecommendedSlots — Best Coding', () => {
     // candidate instead of falling through to an unrelated model.
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 63.1 * GB, vramBytes: 55.8 * GB, gpu: 'Test GPU' }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     const bestCoding = slots.find((slot) => slot.id === 'coding')
     expect(bestCoding).toBeDefined()
@@ -228,7 +242,7 @@ describe('buildRecommendedSlots — Best Coding', () => {
     // On an 8 GB machine the only catalog model tagged for coding that fits
     // is Qwen 3B Coder, which "Best Overall" already claims — the slot should
     // disappear rather than fall back to a 7B model needing 16 GB.
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 8 * GB }), null)
+    const slots = buildRecommendedSlots(hardware({ ramBytes: 8 * GB }), undefined, CATALOG_FIXTURE)
     for (const slot of slots) {
       expect(slot.model.minRamGb).toBeLessThanOrEqual(8)
     }
@@ -240,7 +254,8 @@ describe('buildRecommendedSlots — Best Agent', () => {
   it('only ever recommends a tool-calling-capable model', () => {
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 63.1 * GB, vramBytes: 55.8 * GB, gpu: 'Test GPU' }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     const bestAgent = slots.find((slot) => slot.id === 'agent')
     expect(bestAgent).toBeDefined()
@@ -251,7 +266,7 @@ describe('buildRecommendedSlots — Best Agent', () => {
     // On an 8 GB machine the only eligible, tool-calling-capable catalog
     // model is Qwen 3B Coder — "Best Overall" claims it first, so there is
     // nothing left for "Best Agent" to fall back to.
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 8 * GB }), null)
+    const slots = buildRecommendedSlots(hardware({ ramBytes: 8 * GB }), undefined, CATALOG_FIXTURE)
     expect(slots.find((slot) => slot.id === 'agent')).toBeUndefined()
   })
 
@@ -271,9 +286,8 @@ describe('buildRecommendedSlots — Best Agent', () => {
 
     const withoutReliability = buildRecommendedSlots(
       hw,
-      null,
       { installedModels, reliability: new Map() },
-      undefined,
+      CATALOG_FIXTURE,
       justAfterQwen3
     )
     expect(withoutReliability.find((slot) => slot.id === 'agent')?.model.id).toBe(
@@ -286,9 +300,8 @@ describe('buildRecommendedSlots — Best Agent', () => {
     ])
     const withReliability = buildRecommendedSlots(
       hw,
-      null,
       { installedModels, reliability },
-      undefined,
+      CATALOG_FIXTURE,
       justAfterQwen3
     )
     expect(withReliability.find((slot) => slot.id === 'agent')?.model.id).toBe('qwen3-8b-q4')
@@ -297,18 +310,18 @@ describe('buildRecommendedSlots — Best Agent', () => {
 
 describe('reliabilityScoreForRecommended', () => {
   it('returns null for a model that was never downloaded', () => {
-    const model = RECOMMENDED_MODELS.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
+    const model = CATALOG_FIXTURE.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
     expect(reliabilityScoreForRecommended(model, [], new Map())).toBeNull()
   })
 
   it('returns null for a downloaded model with no reliability record yet', () => {
-    const model = RECOMMENDED_MODELS.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
+    const model = CATALOG_FIXTURE.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
     const installed = installedFor('qwen2.5-coder-14b-q4')
     expect(reliabilityScoreForRecommended(model, [installed], new Map())).toBeNull()
   })
 
   it('matches a downloaded model to its reliability record by filename', () => {
-    const model = RECOMMENDED_MODELS.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
+    const model = CATALOG_FIXTURE.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
     const installed = installedFor('qwen2.5-coder-14b-q4')
     const reliability = new Map([[installed.id, reliabilityRecord(85, installed.id)]])
     expect(reliabilityScoreForRecommended(model, [installed], reliability)).toBe(85)
@@ -317,18 +330,21 @@ describe('reliabilityScoreForRecommended', () => {
 
 describe('buildRecommendedSlots — slot set', () => {
   it('shows no automatic recommendation when every model exceeds the machine profile', () => {
-    expect(buildRecommendedSlots(hardware({ ramBytes: 3 * GB }), null)).toEqual([])
+    expect(
+      buildRecommendedSlots(hardware({ ramBytes: 3 * GB }), undefined, CATALOG_FIXTURE)
+    ).toEqual([])
   })
 
   it('no longer includes a Low RAM slot', () => {
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 32 * GB }), null)
+    const slots = buildRecommendedSlots(hardware({ ramBytes: 32 * GB }), undefined, CATALOG_FIXTURE)
     expect(slots.find((slot) => slot.id === 'low-ram')).toBeUndefined()
   })
 
   it('never recommends the same model for two different slots', () => {
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 63.1 * GB, vramBytes: 55.8 * GB, gpu: 'Test GPU' }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     const ids = slots.map((slot) => slot.model.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -337,7 +353,8 @@ describe('buildRecommendedSlots — slot set', () => {
   it('uses distinct model families when a slot has a compatible alternative', () => {
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     const families = slots.map((slot) => slot.model.family)
     const repeated = families.filter((family, index) => families.indexOf(family) !== index)
@@ -350,33 +367,13 @@ describe('buildRecommendedSlots — slot set', () => {
   it('does not call a tiny model the fastest option on a powerful computer', () => {
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 64 * GB, vramBytes: 16 * GB, gpu: 'Test GPU' }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     const fastest = slots.find((slot) => slot.id === 'fastest')
 
     expect(fastest).toBeDefined()
     expect(['14b', '32b', '70b']).toContain(fastest?.model.tier)
-  })
-})
-
-describe('mergeCatalogs', () => {
-  it('includes a live model that does not collide with any static entry', () => {
-    const live = hfModel()
-    const merged = mergeCatalogs(RECOMMENDED_MODELS, [live])
-    expect(merged).toHaveLength(RECOMMENDED_MODELS.length + 1)
-    expect(merged).toContain(live)
-  })
-
-  it('drops a live model that is the exact same downloadable file as a static entry, keeping the static one', () => {
-    const staticEntry = RECOMMENDED_MODELS.find((m) => m.id === 'qwen2.5-coder-14b-q4')!
-    const duplicateLive = hfModel({
-      id: 'hf:Qwen/Qwen2.5-Coder-14B-Instruct-GGUF:qwen2.5-coder-14b-instruct-q4_k_m.gguf',
-      downloadUrl: staticEntry.downloadUrl
-    })
-    const merged = mergeCatalogs(RECOMMENDED_MODELS, [duplicateLive])
-    expect(merged).toHaveLength(RECOMMENDED_MODELS.length)
-    expect(merged).not.toContain(duplicateLive)
-    expect(merged).toContain(staticEntry)
   })
 })
 
@@ -387,9 +384,7 @@ describe('buildRecommendedSlots — custom catalog (live Hugging Face pool)', ()
     // constrained hardware should still be able to win a slot — proving the
     // strip is not silently locked to the static list once a catalog is passed in.
     const constrained = hfModel({ id: 'hf:tiny/repo:tiny-q4_k_m.gguf', minRamGb: 4, tier: '1b' })
-    const slots = buildRecommendedSlots(hardware({ ramBytes: 4 * GB }), null, undefined, [
-      constrained
-    ])
+    const slots = buildRecommendedSlots(hardware({ ramBytes: 4 * GB }), undefined, [constrained])
     expect(slots.length).toBeGreaterThan(0)
     expect(slots.every((slot) => slot.model.id === constrained.id)).toBe(true)
   })
@@ -397,7 +392,8 @@ describe('buildRecommendedSlots — custom catalog (live Hugging Face pool)', ()
   it('defaults to the static catalog alone when no catalog is passed', () => {
     const slots = buildRecommendedSlots(
       hardware({ ramBytes: 63.1 * GB, vramBytes: 55.8 * GB }),
-      null
+      undefined,
+      CATALOG_FIXTURE
     )
     for (const slot of slots) {
       expect(slot.model.source).not.toBe('huggingface')
@@ -406,93 +402,13 @@ describe('buildRecommendedSlots — custom catalog (live Hugging Face pool)', ()
 })
 
 /**
- * Live Hugging Face results are the recommendation; the built-in catalog is the
- * fallback for when they cannot be fetched.
- *
- * They used to compete, and the built-in list won twice over: `bestOverall`
- * pinned whatever `recommendModel` chose, and that reads the hardcoded catalog
- * alone. A machine that could comfortably run current models was being told to
- * download a generation-old one.
+ * The "live results outrank the built-in catalog" cases that used to sit here
+ * are gone with the catalog itself. They pinned a real bug — the hardware
+ * recommendation named a built-in model and that pin beat every current one —
+ * which is now structurally impossible: there is one pool, it is the live one,
+ * and `recommendModel` names a size class rather than a model. See
+ * `shared/recommendedModels.ts`.
  */
-describe('buildRecommendedSlots - live results outrank the built-in catalog', () => {
-  const big = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Test GPU' })
-
-  function liveModel(overrides: Partial<RecommendedModel> = {}): RecommendedModel {
-    return {
-      id: 'hf:Qwen/Qwen3-32B-GGUF:q4.gguf',
-      name: 'Qwen3 32B',
-      family: 'qwen',
-      tier: '32b',
-      description: 'Community GGUF from Hugging Face.',
-      approxSize: '19.0 GB',
-      minRam: '32 GB',
-      minRamGb: 32,
-      idealRamGb: 48,
-      downloadUrl: 'https://example.invalid/q.gguf',
-      tags: ['coding', 'community'],
-      primaryUse: 'coding',
-      supportsTools: true,
-      source: 'huggingface',
-      ...overrides
-    }
-  }
-
-  it('shows only live models when any of them fit', () => {
-    const slots = buildRecommendedSlots(big, null, undefined, [...RECOMMENDED_MODELS, liveModel()])
-
-    expect(slots.length).toBeGreaterThan(0)
-    for (const slot of slots) {
-      expect(slot.model.source).toBe('huggingface')
-    }
-  })
-
-  /**
-   * The exact reported symptom: a hardware recommendation naming a built-in
-   * model must not pin the top card when current models are available.
-   */
-  it('does not let the hardware recommendation pin a built-in over a live model', () => {
-    const builtIn = RECOMMENDED_MODELS.find((model) => model.minRamGb <= 64)
-    if (!builtIn) throw new Error('expected a built-in model that fits')
-
-    const slots = buildRecommendedSlots(
-      big,
-      {
-        tier: builtIn.tier,
-        modelId: builtIn.id,
-        modelName: builtIn.name,
-        contextSize: 8192,
-        gpuLayers: 'auto',
-        rationale: 'test'
-      },
-      undefined,
-      [...RECOMMENDED_MODELS, liveModel()]
-    )
-
-    const overall = slots.find((slot) => slot.id === 'overall')
-    expect(overall?.model.id).not.toBe(builtIn.id)
-    expect(overall?.model.source).toBe('huggingface')
-  })
-
-  it('falls back to the built-in catalog when nothing live is available', () => {
-    const slots = buildRecommendedSlots(big, null, undefined, RECOMMENDED_MODELS)
-
-    expect(slots.length).toBeGreaterThan(0)
-    expect(slots.every((slot) => slot.model.source !== 'huggingface')).toBe(true)
-  })
-
-  /** A live model too large for the machine must not empty the strip. */
-  it('falls back when live results exist but none fit this computer', () => {
-    const small = hardware({ ramBytes: 8 * GB })
-    const slots = buildRecommendedSlots(small, null, undefined, [
-      ...RECOMMENDED_MODELS,
-      liveModel({ minRamGb: 128, idealRamGb: 128 })
-    ])
-
-    expect(slots.length).toBeGreaterThan(0)
-    expect(slots.every((slot) => slot.model.source !== 'huggingface')).toBe(true)
-  })
-})
-
 describe('how much a model’s age is worth', () => {
   const now = Date.parse('2026-09-16T00:00:00Z')
   const monthsAgo = (months: number): string =>
@@ -501,9 +417,16 @@ describe('how much a model’s age is worth', () => {
   it('is worth something new, and counts against something old', () => {
     expect(freshnessAdjustment({ publishedAt: monthsAgo(1) } as RecommendedModel, now)).toBe(8)
     expect(freshnessAdjustment({ publishedAt: monthsAgo(10) } as RecommendedModel, now)).toBe(3)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(-3)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-8)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-14)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(-8)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-14)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-20)
+  })
+
+  it('still lets being new count for less than being good', () => {
+    // The reward side is deliberately unchanged: a brand-new model of unknown
+    // worth gains +8, which a hand-rated entry can out-earn on quality alone.
+    // Only the penalty for being a generation behind got heavier.
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(0) } as RecommendedModel, now)).toBe(8)
   })
 
   it('leaves a model with no date, or a date it cannot read, exactly where it was', () => {
@@ -518,7 +441,7 @@ describe('how much a model’s age is worth', () => {
     const now2026 = Date.parse('2026-09-16T00:00:00Z')
     const hw = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Test GPU' })
     const current: RecommendedModel = {
-      ...RECOMMENDED_MODELS.find((model) => model.id === 'qwen2.5-coder-32b-q4')!,
+      ...CATALOG_FIXTURE.find((model) => model.id === 'qwen2.5-coder-32b-q4')!,
       id: 'hf:current-32b',
       name: 'Current 32B',
       publishedAt: new Date(now2026 - 30 * 86_400_000).toISOString(),
@@ -528,14 +451,52 @@ describe('how much a model’s age is worth', () => {
       hfDownloads: 9_000_000
     }
 
-    const best = buildRecommendedSlots(
-      hw,
-      null,
-      undefined,
-      mergeCatalogs(RECOMMENDED_MODELS, [current]),
-      now2026
-    ).find((slot) => slot.id === 'overall')
+    const best = buildRecommendedSlots(hw, undefined, [...CATALOG_FIXTURE, current], now2026).find(
+      (slot) => slot.id === 'overall'
+    )
 
     expect(best?.model.id).toBe('hf:current-32b')
+  })
+
+  /**
+   * Both entries here are live Hugging Face results, and both are real: these
+   * are the two the strip actually chose between on the reporting machine, with
+   * their real ages and download counts.
+   *
+   * The older one won, and its whole margin was a duplicated inference —
+   * `toRecommendedModel` derives `tags` from `primaryUse`, so "Coder" in a
+   * repository name was paid for twice, +12, which is more than a year of age
+   * is worth on the other side of the score.
+   */
+  it('does not hand "best overall" to last year’s coder over this year’s flagship', () => {
+    const now2026 = Date.parse('2026-09-20T00:00:00Z')
+    const hw = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Radeon RX 7900 XTX' })
+    const base = CATALOG_FIXTURE.find((model) => model.id === 'qwen2.5-coder-32b-q4')!
+    const liveEntry = (
+      id: string,
+      name: string,
+      ageDays: number,
+      downloads: number,
+      coding: boolean
+    ): RecommendedModel => ({
+      ...base,
+      id,
+      name,
+      publishedAt: new Date(now2026 - ageDays * 86_400_000).toISOString(),
+      qualityRank: undefined,
+      speedRank: undefined,
+      source: 'huggingface',
+      primaryUse: coding ? 'coding' : 'general',
+      tags: coding ? ['coding'] : ['general'],
+      downloadUrl: `https://huggingface.co/x/${id}/resolve/main/${id}.gguf`,
+      hfDownloads: downloads
+    })
+
+    const lastYearsCoder = liveEntry('coder-30b', 'Coder 30B', 416, 12_697_785, true)
+    const thisYearsFlagship = liveEntry('flagship-27b', 'Flagship 27B', 38, 6_941_478, false)
+
+    expect(scoreRecommendedModel(thisYearsFlagship, hw, now2026)).toBeGreaterThan(
+      scoreRecommendedModel(lastYearsCoder, hw, now2026)
+    )
   })
 })

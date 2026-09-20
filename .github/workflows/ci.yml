@@ -10,7 +10,9 @@ on:
 # the same bar. Both run here so that "it works on Linux" is a fact this
 # workflow establishes rather than a hope. Note that Anodex cannot be
 # cross-compiled: `prepare:vision` downloads the *host* platform's llama.cpp
-# runtime, so every target has to build on its own runner regardless.
+# runtime, so every target has to build on its own runner regardless — which
+# is also why the Build job now fetches and starts that runtime rather than
+# leaving all three platforms unexercised until a tag is pushed.
 #
 # Cost shape is deliberate. Lint, formatting, and typechecking cannot vary by
 # OS, so they run once on Linux (1x billing) instead of three times. Only the
@@ -153,3 +155,24 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Anodex cannot be cross-compiled, so the macOS and Linux runtimes only
+      # ever exist on their own runners — and until this step they were only
+      # ever fetched at tag time, by `npm run dist`. A runtime that fails to
+      # download, loses its permission bits in a tarball, or cannot resolve
+      # its shared libraries was therefore a failed release rather than a
+      # failed pull request. Keyed on the script so bumping the pinned
+      # llama.cpp release invalidates every platform's cache at once.
+      - name: Cache the llama.cpp runtime
+        uses: actions/cache@v4
+        with:
+          path: resources/llama-server
+          key: llama-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/prepare-llama-server.mjs') }}
+
+      - name: Prepare the vision runtime
+        run: npm run prepare:vision
+
+      # Starts the binary the way the app does rather than checking that a
+      # file exists, which is the only version of this that can fail.
+      - name: Verify the vision runtime runs
+        run: node scripts/verify-vision-runtime.mjs

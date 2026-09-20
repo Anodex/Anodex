@@ -1,9 +1,8 @@
 import type { ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
-import { RECOMMENDED_MODELS, recommendedModelFileName } from '@shared/recommendedModels'
-import type { ModelRecommendation } from '@shared/modelRecommendation'
-import { contextSizeFor, isModelHardwareCompatible } from '@shared/modelRecommendation'
+import { recommendedModelFileName } from '@shared/recommendedModels'
+import { contextSizeFor, isModelHardwareCompatible, pickTier } from '@shared/modelRecommendation'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { computeReliabilityScore } from '@shared/modelReliability.types'
 
@@ -50,13 +49,26 @@ const TIER_WEIGHT = {
  * workstation that can comfortably run larger models, a 1B or 3B model is
  * fast but needlessly weak, so retain enough capability for the card to be a
  * practical daily driver. Small machines retain access to their fitting tier.
+ *
+ * The floor is measured against what fits in fast memory, not against
+ * everything the machine can load. Those are different questions once RAM is
+ * plentiful and the graphics card is not: a 32GB PC with an 8GB card can
+ * *open* a 30B model, so the old floor promoted "Fastest" to 14B-and-up and
+ * offered a 27B — which on that card runs mostly on the CPU and is the
+ * slowest thing in the list. Whatever fits on the card is the honest pool;
+ * if nothing does, fall back to the full set rather than showing no card.
  */
 function fastestAppropriateCandidates(
-  candidates: { model: RecommendedModel; score: number }[]
+  candidates: { model: RecommendedModel; score: number }[],
+  hardware: HardwareInfo | null
 ): { model: RecommendedModel; score: number }[] {
-  const largestTier = Math.max(...candidates.map((candidate) => TIER_WEIGHT[candidate.model.tier]))
+  const fastGb = hardware ? fastMemoryGb(hardware) : 0
+  const fitting =
+    fastGb > 0 ? candidates.filter((candidate) => modelSizeGb(candidate.model) <= fastGb) : []
+  const pool = fitting.length > 0 ? fitting : candidates
+  const largestTier = Math.max(...pool.map((candidate) => TIER_WEIGHT[candidate.model.tier]))
   const minimumTier = largestTier >= 32 ? 14 : largestTier >= 14 ? 7 : largestTier >= 7 ? 3 : 1
-  return candidates.filter((candidate) => TIER_WEIGHT[candidate.model.tier] >= minimumTier)
+  return pool.filter((candidate) => TIER_WEIGHT[candidate.model.tier] >= minimumTier)
 }
 
 export function basename(path: string): string {
@@ -123,15 +135,31 @@ export function scoreHardwareProfile(hardware: HardwareInfo): number {
   return clampScore(Math.round(14 + coreScore + ramScore + vramScore + gpuBonus + unifiedBonus))
 }
 
+/**
+ * One line describing what this machine is good for.
+ *
+ * The target size comes from `pickTier`, the same ladder the recommendation
+ * itself uses. It used to be a second, hand-written ladder with its own
+ * thresholds, and the two disagreed: on a 63 GB machine with a 24 GB card
+ * this panel read "best target: 14B Q4 or 7B Q4" — it wanted 64 GB for the
+ * top rung — directly above a card recommending a 32B model. Two ladders for
+ * one question is one ladder too many.
+ */
 export function hardwareFitLabel(hardware: HardwareInfo): string {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  if (ramGb >= 64 && (hardware.unifiedMemory || vramGb >= 16))
-    return 'Excellent local AI fit · best target: 32B Q4 models'
-  if (ramGb >= 32) return 'Strong local AI fit · best target: 14B Q4 or 7B Q4 models'
-  if (ramGb >= 16) return 'Good local AI fit · best target: 7B Q4 models'
-  if (ramGb >= 8) return 'Modest local AI fit · best target: 3B Q4 models'
-  return 'Limited local AI fit · use small 1B models'
+  const tier = pickTier(ramGb, hardware.unifiedMemory || vramGb >= 4)
+  if (!tier) return 'Limited local AI fit · below what a local model needs'
+
+  const quality =
+    tier === '70b' || tier === '32b'
+      ? 'Excellent'
+      : tier === '14b'
+        ? 'Strong'
+        : tier === '7b'
+          ? 'Good'
+          : 'Modest'
+  return `${quality} local AI fit · best target: ${tier.toUpperCase()} Q4 models`
 }
 
 /**
@@ -143,12 +171,47 @@ export function hardwareFitLabel(hardware: HardwareInfo): string {
  * array instead of the actually stronger one. Clamp only when rendering a
  * badge via `clampScore`.
  */
+/**
+ * What a model of this size is worth when nobody has rated it.
+ *
+ * A hand-curated entry carries measured `qualityRank`/`speedRank`; a live
+ * Hugging Face entry carries neither, and defaulting both to a flat 3 told
+ * the scorer that a 0.6B model is exactly as capable, and exactly as fast, as
+ * a 30B one. Nothing else in the score knows how big a model is, so among
+ * live entries capability simply did not exist — and since small models
+ * always fit, always score a perfect memory ratio and never take a headroom
+ * penalty, they won. Measured before this: Best Overall on a 16GB laptop was
+ * `Qwen3-0.6B`.
+ *
+ * The numbers are the curated catalog's own median rank per tier, so a live
+ * entry lands where a hand-rated model of that size already sits rather than
+ * on a scale invented here. It is a prior, not a rating: a real
+ * `qualityRank` always wins, because this is only consulted when there is
+ * none.
+ */
+const TIER_PRIOR = {
+  '1b': { quality: 1, speed: 5 },
+  '3b': { quality: 3, speed: 5 },
+  '7b': { quality: 5, speed: 4 },
+  '14b': { quality: 7, speed: 3 },
+  '32b': { quality: 9, speed: 2 },
+  '70b': { quality: 10, speed: 1 }
+} as const
+
+export function qualityRankOf(model: RecommendedModel): number {
+  return model.qualityRank ?? TIER_PRIOR[model.tier].quality
+}
+
+export function speedRankOf(model: RecommendedModel): number {
+  return model.speedRank ?? TIER_PRIOR[model.tier].speed
+}
+
 export function scoreRecommendedModel(
   model: RecommendedModel,
   hardware: HardwareInfo | null,
   now: number = Date.now()
 ): number {
-  if (!hardware) return 70 + (model.qualityRank ?? 1) * 2 + freshnessAdjustment(model, now)
+  if (!hardware) return 70 + qualityRankOf(model) * 2 + freshnessAdjustment(model, now)
 
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
@@ -156,13 +219,24 @@ export function scoreRecommendedModel(
   const idealRatio = model.idealRamGb ? Math.min(1, ramGb / model.idealRamGb) : 1
 
   let score = 48
-  score += (model.qualityRank ?? 3) * 4
-  score += (model.speedRank ?? 3) * 2
+  score += qualityRankOf(model) * 4
+  score += speedRankOf(model) * 2
   score += idealRatio * 12
   score += usesTheMachine(model, hardware)
+  // One coding signal, counted once.
+  //
+  // These were two separate bonuses, and for a live Hugging Face entry they are
+  // not two facts — `toRecommendedModel` sets `tags` *from* `primaryUse`, which
+  // `inferPrimaryUse` reads off the repository name. So a repository with
+  // "Coder" in its name collected +12 for one inference, and +12 is more than a
+  // whole generation of age is worth on the other side of this function.
+  //
+  // Measured on this machine: `Qwen3-Coder-30B-A3B-Instruct`, 416 days old,
+  // scored 128 and took "Best Overall" from `Qwen3.8-27B` at 121, which was 38
+  // days old. The older model's entire margin was the duplicate.
   if (model.primaryUse === 'coding' || model.primaryUse === 'agentic-coding') score += 8
+  else if (model.tags.includes('coding')) score += 4
   if (model.supportsTools) score += 5
-  if (model.tags.includes('coding')) score += 4
   if (model.minVramGb && !hardware.unifiedMemory && vramGb >= model.minVramGb) score += 5
   if (model.minVramGb && !hardware.unifiedMemory && vramGb < model.minVramGb) score -= 8
   if (model.requiresGpuRecommended && !hardware.gpu && !hardware.unifiedMemory) score -= 14
@@ -212,10 +286,36 @@ function modelSizeGb(model: RecommendedModel): number {
  * that and not much more — spilling past it means running partly on the CPU,
  * which works and crawls.
  */
-function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
+/**
+ * The memory a model can actually run *fast* in, in GB.
+ *
+ * A graphics card only decides this when there is enough of it to hold a
+ * model worth running. Below `recommendModel`'s own four-gigabyte bar the
+ * card is an integrated one sharing system memory, and llama.cpp puts most
+ * of the layers in RAM regardless — so measuring against its one or two
+ * gigabytes made a 0.6B model look like a perfect fit for a laptop and a 9B
+ * model look like it overflowed. Measured: on 16GB with a 1GB iGPU that was a
+ * 19-point swing in the toy model's favour, and it won Best Overall.
+ *
+ * System memory is discounted because it is never all available and is
+ * slower than a card besides.
+ */
+export function fastMemoryGb(hardware: HardwareInfo): number {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  const runsFastIn = hardware.unifiedMemory ? ramGb * 0.7 : vramGb > 0 ? vramGb : ramGb * 0.6
+  if (hardware.unifiedMemory) return ramGb * 0.7
+  return vramGb >= 4 ? vramGb : ramGb * 0.6
+}
+
+function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
+  // A graphics card only decides this when there is enough of it to hold a
+  // model worth running. Below `recommendModel`'s own four-gigabyte bar the
+  // card is an integrated one sharing system memory, and llama.cpp puts most
+  // of the layers in RAM regardless — so measuring against its one or two
+  // gigabytes made a 0.6B model look like a perfect fit for a laptop and a
+  // 9B model look like it overflowed. Measured: on 16GB with a 1GB iGPU that
+  // was a 19-point swing in the toy model's favour, and it won Best Overall.
+  const runsFastIn = fastMemoryGb(hardware)
   if (runsFastIn <= 0) return 0
 
   const used = modelSizeGb(model) / runsFastIn
@@ -248,29 +348,20 @@ export function freshnessAdjustment(model: RecommendedModel, now: number = Date.
   const months = (now - published) / (30 * 86_400_000)
   if (months <= 6) return 8
   if (months <= 12) return 3
-  if (months <= 18) return -3
-  if (months <= 24) return -8
-  return -14
-}
-
-/**
- * Merges the hand-vetted static catalog with a live Hugging Face pool for the
- * "Recommended for your PC" strip. The static list wins on a filename
- * collision (kept first) since it carries hand-verified `qualityRank`/
- * `speedRank`/`supportsTools` data a live entry can only estimate — so if a
- * live-discovered repo turns out to be the exact same downloadable file as an
- * already-curated entry, this doesn't show it twice with conflicting trust
- * levels.
- */
-export function mergeCatalogs(
-  staticCatalog: RecommendedModel[],
-  liveCatalog: RecommendedModel[]
-): RecommendedModel[] {
-  const seen = new Set(staticCatalog.map((model) => recommendedModelFileName(model).toLowerCase()))
-  const uniqueLive = liveCatalog.filter(
-    (model) => !seen.has(recommendedModelFileName(model).toLowerCase())
-  )
-  return [...staticCatalog, ...uniqueLive]
+  // Past a year is past a generation, and the penalties now say so.
+  //
+  // The band boundaries were right and the numbers under them were not: this
+  // function opens by saying a year is a generation, then charged a
+  // thirteen-month-old model −3, which is less than a rounding error against
+  // the other terms here. A model a generation behind was losing a close call
+  // it should not have been in.
+  //
+  // Only the penalty side moved. The reward for being new is still +8, so a
+  // brand-new model of unknown worth still cannot walk past a better one on
+  // novelty alone — which is the balance the paragraph above asks for.
+  if (months <= 18) return -8
+  if (months <= 24) return -14
+  return -20
 }
 
 export interface AgentReliabilityContext {
@@ -280,14 +371,12 @@ export interface AgentReliabilityContext {
 
 export function buildRecommendedSlots(
   hardware: HardwareInfo | null,
-  recommendation: ModelRecommendation | null,
-  agentContext?: AgentReliabilityContext,
-  // Defaults to the static catalog alone so every existing caller/test
-  // keeps working unchanged. The real UI passes the static catalog merged
-  // with live Hugging Face results (see `RecommendedModelStrip.tsx`), so a
-  // new model generation can outrank a stale hand-picked entry without an
-  // Anodex code change.
-  catalog: RecommendedModel[] = RECOMMENDED_MODELS,
+  agentContext: AgentReliabilityContext | undefined,
+  // Required, and always the live Hugging Face pool. There used to be a
+  // hand-written catalog defaulted in here; it is gone, because a list of
+  // models to download helps nobody who cannot reach the network to download
+  // them, and every entry in it aged into a worse answer than no answer.
+  catalog: RecommendedModel[],
   // Today, so a test can pin one: what Anodex recommends now depends on how old
   // each model is, and a test that reads the clock changes its mind as the
   // calendar moves under it.
@@ -309,28 +398,13 @@ export function buildRecommendedSlots(
         )
       : pool
 
-  /**
-   * Live Hugging Face results are the recommendation; the built-in list is the
-   * fallback for when they cannot be fetched.
-   *
-   * They used to compete, and the built-in list won twice over: `bestOverall`
-   * pinned whatever `recommendModel` chose, and that reads the hardcoded
-   * catalog alone, so a live model could never take the top card. Live entries
-   * also leave `qualityRank`/`speedRank` unset — honest, since nobody has
-   * measured them — which scores as neutral against a hand-ranked entry. The
-   * result was a machine that could comfortably run current models being told
-   * to download a generation-old one.
-   */
-  const live = eligible(allCandidates.filter((model) => model.source === 'huggingface'))
-  const builtIn = eligible(allCandidates.filter((model) => model.source !== 'huggingface'))
-  const usingLive = live.length > 0
-  const candidates = usingLive ? live : builtIn
+  const candidates = eligible(allCandidates)
   if (candidates.length === 0) return []
   const scored = candidates
     .map((model) => ({ model, score: scoreRecommendedModel(model, hardware, now) }))
     .sort((a, b) => b.score - a.score)
   const byScore = scored.map((entry) => entry.model)
-  const speedCandidates = fastestAppropriateCandidates(scored)
+  const speedCandidates = fastestAppropriateCandidates(scored, hardware)
 
   const used = new Set<string>()
   const usedFamilies = new Set<string>()
@@ -370,16 +444,9 @@ export function buildRecommendedSlots(
     'overall',
     'Best Overall',
     'Best balance of quality, speed, and fit for this computer.',
-    () => {
-      // The hardware recommender only knows the built-in catalog, so its pick
-      // is honoured only when that catalog is what is being shown. Against
-      // live results it would pin a stale model over every current one.
-      const preferred =
-        !usingLive && recommendation
-          ? candidates.find((model) => model.id === recommendation.modelId)
-          : undefined
-      return preferred ? [preferred, ...byScore] : byScore
-    }
+    // `recommendation` names a size class, not a model, so there is nothing
+    // here to pin: the best-scoring candidate for this machine is the answer.
+    () => byScore
   )
 
   const bestCoding = take(
@@ -444,7 +511,7 @@ export function buildRecommendedSlots(
     'Best choice when quick responses matter more than maximum quality.',
     () =>
       [...speedCandidates]
-        .sort((a, b) => (b.model.speedRank ?? 0) - (a.model.speedRank ?? 0) || b.score - a.score)
+        .sort((a, b) => speedRankOf(b.model) - speedRankOf(a.model) || b.score - a.score)
         .map((entry) => entry.model)
   )
 
@@ -472,8 +539,8 @@ export function buildRecommendedSlots(
       return [...scored]
         .sort((a, b) => {
           const contextDiff =
-            contextSizeFor(b.model, ramGbForContext, effectiveVramGb) -
-            contextSizeFor(a.model, ramGbForContext, effectiveVramGb)
+            contextSizeFor(b.model.tier, ramGbForContext, effectiveVramGb) -
+            contextSizeFor(a.model.tier, ramGbForContext, effectiveVramGb)
           return contextDiff !== 0 ? contextDiff : b.score - a.score
         })
         .map((entry) => entry.model)

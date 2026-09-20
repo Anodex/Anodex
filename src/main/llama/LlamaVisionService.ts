@@ -30,6 +30,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { promptProgressOf } from './promptProgress'
+import { describeRoundTimings, roundTimingsOf, type RoundTimings } from './roundTimings'
 import {
   minimumViableOutputTokens,
   needsBoundedWriteHeadroom,
@@ -323,18 +324,34 @@ export class LlamaVisionService {
   }
 
   /**
-   * Read the start of the last request before anybody asks anything.
+   * Read the start of the recent requests before anybody asks anything.
    *
-   * Sends the system prompt and tool definitions last used with this model, asking
-   * for a single token, so llama-server has them in its prompt cache. The first real
-   * message then reads only its own words. With more than one parallel job, every
-   * slot is warmed, since a message may land on any of them.
+   * Sends the system prompt and tool definitions recently used with this model,
+   * asking for a single token each, so llama-server has them in its prompt
+   * cache. The first real message then reads only its own words.
+   *
+   * Every remembered prefix is warmed, not one per slot, because a slot is not
+   * where a warmed prefix has to end up. llama-server keeps prompt caches
+   * pushed out of a slot in host RAM and restores them: measured with a single
+   * slot, four different prefixes sent in turn all came back at 100% on the
+   * second pass, 78 ms against 1,449 ms cold. So the last one warmed stays
+   * resident and the rest are a restore away, which is nearly as good and far
+   * better than a read.
+   *
+   * That matters because the surface the user opens is not necessarily the one
+   * they closed. Warming only the most recent left the first "Hello" of a
+   * session reading its whole prefix — measured in the app at 2,807 tokens,
+   * 4,024 ms, 0% cached.
+   *
+   * One prefix per call so the caller can take the engine lock around each and
+   * let a real message cut in; warming four in one hold would make somebody who
+   * starts typing immediately wait for all of them.
    *
    * Never throws: a failed warm-up costs one slow first message, nothing more.
    */
-  async warmUp(modelPath: string, slots = 1): Promise<boolean> {
+  async warmUpPrefix(modelPath: string, index: number): Promise<boolean> {
     const connection = this.runtime.activeConnection
-    const prefix = this.promptPrefixes?.load(modelPath)
+    const prefix = this.promptPrefixes?.loadRecent(modelPath, index + 1)[index]
     if (!connection || !prefix) return false
     const client = new OpenAI({
       apiKey: connection.apiKey,
@@ -342,25 +359,43 @@ export class LlamaVisionService {
       timeout: 5 * 60_000,
       maxRetries: 0
     })
-    const warm = (): Promise<unknown> =>
-      client.chat.completions.create({
+    try {
+      const started = Date.now()
+      await client.chat.completions.create({
         model: connection.modelId,
         messages: repairLoneSurrogatesDeep([prefix.system, { role: 'user', content: '.' }]),
         tools: prefix.tools,
         tool_choice: prefix.tools ? 'auto' : undefined,
         parallel_tool_calls: false,
         max_tokens: 1,
-        stream: false
+        stream: false,
+        // Must match the real request's rendering. `enable_thinking` changes
+        // the rendered prompt, so warming one form and sending the other
+        // warms nothing — measured as a 0% hit on a turn warmed seconds
+        // earlier.
+        ...(prefix.thinkingDisabled
+          ? ({ chat_template_kwargs: { enable_thinking: false } } as unknown as Record<
+              string,
+              never
+            >)
+          : {})
       })
-    try {
-      const started = Date.now()
-      await Promise.all(Array.from({ length: Math.max(1, slots) }, warm))
-      log.info('Prompt cache warmed', { modelPath, slots, ms: Date.now() - started })
+      log.info('Prompt cache warmed', {
+        modelPath,
+        prefix: index,
+        thinkingDisabled: prefix.thinkingDisabled ?? false,
+        ms: Date.now() - started
+      })
       return true
     } catch (error) {
       log.warn('Prompt cache warm-up failed:', error)
       return false
     }
+  }
+
+  /** How many remembered prefixes {@link warmUpPrefix} has to work through. */
+  warmablePrefixCount(modelPath: string): number {
+    return this.promptPrefixes?.loadRecent(modelPath, Number.MAX_SAFE_INTEGER).length ?? 0
   }
 
   get active(): boolean {
@@ -718,15 +753,42 @@ export class LlamaVisionService {
       // stale-parse branch below, where that is the difference between a
       // runtime fault and a genuine truncation.
       const runtimeOutputBefore = this.runtime.recentOutput()
+      /**
+       * A plain chat answers without deliberating first.
+       *
+       * This model's template opens every assistant turn with `<think>`, so
+       * even "Hello" paid for a chain of thought. Measured on Qwen3.8-27B
+       * across three sets — five ordinary questions, five reasoning traps
+       * (bat-and-ball, 100-days-from-Wednesday and friends) and four
+       * tool-calling cases run three times each:
+       *
+       * - the reasoning traps were answered correctly 5/5 either way, 30-85%
+       *   faster without thinking
+       * - tool calls fired 12/12 either way, so nothing was traded for it
+       * - the prose answers were equivalent or better
+       *
+       * Scoped to the chat surface deliberately. An agent run, a project turn
+       * and Critical Thinking all keep their deliberation: that is where this
+       * project's own measurements say reasoning earns its keep, and none of
+       * it was tested here.
+       */
+      const thinkingDisabled = params.surface === 'chat'
       // Remembered for the next load's warm-up: the unchanging start of the request.
       const currentModelPath = this.getCurrentModel?.()?.path
       if (currentModelPath && messages[0]?.role === 'system') {
-        this.promptPrefixes?.save({ modelPath: currentModelPath, system: messages[0], tools })
+        this.promptPrefixes?.save({
+          modelPath: currentModelPath,
+          system: messages[0],
+          tools,
+          thinkingDisabled
+        })
       }
       const pendingCalls = new Map<number, PendingToolCall>()
       let reportedPromptTokens: number | undefined
       // llama-server sometimes sends its reasoning-budget note as reply text.
       const visibleText = createBudgetMessageFilter()
+      /** llama-server's own timing for this round — see `roundTimings.ts`. */
+      let roundTimings: RoundTimings | null = null
       try {
         const stream = await client.chat.completions.create(
           {
@@ -747,7 +809,12 @@ export class LlamaVisionService {
             // A llama.cpp extension, serialised through untouched: stream how far the
             // prompt has been read, so a long read can be shown rather than looking
             // like nothing is happening.
-            ...({ return_progress: true } as unknown as Record<string, never>)
+            ...({ return_progress: true } as unknown as Record<string, never>),
+            ...(thinkingDisabled
+              ? ({
+                  chat_template_kwargs: { enable_thinking: false }
+                } as unknown as Record<string, never>)
+              : {})
           },
           { signal: params.signal }
         )
@@ -755,6 +822,7 @@ export class LlamaVisionService {
         for await (const chunk of stream) {
           const reading = promptProgressOf(chunk)
           if (reading) params.onPromptProgress?.(reading)
+          roundTimings = roundTimingsOf(chunk) ?? roundTimings
           if (chunk.usage?.completion_tokens) outputTokens += chunk.usage.completion_tokens
           if (typeof chunk.usage?.prompt_tokens === 'number' && chunk.usage.prompt_tokens > 0) {
             reportedPromptTokens = chunk.usage.prompt_tokens
@@ -792,6 +860,19 @@ export class LlamaVisionService {
         if (heldBack) {
           roundContent += heldBack
           params.onToken(heldBack)
+        }
+        // What the round actually cost, from llama-server rather than from a
+        // stopwatch around it. On this transport a round's wait is dominated
+        // by whether the prompt was already in the server's cache — a 4,785
+        // token chat request measured 6,817 ms cold against 90 ms warm — and
+        // until this line the log recorded the prompt's size but never which
+        // of those two had just happened. See `roundTimings.ts`.
+        if (roundTimings) {
+          log.info('Vision round timings', {
+            round,
+            roundMs: Date.now() - roundStartedAt,
+            ...describeRoundTimings(roundTimings)
+          })
         }
       } catch (error) {
         roundContent += visibleText.flush()

@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { HardwareInfo } from '@shared/system.types'
-import { recommendModel } from '@shared/modelRecommendation'
-import {
-  RECOMMENDED_MODELS,
-  recommendedModelFileName,
-  type RecommendedModel
-} from '@shared/recommendedModels'
+import { recommendedModelFileName, type RecommendedModel } from '@shared/recommendedModels'
 import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -13,7 +8,7 @@ import { anodex } from '../../lib/anodex'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
-import { basename, buildRecommendedSlots, mergeCatalogs } from '../settings/pages/ai-models/scoring'
+import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import styles from './ChatEmptyState.module.css'
 
@@ -88,11 +83,11 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loadingHardware, setLoadingHardware] = useState(true)
-  // The same live pool Settings uses. Without it the very first model anybody is
-  // offered came from the built-in list alone, which is a generation behind the
-  // moment a new one ships — the one moment where being current matters most,
-  // answered from the one source that cannot be.
+  // The same live pool Settings uses, and now the only pool: the built-in
+  // list this used to fall back on was a generation behind the moment a new
+  // model shipped, which is the one moment where being current matters most.
   const [liveModels, setLiveModels] = useState<RecommendedModel[]>([])
+  const [loadingModels, setLoadingModels] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -102,34 +97,27 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         setLoadingHardware(false)
       }
     })
-    // Offline, or Hugging Face unreachable: the built-in catalog stands on its
-    // own, exactly as it did before. Nothing waits on this.
+    // Offline, or Hugging Face unreachable: there is nothing to recommend,
+    // because every model on offer has to be downloaded. The card says so
+    // rather than naming something the machine cannot fetch.
     void anodex.models.fetchTopModels().then((result) => {
-      if (!cancelled && result.ok) setLiveModels(result.value)
+      if (cancelled) return
+      if (result.ok) setLiveModels(result.value)
+      setLoadingModels(false)
     })
     return () => {
       cancelled = true
     }
   }, [])
 
-  const recommendation = hardware
-    ? recommendModel({
-        ramBytes: hardware.ramBytes,
-        vramBytes: hardware.vramBytes,
-        unified: hardware.unifiedMemory
-      })
-    : null
-
-  const catalog = useMemo(() => mergeCatalogs(RECOMMENDED_MODELS, liveModels), [liveModels])
-
   const bestOverall = useMemo(() => {
     if (loadingHardware) return null
-    return buildRecommendedSlots(hardware, recommendation, undefined, catalog).find(
+    return buildRecommendedSlots(hardware, undefined, liveModels).find(
       (slot) => slot.id === 'overall'
     )
-  }, [hardware, recommendation, loadingHardware, catalog])
+  }, [hardware, loadingHardware, liveModels])
 
-  if (loadingHardware) {
+  if (loadingHardware || loadingModels) {
     return (
       <div className={styles.callout}>
         <span className={styles.calloutIcon}>
@@ -151,7 +139,9 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         <div className={styles.calloutBody}>
           <div className={styles.calloutTitle}>No model loaded</div>
           <div className={styles.calloutText}>
-            Load a local model to start chatting — it runs entirely on your machine.
+            {liveModels.length === 0
+              ? 'Anodex reads the current model list from Hugging Face and could not reach it. Downloading a model needs a connection — or open Settings to load a GGUF you already have.'
+              : 'Load a local model to start chatting — it runs entirely on your machine.'}
           </div>
         </div>
         <button className={styles.calloutButton} onClick={onOpenSettings}>
