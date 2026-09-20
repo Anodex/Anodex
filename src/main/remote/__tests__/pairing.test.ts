@@ -90,6 +90,26 @@ describe('remote pairing', () => {
     expect(outcome.failure.reason).toBe('expired')
   })
 
+  /**
+   * The number itself, because it is a security decision rather than a tuning
+   * knob: while a code is live, a photograph of the screen is a working
+   * credential. Three minutes is what the manual path needs — typing address,
+   * port and code on a phone keyboard and then checking a ten-group
+   * fingerprint overran two — and the assertion is here so raising it further
+   * has to be a deliberate act rather than a convenience.
+   */
+  it('stays a short window, long enough to type by hand', () => {
+    expect(PAIRING_WINDOW_MS).toBe(3 * 60 * 1000)
+    expect(PAIRING_WINDOW_MS).toBeLessThanOrEqual(5 * 60 * 1000)
+  })
+
+  it('accepts a code used just before it lapses', () => {
+    const session = service.beginPairing()
+    clock += PAIRING_WINDOW_MS - 1
+
+    expect(service.completePairing(session.secret, 'Just in time').ok).toBe(true)
+  })
+
   it('showing a new code invalidates the previous one', () => {
     const first = service.beginPairing()
     service.beginPairing()
