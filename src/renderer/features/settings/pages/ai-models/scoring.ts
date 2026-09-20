@@ -160,9 +160,20 @@ export function scoreRecommendedModel(
   score += (model.speedRank ?? 3) * 2
   score += idealRatio * 12
   score += usesTheMachine(model, hardware)
+  // One coding signal, counted once.
+  //
+  // These were two separate bonuses, and for a live Hugging Face entry they are
+  // not two facts — `toRecommendedModel` sets `tags` *from* `primaryUse`, which
+  // `inferPrimaryUse` reads off the repository name. So a repository with
+  // "Coder" in its name collected +12 for one inference, and +12 is more than a
+  // whole generation of age is worth on the other side of this function.
+  //
+  // Measured on this machine: `Qwen3-Coder-30B-A3B-Instruct`, 416 days old,
+  // scored 128 and took "Best Overall" from `Qwen3.8-27B` at 121, which was 38
+  // days old. The older model's entire margin was the duplicate.
   if (model.primaryUse === 'coding' || model.primaryUse === 'agentic-coding') score += 8
+  else if (model.tags.includes('coding')) score += 4
   if (model.supportsTools) score += 5
-  if (model.tags.includes('coding')) score += 4
   if (model.minVramGb && !hardware.unifiedMemory && vramGb >= model.minVramGb) score += 5
   if (model.minVramGb && !hardware.unifiedMemory && vramGb < model.minVramGb) score -= 8
   if (model.requiresGpuRecommended && !hardware.gpu && !hardware.unifiedMemory) score -= 14
@@ -248,9 +259,20 @@ export function freshnessAdjustment(model: RecommendedModel, now: number = Date.
   const months = (now - published) / (30 * 86_400_000)
   if (months <= 6) return 8
   if (months <= 12) return 3
-  if (months <= 18) return -3
-  if (months <= 24) return -8
-  return -14
+  // Past a year is past a generation, and the penalties now say so.
+  //
+  // The band boundaries were right and the numbers under them were not: this
+  // function opens by saying a year is a generation, then charged a
+  // thirteen-month-old model −3, which is less than a rounding error against
+  // the other terms here. A model a generation behind was losing a close call
+  // it should not have been in.
+  //
+  // Only the penalty side moved. The reward for being new is still +8, so a
+  // brand-new model of unknown worth still cannot walk past a better one on
+  // novelty alone — which is the balance the paragraph above asks for.
+  if (months <= 18) return -8
+  if (months <= 24) return -14
+  return -20
 }
 
 /**
