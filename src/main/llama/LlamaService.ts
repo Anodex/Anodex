@@ -563,12 +563,21 @@ class LlamaService extends EventEmitter {
    * gate, so it never races a reply or a load.
    */
   private async warmUpPromptCache(modelPath: string): Promise<void> {
-    const release = await this.modelLock.acquire()
-    try {
-      if (this.currentModel?.path !== modelPath || !this.visionService.active) return
-      await this.visionService.warmUp(modelPath, this.modelLock.capacity)
-    } finally {
-      release()
+    // The lock is taken and released once per prefix rather than held across
+    // all of them. Warming is background work that can run to sixteen seconds
+    // on a large model; holding the gate for the whole run would make someone
+    // who opens Anodex and types straight away wait behind it. Between
+    // prefixes a real turn takes the gate and this picks up afterwards — or
+    // stops, if that turn swapped the model out.
+    const count = this.visionService.warmablePrefixCount(modelPath)
+    for (let index = 0; index < count; index++) {
+      const release = await this.modelLock.acquire()
+      try {
+        if (this.currentModel?.path !== modelPath || !this.visionService.active) return
+        if (!(await this.visionService.warmUpPrefix(modelPath, index))) return
+      } finally {
+        release()
+      }
     }
   }
 
