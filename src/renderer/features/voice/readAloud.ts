@@ -1,5 +1,6 @@
 import type { AnodexApi } from '@shared/ipc'
 import { anodex } from '../../lib/anodex'
+import { notifyError } from '../../stores/uiStore'
 
 /**
  * Playing a reply out loud, from the window's point of view.
@@ -101,26 +102,88 @@ function remember(token: string, text: string, wav: ArrayBuffer): void {
   }
 }
 
-let audio: HTMLAudioElement | null = null
+/**
+ * Playing through Web Audio rather than an `<audio>` element.
+ *
+ * The element was the obvious choice and it made no sound at all. Forty-two
+ * seconds of real speech reached the window — measured afterwards at 51% peak,
+ * so not silence — and the element refused to load it:
+ *
+ *     MEDIA_ELEMENT_ERROR: Media load rejected by URL safety check
+ *
+ * The renderer's CSP in `index.html` sets no `media-src`, so it falls through to
+ * `default-src 'self'`, and a `blob:` URL is not `'self'`. Every audio element
+ * fed a generated blob is blocked, always, on every machine. Reproduced against
+ * that exact policy before this was rewritten, because the first theory —
+ * expired user activation — was wrong and would have produced a confident fix
+ * for the wrong thing.
+ *
+ * Web Audio never fetches a URL: `decodeAudioData` takes the bytes and the
+ * source node connects straight to the destination, so no `media-src` applies.
+ * It is also what `lib/sound.ts` already uses for every notification in this
+ * app, which makes it the path known to work here rather than a second guess.
+ *
+ * Widening the CSP would have been the other fix and is the worse one: it buys
+ * a mechanism this does not need, in exchange for a hole in a policy that is
+ * doing its job. Note that `previewContentSecurityPolicy.ts` has carried
+ * `media-src data: blob:` and a comment about this exact silent failure the
+ * whole time — the lesson was written down one file away and not applied here.
+ *
+ * The context is created and resumed on the click. That is not about the CSP;
+ * it is because generation takes about thirty seconds and a context that starts
+ * suspended should be woken while a gesture is still in hand.
+ *
+ * Its own context, not the one notifications use: pausing here must not silence
+ * anything else, and a directory built to be deleted should not own a handle
+ * that something outside it depends on.
+ */
+let context: AudioContext | null = null
+let source: AudioBufferSourceNode | null = null
+let buffer: AudioBuffer | null = null
+/** Where in the buffer the next `start()` should begin, in seconds. */
+let offsetSeconds = 0
+/** `context.currentTime` when the current source began, less the offset it began at. */
+let baseTime = 0
 /** The words the loaded audio was made from, so a reply that changed under the
  *  same id is not resumed as if nothing had happened. */
 let loadedText: string | null = null
-let objectUrl: string | null = null
 /** Bumped by every start and stop, so a slow generation that has been abandoned
  *  cannot come back and start playing over whatever is speaking now. */
 let generation = 0
 
+/**
+ * Get the context ready to make sound.
+ *
+ * Called synchronously from the click, and that timing is the entire point:
+ * `resume()` is the call that needs the activation, and a context that is
+ * running stays running.
+ */
+function wakeAudio(): AudioContext | null {
+  if (typeof window === 'undefined' || !window.AudioContext) return null
+  context ??= new AudioContext()
+  if (context.state === 'suspended') void context.resume().catch(() => undefined)
+  return context
+}
+
+/** Stop the current source without letting its `onended` report the stop. */
+function silence(): void {
+  if (source) {
+    source.onended = null
+    try {
+      source.stop()
+    } catch {
+      // Already stopped, or never started. Either way there is nothing to stop.
+    }
+    source.disconnect()
+    source = null
+  }
+}
+
 function teardown(): void {
-  if (audio) {
-    audio.pause()
-    audio.src = ''
-    audio = null
-  }
+  silence()
+  buffer = null
   loadedText = null
-  if (objectUrl) {
-    URL.revokeObjectURL(objectUrl)
-    objectUrl = null
-  }
+  offsetSeconds = 0
 }
 
 /** Stops whatever is speaking and forgets it, without touching the cache. */
@@ -131,32 +194,69 @@ export function stopReadAloud(): void {
   publish(null)
 }
 
-function play(token: string, text: string, wav: ArrayBuffer): void {
+/**
+ * What went wrong, said out loud.
+ *
+ * Every failure here used to end the same way: the button went quietly back to
+ * "Listen" and nothing anywhere said why, which is how 42 seconds of generated
+ * speech became "there is no sound at all" with no evidence attached. A refusal
+ * that leaves no trace is worse than the refusal.
+ */
+function failed(reason: string): void {
+  notifyError('Arc could not be played', reason)
   teardown()
-  loadedText = text
-  objectUrl = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
-  const element = new Audio(objectUrl)
-  audio = element
+  publish(null)
+}
+
+/** Start the loaded buffer at `offsetSeconds`, on a context already awake. */
+function startSource(token: string): void {
+  const ctx = context
+  if (!ctx || !buffer) return
+  silence()
+
+  const node = ctx.createBufferSource()
+  node.buffer = buffer
+  node.connect(ctx.destination)
+  source = node
+  baseTime = ctx.currentTime - offsetSeconds
+
   const mine = generation
-  element.onended = () => {
+  node.onended = () => {
     if (generation === mine) {
       teardown()
       publish(null)
     }
   }
-  element.onerror = () => {
-    if (generation === mine) {
-      teardown()
-      publish(null)
-    }
-  }
+
+  node.start(0, offsetSeconds)
   publish({ token, phase: 'playing', sentence: 0, total: 0 })
-  void element.play().catch(() => {
-    if (generation === mine) {
-      teardown()
-      publish(null)
-    }
-  })
+}
+
+/** Decode a finished wav and begin playing it. */
+async function play(token: string, text: string, wav: ArrayBuffer): Promise<void> {
+  const ctx = wakeAudio()
+  if (!ctx) {
+    failed('This window has no audio output.')
+    return
+  }
+
+  const mine = generation
+  // A copy, because decoding detaches the buffer it is handed, and the wav is
+  // kept so that listening a second time does not generate it again.
+  const bytes = wav instanceof Uint8Array ? wav : new Uint8Array(wav)
+  let decoded: AudioBuffer
+  try {
+    decoded = await ctx.decodeAudioData(bytes.slice().buffer)
+  } catch {
+    failed('The audio could not be decoded.')
+    return
+  }
+  if (generation !== mine) return
+
+  buffer = decoded
+  loadedText = text
+  offsetSeconds = 0
+  startSource(token)
 }
 
 /**
@@ -164,24 +264,24 @@ function play(token: string, text: string, wav: ArrayBuffer): void {
  * on where this reply already is.
  */
 export function toggleReadAloud(token: string, text: string): void {
+  // First, and synchronously: this is the only moment the click's activation is
+  // still live, and the audio it asks for will not be ready for half a minute.
+  wakeAudio()
+
   const current = state
 
   // Same reply, same words: this press is about the audio already loaded.
   if (current?.token === token && (current.phase === 'preparing' || loadedText === text)) {
-    if (current.phase === 'playing' && audio) {
-      audio.pause()
+    if (current.phase === 'playing' && buffer && context) {
+      // A source node cannot be paused, only stopped, so pausing is remembering
+      // where it reached and building a new one from there on the way back.
+      offsetSeconds = Math.min(context.currentTime - baseTime, buffer.duration)
+      silence()
       publish({ ...current, phase: 'paused' })
       return
     }
-    if (current.phase === 'paused' && audio) {
-      const mine = generation
-      publish({ ...current, phase: 'playing' })
-      void audio.play().catch(() => {
-        if (generation === mine) {
-          teardown()
-          publish(null)
-        }
-      })
+    if (current.phase === 'paused' && buffer) {
+      startSource(token)
       return
     }
     // Preparing: the press means "never mind".
@@ -197,7 +297,7 @@ export function toggleReadAloud(token: string, text: string): void {
   const cached = spoken.get(token)
   if (cached && cached.text === text) {
     void bridge()?.stop()
-    play(token, text, cached.wav)
+    void play(token, text, cached.wav)
     return
   }
 
@@ -214,10 +314,11 @@ export function toggleReadAloud(token: string, text: string): void {
         return
       }
       remember(token, text, wav)
-      play(token, text, wav)
+      void play(token, text, wav)
     })
-    .catch(() => {
-      if (generation === mine) publish(null)
+    .catch((error: unknown) => {
+      if (generation !== mine) return
+      failed(error instanceof Error ? error.message : 'Generating the speech failed.')
     })
 }
 
