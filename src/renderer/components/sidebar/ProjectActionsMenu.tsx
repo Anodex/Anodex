@@ -3,19 +3,10 @@ import { createPortal } from 'react-dom'
 import type { Project } from '@shared/project.types'
 import { Icon } from '../Icon'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import { useProjectStore } from '../../stores/projectStore'
 import { useUiStore } from '../../stores/uiStore'
 import styles from './ProjectActionsMenu.module.css'
-
-const DROPDOWN_WIDTH = 210
-
-function dropdownPosition(rect: DOMRect): { top: number; left: number } {
-  const left = Math.max(
-    8,
-    Math.min(rect.right - DROPDOWN_WIDTH, window.innerWidth - DROPDOWN_WIDTH - 8)
-  )
-  return { top: rect.bottom + 2, left }
-}
 
 interface ProjectActionsMenuProps {
   project: Project
@@ -36,6 +27,10 @@ export function ProjectActionsMenu({
   const ref = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const open = rect !== null
+  // Measured and placed rather than always dropped straight down: the last
+  // project in the sidebar sits at the bottom of the window, where a menu that
+  // only knows how to open downwards is a menu with its last item cut off.
+  const dropdownStyle = useAnchoredPosition(rect, dropdownRef, { gap: 2 })
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
@@ -90,7 +85,7 @@ export function ProjectActionsMenu({
           <div
             ref={dropdownRef}
             className={styles.dropdown}
-            style={dropdownPosition(rect)}
+            style={dropdownStyle}
             onClick={(event) => event.stopPropagation()}
           >
             <div className={styles.header}>
