@@ -4,6 +4,7 @@ import { useUiStore, type SettingsSection } from '../../stores/uiStore'
 import { PageHeader } from '../../components/PageHeader'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
+import { ActiveDownloads } from './ActiveDownloads'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
 import { AppearanceSettings } from './pages/appearance/AppearanceSettings'
 import { KeyboardSettings } from './pages/keyboard/KeyboardSettings'
@@ -89,7 +90,11 @@ export function SettingsView(): JSX.Element {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Configure Anodex and the local engine" />
+      <PageHeader
+        title="Settings"
+        subtitle="Configure Anodex and the local engine"
+        actions={<ActiveDownloads />}
+      />
 
       <div className={styles.layout}>
         <nav className={styles.sidebar} aria-label="Settings sections">

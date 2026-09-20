@@ -1,0 +1,97 @@
+/*
+ * Sits in the Settings title bar, beside the heading, so it is present on
+ * every section rather than on the page that happened to start the download.
+ * Sized to the header rather than to its contents: a long model name
+ * ellipsises instead of pushing the bar wider on one section than another.
+ */
+.root {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  width: 260px;
+  max-width: 40vw;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.labelRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.label {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.percent {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.track {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-pill);
+}
+
+.bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--transition, 180ms ease);
+}
+
+/*
+ * No `content-length`, so there is no position to draw. This paces across the
+ * track to say the transfer is alive without claiming to know how far along
+ * it is.
+ */
+.barIndeterminate {
+  width: 40%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  animation: slide 1.4s var(--ease, ease) infinite;
+}
+
+@keyframes slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barIndeterminate {
+    animation: none;
+    opacity: 0.7;
+  }
+
+  .bar {
+    transition: none;
+  }
+}
