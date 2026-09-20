@@ -118,17 +118,6 @@ extraResources:
   # edit, or delete. Never read from here at runtime.
   - from: resources/skills
     to: skills
-  # Arc's voice. voice:seam
-  #
-  # 1.2 MB, and every sentence Anodex speaks is generated conditioned on it, so
-  # without it `speechAvailable()` is false forever and the Listen button never
-  # appears however much of the model somebody downloads. That is exactly how a
-  # feature ships dead: it works in development, where the same files are read
-  # from `resources/` in the working tree, and the packaged build quietly has no
-  # voice at all. The model itself is not here — it is 2.3 GB and is fetched on
-  # request into userData.
-  - from: resources/voice
-    to: voice
   # The bare Anodex glyph, used as the window icon for framed secondary
   # windows (the HTML preview pop-out). build/ below isn't in `files:`, so the
   # main process can't read the icons there at runtime — this is how it gets
