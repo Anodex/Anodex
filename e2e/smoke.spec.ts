@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,46 @@ const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64'
 )
+
+/**
+ * Wait for the boot overlay to let go before touching anything.
+ *
+ * `StartupOverlay` covers the window while the app hydrates, and covering is
+ * its job — the real shell renders underneath from the first frame, and an
+ * opaque backdrop over a half-hydrated app is the point. Measured, it clears
+ * about eight seconds after launch.
+ *
+ * A test that starts clicking before then is not testing anything: the click
+ * lands on the starfield. Waiting for the overlay to unmount is the same
+ * thing a person does by looking at the screen.
+ */
+async function waitForStartup(window: Page): Promise<void> {
+  // Attach first: `firstWindow()` resolves before React has mounted, so a
+  // bare count-of-zero would pass against an empty document.
+  await window.waitForSelector('[data-state]', { state: 'attached', timeout: 10_000 })
+  await expect(window.locator('[data-state]')).toHaveCount(0, { timeout: 30_000 })
+}
+
+/**
+ * Open every collapsed turn-activity panel.
+ *
+ * A reopened conversation renders its turns folded — `TurnRecap` starts
+ * collapsed for anything that isn't actively streaming, so the transcript
+ * reads as replies rather than scaffolding. The panel is `overflow: hidden`
+ * at zero height, so the tool cards inside it still report a bounding box and
+ * still satisfy `toBeVisible()`, but nothing in them can be clicked.
+ *
+ * Anything asserting on tool output in a persisted chat therefore has to do
+ * what a reader does first: open the turn.
+ */
+async function expandTurnActivity(window: Page): Promise<void> {
+  const collapsed = window.getByRole('button', { name: 'Show turn activity' })
+  for (let guard = 0; guard < 10; guard += 1) {
+    if ((await collapsed.count()) === 0) return
+    await collapsed.first().click()
+  }
+  throw new Error('turn activity panels never finished expanding')
+}
 
 /**
  * Smoke test: launch the built Electron app and verify the main window
@@ -36,6 +77,7 @@ test('app shell does not render nested buttons', async () => {
   try {
     const window = await app.firstWindow()
     await expect(window).toHaveTitle(/Anodex/)
+    await waitForStartup(window)
     await expect(window.locator('button button')).toHaveCount(0)
   } finally {
     await app.close()
@@ -49,6 +91,7 @@ test('GitHub settings exposes the guided hosted-MCP setup', async () => {
 
   try {
     const window = await app.firstWindow()
+    await waitForStartup(window)
     await window.getByRole('button', { name: 'Settings', exact: true }).click()
     await window.getByRole('button', { name: 'GitHub' }).click()
 
@@ -93,6 +136,7 @@ test('past user messages open the edit and regenerate review', async ({
       await anodex.conversations.setState({ activeConversationId: 'edit-message-test' })
     })
     await mainWindow.reload()
+    await waitForStartup(mainWindow)
 
     await mainWindow.getByRole('button', { name: 'Edit message', exact: true }).click()
     await expect(
@@ -220,11 +264,17 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
 
   try {
     const mainWindow = await app.firstWindow()
+    await waitForStartup(mainWindow)
+    await expandTurnActivity(mainWindow)
     const image = mainWindow.getByAltText('Visual inspection of page.html').last()
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
 
-    await mainWindow.getByRole('button', { name: 'Open Rendered page.html fullscreen' }).click()
+    const openFullscreen = mainWindow.getByRole('button', {
+      name: 'Open Rendered page.html fullscreen'
+    })
+    await openFullscreen.scrollIntoViewIfNeeded()
+    await openFullscreen.click()
     await expect(
       mainWindow.getByRole('dialog', { name: 'Fullscreen image: Rendered page.html' })
     ).toBeVisible()
@@ -260,6 +310,8 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
       await anodex.conversations.clearVisualPreviews()
     })
     await mainWindow.reload()
+    await waitForStartup(mainWindow)
+    await expandTurnActivity(mainWindow)
     await expect(mainWindow.getByRole('button', { name: 'Retry Rendered page.html' })).toBeVisible()
     await expect(
       mainWindow.getByRole('button', { name: 'Re-inspect page.html' }).last()
@@ -317,11 +369,13 @@ test('persisted uploaded images reopen inline in user messages', async () => {
 
   try {
     const mainWindow = await app.firstWindow()
+    await waitForStartup(mainWindow)
     const image = mainWindow.getByAltText('robot.png')
     await expect(image).toBeVisible()
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/)
 
     const openButton = mainWindow.getByRole('button', { name: 'Open robot.png fullscreen' })
+    await openButton.scrollIntoViewIfNeeded()
     await openButton.click()
     await expect(
       mainWindow.getByRole('dialog', { name: 'Fullscreen image: robot.png' })
@@ -354,6 +408,7 @@ test('visual preview storage reports usage and clears stored pixels', async () =
 
   try {
     const mainWindow = await app.firstWindow()
+    await waitForStartup(mainWindow)
     await mainWindow.getByRole('button', { name: 'Settings', exact: true }).click()
     await mainWindow.getByRole('button', { name: 'Tools', exact: true }).click()
 
@@ -372,6 +427,56 @@ test('visual preview storage reports usage and clears stored pixels', async () =
       ok: true,
       value: { totalBytes: 0, fileCount: 0, conversationCount: 0 }
     })
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('a running download stays clear of the settings close button', async ({
+  browserName: _browserName
+}, testInfo) => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-download-header-e2e-'))
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const mainWindow = await app.firstWindow()
+    await waitForStartup(mainWindow)
+    await mainWindow.getByRole('button', { name: 'Settings', exact: true }).click()
+
+    // Push progress down the real IPC channel rather than poking the store,
+    // so this exercises the path a download actually takes.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('models:download-progress', {
+        modelId: 'e2e/header-spacing',
+        receivedBytes: 3_221_225_472,
+        totalBytes: 4_294_967_296,
+        status: 'downloading'
+      })
+    })
+
+    const bar = mainWindow.getByRole('status', { name: /percent downloaded/ })
+    await expect(bar).toBeVisible()
+    await expect(bar).toHaveAttribute('aria-label', /75 percent downloaded/)
+
+    // The close button is absolutely positioned *over* the header, so the
+    // header cannot lay itself out around it. Without the reserved padding
+    // the two all but touch.
+    const barBox = await bar.boundingBox()
+    // The sidebar has its own "Close settings" control, so pin the corner one.
+    const closeBox = await mainWindow
+      .locator('button[aria-label="Close settings"][title="Close"]')
+      .boundingBox()
+    expect(barBox).not.toBeNull()
+    expect(closeBox).not.toBeNull()
+    const gap = (closeBox?.x ?? 0) - ((barBox?.x ?? 0) + (barBox?.width ?? 0))
+    expect(gap).toBeGreaterThanOrEqual(8)
+
+    // Let the modal's open transition settle so the attached image is legible.
+    await mainWindow.waitForTimeout(400)
+    await mainWindow.screenshot({ path: testInfo.outputPath('settings-download-header.png') })
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
