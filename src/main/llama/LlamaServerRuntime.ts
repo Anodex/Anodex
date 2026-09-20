@@ -8,11 +8,19 @@ import { app } from 'electron'
 import type { ModelLoadOptions } from '@shared/model.types'
 import { createLogger } from '../utils/logger'
 import { REASONING_BUDGET_MESSAGE, reasoningBudgetTokens } from './reasoningOverrun'
+import { summarizeServerStartup } from './serverStartupReport'
 
 const log = createLogger('llama:vision-runtime')
 const STARTUP_TIMEOUT_MS = 5 * 60_000
 const HEALTH_POLL_MS = 300
 const MAX_DIAGNOSTIC_CHARS = 16_000
+/**
+ * Cap on the separately kept startup transcript. Measured on the pinned binary
+ * at `-lv 4`, a load writes about 18,000 characters before the server listens;
+ * this leaves room for a larger model's longer one without letting a load that
+ * never completes grow the buffer without bound.
+ */
+const MAX_STARTUP_CHARS = 200_000
 /** Tokenizing is a local, CPU-only call; anything slower than this is a fault, not load. */
 const TOKENIZE_TIMEOUT_MS = 10_000
 /** Reading the model id happens after health has passed, so it should be immediate. */
@@ -46,6 +54,19 @@ export class LlamaServerRuntime {
   private child?: ChildProcessWithoutNullStreams
   private connection?: LlamaServerConnection
   private diagnosticOutput = ''
+  /**
+   * Everything the process wrote while it was still starting, kept apart from
+   * the rolling buffer above and released once it has been summarised.
+   *
+   * `diagnosticOutput` keeps only the last {@link MAX_DIAGNOSTIC_CHARS}, which
+   * is right for an error tail and wrong for a load report: at the verbosity
+   * that prints one, startup alone runs past that cap, so the earliest and most
+   * useful lines — the device llama.cpp found, the layers it offloaded — had
+   * already been pushed out by the time the server answered `/health`.
+   */
+  private startupOutput = ''
+  /** Whether {@link startupOutput} is still being filled. */
+  private capturingStartup = false
   private readonly expectedExits = new WeakSet<ChildProcessWithoutNullStreams>()
   /**
    * Details of the most recent process exit, captured whether or not it was
@@ -93,6 +114,17 @@ export class LlamaServerRuntime {
       '--parallel',
       String(parallelJobs),
       ...(parallelJobs > 1 ? ['--kv-unified'] : []),
+      // Verbose enough that llama.cpp prints how it actually placed the model —
+      // layers offloaded, KV cache size, the window it settled on. At the
+      // default verbosity of 3 none of those lines exist, so there was nothing
+      // for `summarizeServerStartup` to find and no way to tell a model running
+      // half on the CPU from one that fit. Level 5 is the next step up and
+      // dumps every tensor (2,816 lines against 221), so 4 is the whole of the
+      // useful range. Safe to pass unconditionally for the same reason
+      // `--reasoning-budget` is: the binary is the bundled, version-pinned one
+      // (`resolveLlamaServerBinary`), not whatever is on PATH.
+      '-lv',
+      '4',
       '--jinja',
       '--no-webui',
       '--n-gpu-layers',
@@ -126,6 +158,8 @@ export class LlamaServerRuntime {
           : 'LD_LIBRARY_PATH'
     const currentLibraryPath = process.env[libraryPathKey] ?? ''
     this.diagnosticOutput = ''
+    this.startupOutput = ''
+    this.capturingStartup = true
     const child = spawn(binaryPath, args, {
       cwd: binaryDir,
       windowsHide: true,
@@ -140,9 +174,14 @@ export class LlamaServerRuntime {
     this.child = child
 
     const recordOutput = (chunk: Buffer): void => {
-      this.diagnosticOutput = `${this.diagnosticOutput}${chunk.toString('utf8')}`.slice(
-        -MAX_DIAGNOSTIC_CHARS
-      )
+      const text = chunk.toString('utf8')
+      this.diagnosticOutput = `${this.diagnosticOutput}${text}`.slice(-MAX_DIAGNOSTIC_CHARS)
+      // Bounded too, just far more generously: a load that never finishes must
+      // not grow this without limit, and a report that has not appeared within
+      // this much output is not going to.
+      if (this.capturingStartup && this.startupOutput.length < MAX_STARTUP_CHARS) {
+        this.startupOutput += text
+      }
     }
     child.stdout.on('data', recordOutput)
     child.stderr.on('data', recordOutput)
@@ -187,6 +226,17 @@ export class LlamaServerRuntime {
       const modelId = await this.readModelId(baseUrl, apiKey)
       this.connection = { baseUrl, origin, apiKey, modelId }
       log.info('Local vision runtime ready on loopback.')
+      // llama.cpp's own account of the load — GPU found, layers offloaded, KV
+      // cache size, effective window. It was already being captured and then
+      // thrown away on success, which is the case where it is most useful: a
+      // model that quietly ran half on the CPU is otherwise indistinguishable
+      // in the log from one that fit. See `serverStartupReport.ts`.
+      const startupSummary = summarizeServerStartup(this.startupOutput)
+      if (startupSummary.length > 0) {
+        log.info('llama-server load report:', startupSummary.join('\n'))
+      }
+      this.capturingStartup = false
+      this.startupOutput = ''
       return this.connection
     } catch (error) {
       await this.stop()
@@ -205,6 +255,11 @@ export class LlamaServerRuntime {
   async stop(): Promise<void> {
     const child = this.child
     this.connection = undefined
+    // A start that never reached `ready` still has its capture open; the next
+    // one resets it, but a runtime that is simply stopped should not keep
+    // holding a transcript nothing will read.
+    this.capturingStartup = false
+    this.startupOutput = ''
     if (!child) return
 
     this.expectedExits.add(child)
