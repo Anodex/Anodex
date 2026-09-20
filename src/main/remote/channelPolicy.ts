@@ -36,6 +36,23 @@
  */
 export const DENIED_CHANNEL_PREFIXES = [
   /**
+   * Reading a reply aloud is a real feature for the phone, and this is not the
+   * pipe it arrives through.
+   *
+   * `voice:speak` answers with a finished wav. Half a minute of speech is about
+   * 1.4 MB of PCM before the JSON bridge base64s it — against a measured 369 KB
+   * for an entire reply today. A phone that pressed play would spend four times
+   * a whole conversation's data on one paragraph, over a transport built for
+   * text. The design already says where audio goes: binary frames on the same
+   * socket, negotiated as `voice.1`.
+   *
+   * So this is denied because the phone's play button is a different piece of
+   * work, not because a phone should not speak. When that work lands it goes
+   * through `voiceBridge`, and this line stays.
+   */
+  'voice:',
+
+  /**
    * Driving the mouse and keyboard is allowed; rewriting the connection is not.
    *
    * A phone that changes the port, the manual address, or turns the listener
@@ -218,6 +235,15 @@ export const ALLOWED_CHANNELS = [
  * of reading the reason under it.
  */
 export const DENIED_EVENT_PREFIXES = [
+  /**
+   * The other half of the voice refusal.
+   *
+   * `voice:progress` is addressed to the window that asked, so nothing sends it
+   * to a phone today. That is an accident of who called `speak`, not a rule —
+   * the same reasoning `terminal:` is here under.
+   */
+  'voice:',
+
   /**
    * The refusal on the request side is only half a refusal if the output arrives
    * anyway.

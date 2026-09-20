@@ -27,6 +27,20 @@ const log = createLogger('voice')
 /** One reply at a time. A second request replaces the first rather than queueing. */
 let current: { id: string; cancelled: boolean } | null = null
 
+/**
+ * Whether this window may offer to read anything.
+ *
+ * Both halves, and the first one is the half that was missing: `enabled` was
+ * reported to the renderer and then never consulted, so the switch that is
+ * supposed to turn voice off turned off only the phone bridge, and a machine
+ * that happened to hold the model got the button anyway. The rule was written
+ * in `voiceCapability` and quietly disagreed with here — which is the whole
+ * failure mode a flag is meant to prevent.
+ */
+function canSpeak(): boolean {
+  return voiceEnabled() && speechAvailable()
+}
+
 export function registerVoiceHandlers(): void {
   ipcMain.handle(IpcChannel.Voice.available, () => ({
     // Three separate things, and a caller that is told "no" deserves to know
@@ -34,12 +48,12 @@ export function registerVoiceHandlers(): void {
     // is missing from this build.
     enabled: voiceEnabled(),
     modelReady: voiceModelReady(),
-    ready: speechAvailable()
+    ready: canSpeak()
   }))
 
   ipcMain.handle(IpcChannel.Voice.speak, async (event, text: unknown) => {
     if (typeof text !== 'string' || !text.trim()) return null
-    if (!speechAvailable()) return null
+    if (!canSpeak()) return null
 
     const id = `${Date.now()}`
     current = { id, cancelled: false }
