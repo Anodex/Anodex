@@ -53,7 +53,7 @@ import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { allocateContextBudget, MAX_FIXED_INPUT_FRACTION } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
-import { environmentDateFromPrompt } from '@shared/prompts'
+import { environmentDateFromPrompt, type PromptSurface } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import {
@@ -192,6 +192,14 @@ export interface GenerateParams {
    * native KV state from an earlier phase with the same durable run id.
    */
   sessionMode?: 'conversation' | 'isolated'
+  /**
+   * Which surface this turn really is, already resolved by
+   * `resolvePromptSurface`. The llama-server transport reads it to decide
+   * whether the model deliberates before answering; see
+   * `LlamaVisionService`. Absent means `agent`, so every existing caller
+   * keeps the deliberating behaviour it had.
+   */
+  surface?: PromptSurface
   /**
    * Fraction of the history budget this generation's session rebuild may
    * replay verbatim; the rest is summarized by the Context Ledger compaction
