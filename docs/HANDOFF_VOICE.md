@@ -294,8 +294,20 @@ rather than discovered later.
 
 ### 9.1 Rules
 
-1. **One flag.** `voice.enabled`, default off, plus a build constant so the
-   subsystem can be compiled out. Every entry point tests the same flag.
+1. **One flag.** `voice.enabled`, default off. Every entry point tests the same
+   flag, through `voiceEnabled()`.
+
+   Built 2026-09-19. It was `ANODEX_VOICE=1` for stages 0 and 1, because a switch
+   in Settings that turns on a latency test is worse than no switch; it became a
+   setting the moment there was something to hear. The variable survives as an
+   override — `1` forces on, `0` forces off — which is how a test answers the
+   question without a settings file.
+
+   The lesson worth keeping: reporting the flag is not consulting it. The first
+   version of the read-aloud handlers sent `enabled` to the window and then
+   decided on `speechAvailable()`, so a machine holding the model got the feature
+   with the switch off. `voiceHandlers.test.ts` exists because of that.
+
 2. **All voice code lives in voice directories.** Desktop: `src/main/voice/**`,
    `src/renderer/**/voice/**`, `src/shared/voice.types.ts`, `resources/voice/**`,
    `scripts/prepare-voice.mjs`. Phone: `dev/anodex/mobile/voice/**` — the package
@@ -314,24 +326,38 @@ rather than discovered later.
 Every file outside the voice directories that changes, and what it gets. If this
 table grows past about a dozen rows, the design has gone wrong.
 
-| File                              | Change                                                                   | Undo                                    |
-| --------------------------------- | ------------------------------------------------------------------------ | --------------------------------------- |
-| `src/main/ipc/index.ts`           | one import, one guarded `registerVoiceHandlers()` (it would be the 35th) | delete two lines                        |
-| `src/shared/ipc.ts`               | a `Voice` channel group                                                  | delete the group                        |
-| `src/preload/index.ts`            | a `voice` namespace beside the existing ~34                              | delete the namespace                    |
-| `src/shared/chat.types.ts`        | optional `spoken?` on `ChatMessage`                                      | delete the field; old records ignore it |
-| `src/main/remote/protocol.ts`     | additive frame variants, `capabilities?` on hello/welcome                | delete the variants                     |
-| `src/main/remote/RemoteBridge.ts` | one binary branch before `parseClientFrame`                              | delete the branch                       |
-| `src/renderer/**` composer        | one mic button behind the flag                                           | delete the button                       |
-| `src/renderer/**` settings        | one section behind the flag                                              | delete the section                      |
-| `package.json`                    | `prepare:voice` script, mirroring `prepare:vision`                       | delete the script                       |
-| `protocol/anodex-protocol.json`   | regenerated                                                              | regenerate                              |
-| phone `AndroidManifest.xml`       | `RECORD_AUDIO`, one service                                              | delete both                             |
-| phone transport                   | one binary branch                                                        | delete the branch                       |
-| phone chat + settings UI          | one button, one toggle                                                   | delete both                             |
+| File                               | Change                                                                   | Undo                                    |
+| ---------------------------------- | ------------------------------------------------------------------------ | --------------------------------------- |
+| `src/main/ipc/index.ts`            | one import, one guarded `registerVoiceHandlers()` (it would be the 35th) | delete two lines                        |
+| `src/shared/ipc.ts`                | a `Voice` channel group                                                  | delete the group                        |
+| `src/preload/index.ts`             | a `voice` namespace beside the existing ~34                              | delete the namespace                    |
+| `src/shared/chat.types.ts`         | optional `spoken?` on `ChatMessage`                                      | delete the field; old records ignore it |
+| `src/main/remote/protocol.ts`      | additive frame variants, `capabilities?` on hello/welcome                | delete the variants                     |
+| `src/main/remote/RemoteBridge.ts`  | one binary branch before `parseClientFrame`                              | delete the branch                       |
+| `src/renderer/**` composer         | one mic button behind the flag                                           | delete the button                       |
+| `MessageBubble.tsx`                | one `<ReadAloudButton>`, which renders nothing when voice is off         | delete the element and the import       |
+| `SettingsView.tsx`                 | one nav item, one `<VoiceSettings />`                                    | delete two lines                        |
+| `stores/uiStore.ts`                | `'voice'` in the settings-section union                                  | delete the line                         |
+| `src/shared/settings.types.ts`     | `VoiceSettings`, one `voice` key                                         | delete both                             |
+| `src/shared/settings.defaults.ts`  | one `voice` default                                                      | delete it                               |
+| `src/main/remote/channelPolicy.ts` | `voice:` denied, request and event                                       | delete two entries                      |
+| `package.json`                     | `prepare:voice` script, mirroring `prepare:vision`                       | delete the script                       |
+| `protocol/anodex-protocol.json`    | regenerated                                                              | regenerate                              |
+| phone `AndroidManifest.xml`        | `RECORD_AUDIO`, one service                                              | delete both                             |
+| phone transport                    | one binary branch                                                        | delete the branch                       |
+| phone chat + settings UI           | one button, one toggle                                                   | delete both                             |
 
-`channelPolicy.ts` needs nothing: it is a denylist, and voice channels are meant to
-be reachable from the phone.
+**Corrected 2026-09-19.** This section used to say `channelPolicy.ts` needs
+nothing, because it is a denylist and voice channels are meant to reach the
+phone. The reach test disagreed the moment the channels existed, and it was
+right: `voice:speak` answers with a finished wav — about 1.4 MB for half a minute
+of speech, against a measured 369 KB for an entire reply. Sending that down the
+JSON bridge would spend four conversations' worth of somebody's data on one
+paragraph.
+
+So `voice:` is denied on both the request and event side. The phone still gets to
+speak; it gets there over the binary frames §4 already specifies, which is what
+`voice.1` was negotiated for. The deny lines stay after that work lands.
 
 ### 9.3 Data leaves nothing behind
 

@@ -1,0 +1,40 @@
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.bar {
+  height: 6px;
+  overflow: hidden;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-fast);
+}
+
+.progressText {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.installed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.installedText {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}

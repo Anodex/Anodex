@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const handlers = new Map<string, (...args: unknown[]) => unknown>()
 
 vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => [] },
   ipcMain: {
     handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler)
@@ -31,6 +32,7 @@ const speak = vi.fn(() => Promise.resolve([]))
 vi.mock('../Speaker', () => ({
   speechAvailable: () => speechAvailable(),
   voiceModelReady: () => true,
+  voiceModelPaths: () => ({ model: '/voice/model.gguf', projector: '/voice/mmproj.gguf' }),
   speak: (...args: unknown[]) => speak(...(args as [])),
   silencePcm: () => Buffer.alloc(0),
   wavHeader: () => Buffer.alloc(44)

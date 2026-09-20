@@ -8632,6 +8632,69 @@
       }
     },
     {
+      "channel": "voice:cancel-download",
+      "kind": "invoke",
+      "api": "voice.cancelDownload",
+      "args": [],
+      "result": {
+        "kind": "boolean"
+      }
+    },
+    {
+      "channel": "voice:download",
+      "kind": "invoke",
+      "api": "voice.download",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "voice:download-progress",
+      "kind": "event",
+      "servedBy": "push",
+      "args": [],
+      "payload": {
+        "$ref": "VoiceModelProgress"
+      }
+    },
+    {
       "channel": "voice:progress",
       "kind": "event",
       "servedBy": "push",
@@ -8658,6 +8721,51 @@
             }
           }
         }
+      }
+    },
+    {
+      "channel": "voice:remove-model",
+      "kind": "invoke",
+      "api": "voice.removeModel",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -10253,6 +10361,12 @@
           "type": {
             "$ref": "EmailSettings"
           }
+        },
+        "voice": {
+          "optional": false,
+          "type": {
+            "$ref": "VoiceSettings"
+          }
         }
       }
     },
@@ -10272,7 +10386,7 @@
             "note": "not transferable"
           }
         },
-        "__@toStringTag@1048": {
+        "__@toStringTag@1054": {
           "optional": false,
           "type": {
             "kind": "literal",
@@ -25605,6 +25719,23 @@
         }
       }
     },
+    "VoiceModelProgress": {
+      "kind": "object",
+      "properties": {
+        "receivedBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "totalBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      }
+    },
     "VoiceReadiness": {
       "kind": "object",
       "properties": {
@@ -25621,6 +25752,35 @@
           }
         },
         "ready": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "modelBytes": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "modelBytesPresent": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "downloading": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      }
+    },
+    "VoiceSettings": {
+      "kind": "object",
+      "properties": {
+        "enabled": {
           "optional": false,
           "type": {
             "kind": "boolean"
