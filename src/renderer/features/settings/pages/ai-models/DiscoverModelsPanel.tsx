@@ -2,8 +2,9 @@ import { reasonFor } from '@shared/result'
 import { useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { ModelInfo } from '@shared/model.types'
-import { recommendedModelFileName, type RecommendedModel } from '@shared/recommendedModels'
+import { recommendedModelFileName } from '@shared/recommendedModels'
 import { anodex } from '../../../../lib/anodex'
+import { useDiscoverStore } from './discoverStore'
 import { useModelStore } from '../../../../stores/modelStore'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
@@ -32,10 +33,15 @@ export function DiscoverModelsPanel({
 }: {
   installedModels: ModelInfo[]
 }): JSX.Element {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<RecommendedModel[] | null>(null)
+  // Query and results live in a store, not here: this panel unmounts
+  // whenever the settings nav moves, and it used to take a running
+  // download's only card with it. See `discoverStore`.
+  const query = useDiscoverStore((s) => s.query)
+  const setQuery = useDiscoverStore((s) => s.setQuery)
+  const results = useDiscoverStore((s) => s.results)
+  const error = useDiscoverStore((s) => s.error)
+  const setOutcome = useDiscoverStore((s) => s.setOutcome)
   const [searching, setSearching] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const downloads = useModelStore((s) => s.downloads)
   const downloadModel = useModelStore((s) => s.downloadModel)
@@ -49,15 +55,10 @@ export function DiscoverModelsPanel({
     const trimmed = query.trim()
     if (!trimmed || searching) return
     setSearching(true)
-    setError(null)
     const result = await anodex.models.discover(trimmed)
     setSearching(false)
-    if (result.ok) {
-      setResults(result.value)
-    } else {
-      setResults([])
-      setError(reasonFor(result.error))
-    }
+    if (result.ok) setOutcome(result.value, null)
+    else setOutcome([], reasonFor(result.error))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
