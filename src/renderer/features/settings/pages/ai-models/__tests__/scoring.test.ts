@@ -11,7 +11,8 @@ import {
   bytesToGb,
   freshnessAdjustment,
   mergeCatalogs,
-  reliabilityScoreForRecommended
+  reliabilityScoreForRecommended,
+  scoreRecommendedModel
 } from '../scoring'
 
 const GB = 1024 ** 3
@@ -501,9 +502,16 @@ describe('how much a model’s age is worth', () => {
   it('is worth something new, and counts against something old', () => {
     expect(freshnessAdjustment({ publishedAt: monthsAgo(1) } as RecommendedModel, now)).toBe(8)
     expect(freshnessAdjustment({ publishedAt: monthsAgo(10) } as RecommendedModel, now)).toBe(3)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(-3)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-8)
-    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-14)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(15) } as RecommendedModel, now)).toBe(-8)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(21) } as RecommendedModel, now)).toBe(-14)
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(30) } as RecommendedModel, now)).toBe(-20)
+  })
+
+  it('still lets being new count for less than being good', () => {
+    // The reward side is deliberately unchanged: a brand-new model of unknown
+    // worth gains +8, which a hand-rated entry can out-earn on quality alone.
+    // Only the penalty for being a generation behind got heavier.
+    expect(freshnessAdjustment({ publishedAt: monthsAgo(0) } as RecommendedModel, now)).toBe(8)
   })
 
   it('leaves a model with no date, or a date it cannot read, exactly where it was', () => {
@@ -537,5 +545,47 @@ describe('how much a model’s age is worth', () => {
     ).find((slot) => slot.id === 'overall')
 
     expect(best?.model.id).toBe('hf:current-32b')
+  })
+
+  /**
+   * Both entries here are live Hugging Face results, and both are real: these
+   * are the two the strip actually chose between on the reporting machine, with
+   * their real ages and download counts.
+   *
+   * The older one won, and its whole margin was a duplicated inference —
+   * `toRecommendedModel` derives `tags` from `primaryUse`, so "Coder" in a
+   * repository name was paid for twice, +12, which is more than a year of age
+   * is worth on the other side of the score.
+   */
+  it('does not hand "best overall" to last year’s coder over this year’s flagship', () => {
+    const now2026 = Date.parse('2026-09-20T00:00:00Z')
+    const hw = hardware({ ramBytes: 64 * GB, vramBytes: 24 * GB, gpu: 'Radeon RX 7900 XTX' })
+    const base = RECOMMENDED_MODELS.find((model) => model.id === 'qwen2.5-coder-32b-q4')!
+    const liveEntry = (
+      id: string,
+      name: string,
+      ageDays: number,
+      downloads: number,
+      coding: boolean
+    ): RecommendedModel => ({
+      ...base,
+      id,
+      name,
+      publishedAt: new Date(now2026 - ageDays * 86_400_000).toISOString(),
+      qualityRank: undefined,
+      speedRank: undefined,
+      source: 'huggingface',
+      primaryUse: coding ? 'coding' : 'general',
+      tags: coding ? ['coding'] : ['general'],
+      downloadUrl: `https://huggingface.co/x/${id}/resolve/main/${id}.gguf`,
+      hfDownloads: downloads
+    })
+
+    const lastYearsCoder = liveEntry('coder-30b', 'Coder 30B', 416, 12_697_785, true)
+    const thisYearsFlagship = liveEntry('flagship-27b', 'Flagship 27B', 38, 6_941_478, false)
+
+    expect(scoreRecommendedModel(thisYearsFlagship, hw, now2026)).toBeGreaterThan(
+      scoreRecommendedModel(lastYearsCoder, hw, now2026)
+    )
   })
 })
