@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelDownloadProgress, ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
-import type { ModelRecommendation } from '@shared/modelRecommendation'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import {
-  RECOMMENDED_MODELS,
   recommendedModelFileName,
   type ModelFamily,
   type RecommendedModel
@@ -16,20 +14,18 @@ import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { ModelLogo } from '../../../../components/ModelLogo'
 import { Spinner } from '../../../../components/ui/Spinner'
-import { basename, buildRecommendedSlots, mergeCatalogs } from './scoring'
+import { basename, buildRecommendedSlots } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
 /** The 5 best local-model picks for this hardware — Best Overall/Coding/Agent/Fastest/Large Context. */
 export function RecommendedModelStrip({
   hardware,
   loading,
-  recommendation,
   installedModels,
   reliability
 }: {
   hardware: HardwareInfo | null
   loading: boolean
-  recommendation: ModelRecommendation | null
   installedModels: ModelInfo[]
   reliability: Map<string, ModelReliabilityRecord>
 }): JSX.Element {
@@ -39,9 +35,9 @@ export function RecommendedModelStrip({
 
   // Auto-populated from Hugging Face on mount (not a manual search, like
   // `DiscoverModelsPanel` — this strip is meant to always reflect current
-  // models without the user asking). Failure or an offline machine just
-  // leaves the static catalog as the only source, so this never blocks or
-  // breaks the recommendation strip.
+  // models without the user asking). A failed fetch falls back to the last
+  // list that arrived, kept on disk; with no network and no cache there is
+  // nothing honest to show, since every model here has to be downloaded.
   const [liveModels, setLiveModels] = useState<RecommendedModel[]>([])
   const [liveState, setLiveState] = useState<'loading' | 'live' | 'offline'>('loading')
   useEffect(() => {
@@ -60,11 +56,9 @@ export function RecommendedModelStrip({
     }
   }, [])
 
-  const catalog = useMemo(() => mergeCatalogs(RECOMMENDED_MODELS, liveModels), [liveModels])
   const slots = useMemo(
-    () =>
-      buildRecommendedSlots(hardware, recommendation, { installedModels, reliability }, catalog),
-    [hardware, recommendation, installedModels, reliability, catalog]
+    () => buildRecommendedSlots(hardware, { installedModels, reliability }, liveModels),
+    [hardware, installedModels, reliability, liveModels]
   )
   const localFileNames = useMemo(
     () => new Set(installedModels.map((model) => basename(model.path).toLowerCase())),
@@ -79,7 +73,7 @@ export function RecommendedModelStrip({
           <h2 className={styles.sectionTitle}>Best local models for this computer</h2>
           <p className={styles.sectionDesc}>
             {liveState === 'offline'
-              ? 'Could not reach Hugging Face, so these are Anodex’s built-in suggestions. They may be a generation behind — reopen this page once you are online for current picks.'
+              ? 'Could not reach Hugging Face. Downloading a model needs a connection anyway, so reopen this page once you are online.'
               : 'Picked from what is currently popular on Hugging Face and fits this computer, so a new model generation shows up here without waiting for an Anodex update.'}
           </p>
         </div>
@@ -94,8 +88,9 @@ export function RecommendedModelStrip({
         <div className={styles.hardwareLoading}>
           <Icon name="cpu" size={16} />
           <span>
-            No model in the built-in catalog fits this computer safely. Add a smaller GGUF only if
-            you know it is suitable for this hardware.
+            {liveState === 'live'
+              ? 'Nothing currently popular on Hugging Face fits this computer safely. Add a smaller GGUF only if you know it suits this hardware.'
+              : 'No suggestions yet — Anodex reads the current model list from Hugging Face, and downloading one needs a connection. You can still load a GGUF you already have.'}
           </span>
         </div>
       ) : (

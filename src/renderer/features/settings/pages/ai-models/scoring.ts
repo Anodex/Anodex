@@ -1,9 +1,8 @@
 import type { ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
-import { RECOMMENDED_MODELS, recommendedModelFileName } from '@shared/recommendedModels'
-import type { ModelRecommendation } from '@shared/modelRecommendation'
-import { contextSizeFor, isModelHardwareCompatible } from '@shared/modelRecommendation'
+import { recommendedModelFileName } from '@shared/recommendedModels'
+import { contextSizeFor, isModelHardwareCompatible, pickTier } from '@shared/modelRecommendation'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { computeReliabilityScore } from '@shared/modelReliability.types'
 
@@ -136,15 +135,31 @@ export function scoreHardwareProfile(hardware: HardwareInfo): number {
   return clampScore(Math.round(14 + coreScore + ramScore + vramScore + gpuBonus + unifiedBonus))
 }
 
+/**
+ * One line describing what this machine is good for.
+ *
+ * The target size comes from `pickTier`, the same ladder the recommendation
+ * itself uses. It used to be a second, hand-written ladder with its own
+ * thresholds, and the two disagreed: on a 63 GB machine with a 24 GB card
+ * this panel read "best target: 14B Q4 or 7B Q4" — it wanted 64 GB for the
+ * top rung — directly above a card recommending a 32B model. Two ladders for
+ * one question is one ladder too many.
+ */
 export function hardwareFitLabel(hardware: HardwareInfo): string {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  if (ramGb >= 64 && (hardware.unifiedMemory || vramGb >= 16))
-    return 'Excellent local AI fit · best target: 32B Q4 models'
-  if (ramGb >= 32) return 'Strong local AI fit · best target: 14B Q4 or 7B Q4 models'
-  if (ramGb >= 16) return 'Good local AI fit · best target: 7B Q4 models'
-  if (ramGb >= 8) return 'Modest local AI fit · best target: 3B Q4 models'
-  return 'Limited local AI fit · use small 1B models'
+  const tier = pickTier(ramGb, hardware.unifiedMemory || vramGb >= 4)
+  if (!tier) return 'Limited local AI fit · below what a local model needs'
+
+  const quality =
+    tier === '70b' || tier === '32b'
+      ? 'Excellent'
+      : tier === '14b'
+        ? 'Strong'
+        : tier === '7b'
+          ? 'Good'
+          : 'Modest'
+  return `${quality} local AI fit · best target: ${tier.toUpperCase()} Q4 models`
 }
 
 /**
@@ -349,26 +364,6 @@ export function freshnessAdjustment(model: RecommendedModel, now: number = Date.
   return -20
 }
 
-/**
- * Merges the hand-vetted static catalog with a live Hugging Face pool for the
- * "Recommended for your PC" strip. The static list wins on a filename
- * collision (kept first) since it carries hand-verified `qualityRank`/
- * `speedRank`/`supportsTools` data a live entry can only estimate — so if a
- * live-discovered repo turns out to be the exact same downloadable file as an
- * already-curated entry, this doesn't show it twice with conflicting trust
- * levels.
- */
-export function mergeCatalogs(
-  staticCatalog: RecommendedModel[],
-  liveCatalog: RecommendedModel[]
-): RecommendedModel[] {
-  const seen = new Set(staticCatalog.map((model) => recommendedModelFileName(model).toLowerCase()))
-  const uniqueLive = liveCatalog.filter(
-    (model) => !seen.has(recommendedModelFileName(model).toLowerCase())
-  )
-  return [...staticCatalog, ...uniqueLive]
-}
-
 export interface AgentReliabilityContext {
   installedModels: ModelInfo[]
   reliability: Map<string, ModelReliabilityRecord>
@@ -376,14 +371,12 @@ export interface AgentReliabilityContext {
 
 export function buildRecommendedSlots(
   hardware: HardwareInfo | null,
-  recommendation: ModelRecommendation | null,
-  agentContext?: AgentReliabilityContext,
-  // Defaults to the static catalog alone so every existing caller/test
-  // keeps working unchanged. The real UI passes the static catalog merged
-  // with live Hugging Face results (see `RecommendedModelStrip.tsx`), so a
-  // new model generation can outrank a stale hand-picked entry without an
-  // Anodex code change.
-  catalog: RecommendedModel[] = RECOMMENDED_MODELS,
+  agentContext: AgentReliabilityContext | undefined,
+  // Required, and always the live Hugging Face pool. There used to be a
+  // hand-written catalog defaulted in here; it is gone, because a list of
+  // models to download helps nobody who cannot reach the network to download
+  // them, and every entry in it aged into a worse answer than no answer.
+  catalog: RecommendedModel[],
   // Today, so a test can pin one: what Anodex recommends now depends on how old
   // each model is, and a test that reads the clock changes its mind as the
   // calendar moves under it.
@@ -405,22 +398,7 @@ export function buildRecommendedSlots(
         )
       : pool
 
-  /**
-   * Live Hugging Face results are the recommendation; the built-in list is the
-   * fallback for when they cannot be fetched.
-   *
-   * They used to compete, and the built-in list won twice over: `bestOverall`
-   * pinned whatever `recommendModel` chose, and that reads the hardcoded
-   * catalog alone, so a live model could never take the top card. Live entries
-   * also leave `qualityRank`/`speedRank` unset — honest, since nobody has
-   * measured them — which scores as neutral against a hand-ranked entry. The
-   * result was a machine that could comfortably run current models being told
-   * to download a generation-old one.
-   */
-  const live = eligible(allCandidates.filter((model) => model.source === 'huggingface'))
-  const builtIn = eligible(allCandidates.filter((model) => model.source !== 'huggingface'))
-  const usingLive = live.length > 0
-  const candidates = usingLive ? live : builtIn
+  const candidates = eligible(allCandidates)
   if (candidates.length === 0) return []
   const scored = candidates
     .map((model) => ({ model, score: scoreRecommendedModel(model, hardware, now) }))
@@ -466,16 +444,9 @@ export function buildRecommendedSlots(
     'overall',
     'Best Overall',
     'Best balance of quality, speed, and fit for this computer.',
-    () => {
-      // The hardware recommender only knows the built-in catalog, so its pick
-      // is honoured only when that catalog is what is being shown. Against
-      // live results it would pin a stale model over every current one.
-      const preferred =
-        !usingLive && recommendation
-          ? candidates.find((model) => model.id === recommendation.modelId)
-          : undefined
-      return preferred ? [preferred, ...byScore] : byScore
-    }
+    // `recommendation` names a size class, not a model, so there is nothing
+    // here to pin: the best-scoring candidate for this machine is the answer.
+    () => byScore
   )
 
   const bestCoding = take(
@@ -568,8 +539,8 @@ export function buildRecommendedSlots(
       return [...scored]
         .sort((a, b) => {
           const contextDiff =
-            contextSizeFor(b.model, ramGbForContext, effectiveVramGb) -
-            contextSizeFor(a.model, ramGbForContext, effectiveVramGb)
+            contextSizeFor(b.model.tier, ramGbForContext, effectiveVramGb) -
+            contextSizeFor(a.model.tier, ramGbForContext, effectiveVramGb)
           return contextDiff !== 0 ? contextDiff : b.score - a.score
         })
         .map((entry) => entry.model)
