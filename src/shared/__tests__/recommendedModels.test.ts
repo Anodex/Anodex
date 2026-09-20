@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
-  RECOMMENDED_MODELS,
   inferModelFamily,
   recommendedModelFileName,
   recommendedVisionProjectorFileName
 } from '../recommendedModels'
+import { CATALOG_FIXTURE } from './fixtures/catalog'
 
 describe('recommendedModelFileName', () => {
   it('extracts the filename from the download URL', () => {
-    const model = RECOMMENDED_MODELS.find((m) => m.id === 'qwen2.5-coder-3b-q4')!
+    const model = CATALOG_FIXTURE.find((m) => m.id === 'qwen2.5-coder-3b-q4')!
     expect(recommendedModelFileName(model)).toBe('qwen2.5-coder-3b-instruct-q4_k_m.gguf')
   })
 
   it('extracts a distinct filename for every recommended model', () => {
-    const names = RECOMMENDED_MODELS.map(recommendedModelFileName)
+    const names = CATALOG_FIXTURE.map(recommendedModelFileName)
     expect(new Set(names).size).toBe(names.length)
     for (const name of names) expect(name.toLowerCase().endsWith('.gguf')).toBe(true)
   })
@@ -38,7 +38,7 @@ describe('recommendedModelFileName', () => {
 describe('recommendedVisionProjectorFileName', () => {
   it('strips directory traversal from a supplied projector filename', () => {
     const model = {
-      ...RECOMMENDED_MODELS[0],
+      ...CATALOG_FIXTURE[0],
       visionProjectorUrl: 'https://example.com/mmproj-F16.gguf',
       visionProjectorFileName: '..\\outside.gguf'
     }
@@ -47,20 +47,13 @@ describe('recommendedVisionProjectorFileName', () => {
   })
 })
 
-describe('catalog diversity', () => {
-  it('includes more than one model family, not just Qwen', () => {
-    const families = new Set(RECOMMENDED_MODELS.map((m) => m.family))
-    expect(families.size).toBeGreaterThan(1)
-    expect(families.has('qwen')).toBe(true)
-  })
-
-  it('gives every catalog entry a real, known family (never "other")', () => {
-    for (const model of RECOMMENDED_MODELS) {
-      expect(model.family).not.toBe('other')
-    }
-  })
-})
-
+/**
+ * The "catalog diversity" cases that were here asserted that Anodex's own
+ * twelve-model list covered more than one family. There is no such list any
+ * more — the pool comes from Hugging Face at runtime — so the property they
+ * guarded now belongs to `buildRecommendedSlots`, which will not give two
+ * slots to the same family. That is covered in `scoring.test.ts`.
+ */
 describe('inferModelFamily', () => {
   it('detects each known family from a filename, case-insensitively', () => {
     expect(inferModelFamily('Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf')).toBe('qwen')

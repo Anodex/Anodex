@@ -20,7 +20,6 @@ import type {
 import { estimateTier } from '../models/huggingFaceCatalog'
 import { listGpuDevices, resolveGpuMemory } from './gpuDevices'
 import { contextSizeFor } from '@shared/modelRecommendation'
-import type { RecommendedModel } from '@shared/recommendedModels'
 import type {
   EngineState,
   ModelInfo,
@@ -2611,11 +2610,7 @@ class LlamaService extends EventEmitter {
       const probe = await this.getHardwareProbe()
       const ramGb = totalmem() / 1024 ** 3
       const vramGb = probe.unified ? 0 : (probe.vramBytes ?? 0) / 1024 ** 3
-      return contextSizeFor(
-        { tier: estimateTier(info.sizeBytes) } as RecommendedModel,
-        ramGb,
-        vramGb
-      )
+      return contextSizeFor(estimateTier(info.sizeBytes), ramGb, vramGb)
     } catch {
       return undefined
     }

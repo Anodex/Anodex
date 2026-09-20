@@ -3,7 +3,6 @@ import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { ModelSettings } from '@shared/settings.types'
-import { recommendModel } from '@shared/modelRecommendation'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
 import { describeWorkingRoom } from '@shared/workingRoom'
 import { contextSizeUpdate } from './contextSizeUpdate'
@@ -156,14 +155,6 @@ export function AiModelsSettings(): JSX.Element {
     null
   )
   const [recommendingFile, setRecommendingFile] = useState(false)
-
-  const recommendation = hardware
-    ? recommendModel({
-        ramBytes: hardware.ramBytes,
-        vramBytes: hardware.vramBytes,
-        unified: hardware.unifiedMemory
-      })
-    : null
 
   const filteredModels = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -431,7 +422,6 @@ export function AiModelsSettings(): JSX.Element {
           <RecommendedModelStrip
             hardware={hardware}
             loading={loadingHardware}
-            recommendation={recommendation}
             installedModels={models}
             reliability={reliabilityByModelId}
           />

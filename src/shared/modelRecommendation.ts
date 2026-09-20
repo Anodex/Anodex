@@ -1,12 +1,19 @@
-import { RECOMMENDED_MODELS, type ModelTier, type RecommendedModel } from './recommendedModels'
+import { type ModelTier, type RecommendedModel } from './recommendedModels'
+import { tierMemory } from './modelMemory'
 
 /**
- * Maps detected hardware to a recommended model + runtime settings.
+ * Maps detected hardware to the size of model it should run, and the runtime
+ * settings that follow from it.
  *
  * Pure and dependency-free so it can run in either process and be unit-tested.
- * The catalog is the source of truth for hard RAM eligibility. Scoring then
- * decides which compatible model is the best default for Anodex's local-first
- * coding workflow.
+ *
+ * This used to pick a named model out of a hand-written catalog. That catalog
+ * is gone: a list of models to download is useless to a machine with no
+ * network, which is the only situation it existed for, and it went stale the
+ * moment it was written. What was left once the names were removed is the
+ * part that was doing the work anyway — a ladder of size classes matched
+ * against memory. Which *model* to offer is a separate question, answered
+ * from the live catalog by `buildRecommendedSlots`.
  */
 
 export interface HardwareProfile {
@@ -20,8 +27,6 @@ export interface HardwareProfile {
 
 export interface ModelRecommendation {
   tier: ModelTier
-  modelId: string
-  modelName: string
   contextSize: number
   gpuLayers: 'auto'
   /** Human-readable explanation shown in the UI. */
@@ -42,15 +47,6 @@ const DEFAULT_CONTEXT_SIZE = 4096
  * more than the old ceiling allowed them to ask for. */
 const CONTEXT_CEILING = 1048576
 
-const TIER_WEIGHT: Record<ModelTier, number> = {
-  '1b': 1,
-  '3b': 3,
-  '7b': 7,
-  '14b': 14,
-  '32b': 32,
-  '70b': 70
-}
-
 /**
  * Context size (tokens) per selected model, scaled by how much memory
  * headroom is left after the model itself — RAM plus, when a dedicated GPU
@@ -62,19 +58,16 @@ const TIER_WEIGHT: Record<ModelTier, number> = {
  * unified memory it's already reflected in `ramGb`, so adding it again would
  * double-count the same physical memory).
  *
- * Only the 14B/32B/70B bucket scales past 16,384: `scoreModel` below always
- * prefers the strongest coding-capable tier once RAM allows it, so 7B/3B/1B
- * get displaced by a larger tier long before RAM would ever reach their own
- * 32k/64k+ territory — those branches would be unreachable dead code. The
- * top bucket has no larger tier to lose to (the catalog's only 70B entry is
- * a general-chat model that `scoreModel`'s coding bonuses always rank below
- * 32B — see `buildRationale`'s "coding-first" framing), so it's the one
- * tier that persists as the ceiling no matter how much RAM is available.
+ * Only the 14B/32B/70B bucket scales past 16,384: `pickTier` always takes the
+ * largest tier the machine runs comfortably, so 7B/3B/1B get displaced long
+ * before RAM would ever reach their own 32k/64k territory — those branches
+ * would be unreachable. The top bucket has no larger tier to lose to, so it
+ * is the one that persists as the ceiling however much memory there is.
  */
-export function contextSizeFor(model: RecommendedModel, ramGb: number, vramGb = 0): number {
+export function contextSizeFor(tier: ModelTier, ramGb: number, vramGb = 0): number {
   const usableGb = Math.max(0, ramGb - RESERVED_GB) + Math.max(0, vramGb - RESERVED_VRAM_GB)
 
-  switch (model.tier) {
+  switch (tier) {
     case '70b':
     case '32b':
     case '14b':
@@ -123,17 +116,15 @@ export function recommendModel(hardware: HardwareProfile): ModelRecommendation |
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
   const hasDedicatedGpu = !hardware.unified && vramGb >= 4
 
-  const model = pickBestModel(ramGb, vramGb, hasDedicatedGpu, hardware.unified)
-  if (!model) return null
-  const contextSize = contextSizeFor(model, ramGb, hasDedicatedGpu ? vramGb : 0)
+  const tier = pickTier(ramGb, hasDedicatedGpu || hardware.unified)
+  if (!tier) return null
+  const contextSize = contextSizeFor(tier, ramGb, hasDedicatedGpu ? vramGb : 0)
 
   return {
-    tier: model.tier,
-    modelId: model.id,
-    modelName: model.name,
+    tier,
     contextSize,
     gpuLayers: 'auto',
-    rationale: buildRationale(ramGb, vramGb, hasDedicatedGpu, model, contextSize)
+    rationale: buildRationale(ramGb, vramGb, hasDedicatedGpu, tier, contextSize)
   }
 }
 
@@ -141,83 +132,61 @@ function bytesToGb(bytes: number): number {
   return Math.max(0, bytes / GB)
 }
 
-function pickBestModel(
-  ramGb: number,
-  vramGb: number,
-  hasDedicatedGpu: boolean,
-  unified: boolean
-): RecommendedModel | null {
-  const candidates = RECOMMENDED_MODELS.filter(
-    (model) =>
-      model.recommended !== false &&
-      isModelHardwareCompatible(model, {
-        ramBytes: ramGb * GB,
-        vramBytes: vramGb ? vramGb * GB : null,
-        unified
-      })
+/** Smallest first, so a search from the top finds the strongest that fits. */
+const TIER_LADDER: ModelTier[] = ['1b', '3b', '7b', '14b', '32b', '70b']
+
+/**
+ * The largest size class this machine can hold.
+ *
+ * `minRamGb` is already a comfort floor rather than a bare file size — the
+ * model, llama.cpp's own buffers, and three gigabytes for the operating
+ * system — so meeting it means the thing runs, and the largest rung that
+ * runs is the best answer to "what should this computer use".
+ *
+ * Comfort deliberately does *not* gate the choice, only the wording. Using
+ * `idealRamGb` as a ceiling was the first version of this and it was wrong in
+ * a way worth recording: at 7 GB the 1B rung became comfortable while the 3B
+ * rung still only fitted, so the recommendation stepped *down* from 3B to 1B
+ * as the machine got bigger. Any rule where a stricter test for a smaller
+ * rung can outrank a looser one for a larger rung has that shape. So the
+ * ladder is monotonic by construction and `buildRationale` says "fits, but
+ * only just" when the ideal is not met.
+ *
+ * The 70B rung needs graphics memory of some kind. A seventy-billion
+ * parameter model on CPU alone technically loads on a large enough machine
+ * and produces a couple of tokens a second, which is not a recommendation.
+ */
+export function pickTier(ramGb: number, hasGpuMemory: boolean): ModelTier | null {
+  const fits = TIER_LADDER.filter(
+    (tier) => (tier !== '70b' || hasGpuMemory) && ramGb >= tierMemory(tier).minRamGb
   )
-
-  if (candidates.length === 0) return null
-
-  return candidates.reduce((best, model) => {
-    return scoreModel(model, ramGb, vramGb, hasDedicatedGpu) >
-      scoreModel(best, ramGb, vramGb, hasDedicatedGpu)
-      ? model
-      : best
-  }, candidates[0])
-}
-
-function scoreModel(
-  model: RecommendedModel,
-  ramGb: number,
-  vramGb: number,
-  hasDedicatedGpu: boolean
-): number {
-  const quality = model.qualityRank ?? TIER_WEIGHT[model.tier]
-  const speed = model.speedRank ?? 3
-  const headroomGb = Math.max(0, ramGb - model.minRamGb)
-  const idealHeadroom = model.idealRamGb ? Math.min(1, ramGb / model.idealRamGb) : 1
-
-  let score = quality * 12 + speed * 3 + Math.min(headroomGb, 24) + idealHeadroom * 10
-
-  if (model.primaryUse === 'coding' || model.primaryUse === 'agentic-coding') score += 42
-  if (model.tags.includes('coding')) score += 20
-  if (model.supportsTools) score += 16
-  if (model.stable !== false) score += 8
-
-  if (model.requiresGpuRecommended && !hasDedicatedGpu) score -= 45
-  if (model.minVramGb && hasDedicatedGpu && vramGb >= model.minVramGb) score += 14
-  if (model.minVramGb && hasDedicatedGpu && vramGb < model.minVramGb) score -= 10
-
-  // Large CPU-only models may technically load, but they make a poor default
-  // coding experience because every edit/verify loop feels slow.
-  if (!hasDedicatedGpu && TIER_WEIGHT[model.tier] >= 32) score -= 12
-  if (!hasDedicatedGpu && TIER_WEIGHT[model.tier] >= 70) score -= 36
-
-  return score
+  return fits.length > 0 ? fits[fits.length - 1] : null
 }
 
 function buildRationale(
   ramGb: number,
   vramGb: number,
   hasDedicatedGpu: boolean,
-  model: RecommendedModel,
+  tier: ModelTier,
   contextSize: number
 ): string {
   const roundedRamGb = Math.round(ramGb)
   const gpu = hasDedicatedGpu ? ` and ${Math.round(vramGb)} GB VRAM` : ''
-  const purpose = model.primaryUse === 'general' ? 'general chat' : 'coding'
-  const context = `${contextSize.toLocaleString()}-token context`
+  // "a context of N tokens" rather than "a N-token context", which reads as
+  // "a 8,192-token context" for every size whose leading digit is spoken
+  // with "an".
+  const context = `a context of ${contextSize.toLocaleString()} tokens`
+  const { idealRamGb } = tierMemory(tier)
 
-  if (ramGb < model.minRamGb) {
+  if (ramGb < idealRamGb) {
     return (
-      `Detected ${roundedRamGb} GB RAM${gpu}. ${model.name} is the smallest local model in the catalog, ` +
-      `but this computer is below the recommended ${model.minRamGb} GB RAM minimum, so performance may be limited.`
+      `Detected ${roundedRamGb} GB RAM${gpu}. ${tier.toUpperCase()} models fit, but only just — ` +
+      `${idealRamGb} GB is where one runs comfortably, so expect ${context} and modest speed.`
     )
   }
 
   return (
-    `Detected ${roundedRamGb} GB RAM${gpu}. Anodex recommends ${model.name} for ${purpose} ` +
-    `because it is the strongest compatible model expected to run comfortably here at a ${context}.`
+    `Detected ${roundedRamGb} GB RAM${gpu}. Anodex suggests ${tier.toUpperCase()} models, ` +
+    `the largest size this computer runs comfortably, with ${context}.`
   )
 }
