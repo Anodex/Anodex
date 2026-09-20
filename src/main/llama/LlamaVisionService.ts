@@ -30,6 +30,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { promptProgressOf } from './promptProgress'
+import { describeRoundTimings, roundTimingsOf, type RoundTimings } from './roundTimings'
 import {
   minimumViableOutputTokens,
   needsBoundedWriteHeadroom,
@@ -61,7 +62,7 @@ import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
 import { basename } from 'node:path'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
-import type { PromptPrefixStore } from './promptWarmup'
+import type { PromptPrefix, PromptPrefixStore } from './promptWarmup'
 import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
 import { ToolGuidanceError } from '../tools/ToolGuidanceError'
@@ -323,26 +324,34 @@ export class LlamaVisionService {
   }
 
   /**
-   * Read the start of the last request before anybody asks anything.
+   * Read the start of the recent requests before anybody asks anything.
    *
-   * Sends the system prompt and tool definitions last used with this model, asking
-   * for a single token, so llama-server has them in its prompt cache. The first real
-   * message then reads only its own words. With more than one parallel job, every
-   * slot is warmed, since a message may land on any of them.
+   * Sends the system prompt and tool definitions recently used with this model,
+   * asking for a single token each, so llama-server has them in its prompt
+   * cache. The first real message then reads only its own words.
+   *
+   * With more than one slot the slots are given *different* prefixes rather
+   * than the same one repeated. Repeating it was the older behaviour and it
+   * warmed the same surface twice while leaving the other one cold: a plain
+   * chat and a project run share almost nothing, so after a project run the
+   * first "Hello" in a chat read all 4,785 of its own tokens — 6,817 ms
+   * measured, against 90 ms once the prefix is cached. When only one prefix is
+   * on record every slot still gets it, which is the old behaviour exactly.
    *
    * Never throws: a failed warm-up costs one slow first message, nothing more.
    */
   async warmUp(modelPath: string, slots = 1): Promise<boolean> {
     const connection = this.runtime.activeConnection
-    const prefix = this.promptPrefixes?.load(modelPath)
-    if (!connection || !prefix) return false
+    const slotCount = Math.max(1, slots)
+    const prefixes = this.promptPrefixes?.loadRecent(modelPath, slotCount) ?? []
+    if (!connection || prefixes.length === 0) return false
     const client = new OpenAI({
       apiKey: connection.apiKey,
       baseURL: connection.baseUrl,
       timeout: 5 * 60_000,
       maxRetries: 0
     })
-    const warm = (): Promise<unknown> =>
+    const warm = (prefix: PromptPrefix): Promise<unknown> =>
       client.chat.completions.create({
         model: connection.modelId,
         messages: repairLoneSurrogatesDeep([prefix.system, { role: 'user', content: '.' }]),
@@ -352,10 +361,19 @@ export class LlamaVisionService {
         max_tokens: 1,
         stream: false
       })
+    // One request per slot, each taking the next prefix and wrapping round when
+    // there are fewer prefixes than slots — a slot left unwarmed is a slot the
+    // next message may land on cold.
+    const perSlot = Array.from({ length: slotCount }, (_, i) => prefixes[i % prefixes.length])
     try {
       const started = Date.now()
-      await Promise.all(Array.from({ length: Math.max(1, slots) }, warm))
-      log.info('Prompt cache warmed', { modelPath, slots, ms: Date.now() - started })
+      await Promise.all(perSlot.map(warm))
+      log.info('Prompt cache warmed', {
+        modelPath,
+        slots: slotCount,
+        prefixes: prefixes.length,
+        ms: Date.now() - started
+      })
       return true
     } catch (error) {
       log.warn('Prompt cache warm-up failed:', error)
@@ -727,6 +745,8 @@ export class LlamaVisionService {
       let reportedPromptTokens: number | undefined
       // llama-server sometimes sends its reasoning-budget note as reply text.
       const visibleText = createBudgetMessageFilter()
+      /** llama-server's own timing for this round — see `roundTimings.ts`. */
+      let roundTimings: RoundTimings | null = null
       try {
         const stream = await client.chat.completions.create(
           {
@@ -755,6 +775,7 @@ export class LlamaVisionService {
         for await (const chunk of stream) {
           const reading = promptProgressOf(chunk)
           if (reading) params.onPromptProgress?.(reading)
+          roundTimings = roundTimingsOf(chunk) ?? roundTimings
           if (chunk.usage?.completion_tokens) outputTokens += chunk.usage.completion_tokens
           if (typeof chunk.usage?.prompt_tokens === 'number' && chunk.usage.prompt_tokens > 0) {
             reportedPromptTokens = chunk.usage.prompt_tokens
@@ -792,6 +813,19 @@ export class LlamaVisionService {
         if (heldBack) {
           roundContent += heldBack
           params.onToken(heldBack)
+        }
+        // What the round actually cost, from llama-server rather than from a
+        // stopwatch around it. On this transport a round's wait is dominated
+        // by whether the prompt was already in the server's cache — a 4,785
+        // token chat request measured 6,817 ms cold against 90 ms warm — and
+        // until this line the log recorded the prompt's size but never which
+        // of those two had just happened. See `roundTimings.ts`.
+        if (roundTimings) {
+          log.info('Vision round timings', {
+            round,
+            roundMs: Date.now() - roundStartedAt,
+            ...describeRoundTimings(roundTimings)
+          })
         }
       } catch (error) {
         roundContent += visibleText.flush()
