@@ -109,6 +109,30 @@ describe('PromptPrefixStore', () => {
     expect(store.loadRecent('C:/models/qwen.gguf', 3)).toEqual([chatPrefix, prefix])
   })
 
+  /**
+   * `enable_thinking` changes the rendered prompt, so the same system prompt
+   * and tools warmed one way does not warm the other. Measured: a chat turn
+   * came back 0% cached and read all 2,783 of its tokens, having been warmed
+   * seconds earlier under the other rendering.
+   */
+  it('keeps the two thinking modes as separate prefixes', () => {
+    const { store } = storeIn()
+    store.save({ ...prefix, thinkingDisabled: true })
+    store.save({ ...prefix, thinkingDisabled: false })
+
+    const kept = store.loadRecent('C:/models/qwen.gguf', 5)
+    expect(kept).toHaveLength(2)
+    expect(kept.map((entry) => entry.thinkingDisabled)).toEqual([false, true])
+  })
+
+  it('still treats an identical prefix as the same one', () => {
+    const { store } = storeIn()
+    store.save({ ...prefix, thinkingDisabled: true })
+    store.save({ ...prefix, thinkingDisabled: true })
+
+    expect(store.loadRecent('C:/models/qwen.gguf', 5)).toHaveLength(1)
+  })
+
   it('asked for nothing, returns nothing', () => {
     const { store } = storeIn()
     store.save(prefix)

@@ -368,9 +368,24 @@ export class LlamaVisionService {
         tool_choice: prefix.tools ? 'auto' : undefined,
         parallel_tool_calls: false,
         max_tokens: 1,
-        stream: false
+        stream: false,
+        // Must match the real request's rendering. `enable_thinking` changes
+        // the rendered prompt, so warming one form and sending the other
+        // warms nothing — measured as a 0% hit on a turn warmed seconds
+        // earlier.
+        ...(prefix.thinkingDisabled
+          ? ({ chat_template_kwargs: { enable_thinking: false } } as unknown as Record<
+              string,
+              never
+            >)
+          : {})
       })
-      log.info('Prompt cache warmed', { modelPath, prefix: index, ms: Date.now() - started })
+      log.info('Prompt cache warmed', {
+        modelPath,
+        prefix: index,
+        thinkingDisabled: prefix.thinkingDisabled ?? false,
+        ms: Date.now() - started
+      })
       return true
     } catch (error) {
       log.warn('Prompt cache warm-up failed:', error)
@@ -738,10 +753,35 @@ export class LlamaVisionService {
       // stale-parse branch below, where that is the difference between a
       // runtime fault and a genuine truncation.
       const runtimeOutputBefore = this.runtime.recentOutput()
+      /**
+       * A plain chat answers without deliberating first.
+       *
+       * This model's template opens every assistant turn with `<think>`, so
+       * even "Hello" paid for a chain of thought. Measured on Qwen3.8-27B
+       * across three sets — five ordinary questions, five reasoning traps
+       * (bat-and-ball, 100-days-from-Wednesday and friends) and four
+       * tool-calling cases run three times each:
+       *
+       * - the reasoning traps were answered correctly 5/5 either way, 30-85%
+       *   faster without thinking
+       * - tool calls fired 12/12 either way, so nothing was traded for it
+       * - the prose answers were equivalent or better
+       *
+       * Scoped to the chat surface deliberately. An agent run, a project turn
+       * and Critical Thinking all keep their deliberation: that is where this
+       * project's own measurements say reasoning earns its keep, and none of
+       * it was tested here.
+       */
+      const thinkingDisabled = params.surface === 'chat'
       // Remembered for the next load's warm-up: the unchanging start of the request.
       const currentModelPath = this.getCurrentModel?.()?.path
       if (currentModelPath && messages[0]?.role === 'system') {
-        this.promptPrefixes?.save({ modelPath: currentModelPath, system: messages[0], tools })
+        this.promptPrefixes?.save({
+          modelPath: currentModelPath,
+          system: messages[0],
+          tools,
+          thinkingDisabled
+        })
       }
       const pendingCalls = new Map<number, PendingToolCall>()
       let reportedPromptTokens: number | undefined
@@ -769,7 +809,12 @@ export class LlamaVisionService {
             // A llama.cpp extension, serialised through untouched: stream how far the
             // prompt has been read, so a long read can be shown rather than looking
             // like nothing is happening.
-            ...({ return_progress: true } as unknown as Record<string, never>)
+            ...({ return_progress: true } as unknown as Record<string, never>),
+            ...(thinkingDisabled
+              ? ({
+                  chat_template_kwargs: { enable_thinking: false }
+                } as unknown as Record<string, never>)
+              : {})
           },
           { signal: params.signal }
         )

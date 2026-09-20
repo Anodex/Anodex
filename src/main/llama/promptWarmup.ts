@@ -19,6 +19,16 @@ export interface PromptPrefix {
   modelPath: string
   system: ChatCompletionMessageParam
   tools?: ChatCompletionTool[]
+  /**
+   * Whether the request this came from suppressed the model's thinking.
+   *
+   * It belongs here because it changes the rendered prompt: warming the
+   * deliberating form and then sending the suppressed one is a different
+   * prompt, and the cache misses. Measured exactly that way — a chat turn
+   * came back 0% cached and read all 2,783 of its tokens, having been
+   * warmed moments earlier.
+   */
+  thinkingDisabled?: boolean
 }
 
 /**
@@ -52,7 +62,12 @@ interface PrefixFile {
 
 /** Two prefixes are the same warm-up if they would render the same tokens. */
 function signature(prefix: PromptPrefix): string {
-  return JSON.stringify([prefix.modelPath, prefix.system, prefix.tools ?? null])
+  return JSON.stringify([
+    prefix.modelPath,
+    prefix.system,
+    prefix.tools ?? null,
+    prefix.thinkingDisabled ?? false
+  ])
 }
 
 function isPrefix(candidate: unknown): candidate is PromptPrefix {
