@@ -42,6 +42,7 @@ import {
   appendTurnContext,
   composeCacheablePrompt,
   composeSystemPrompt,
+  resolvePromptSurface,
   type PromptSurface,
   withTurnContext
 } from '@shared/prompts'
@@ -884,6 +885,9 @@ export async function runGeneration(
         )
       ],
       sessionMode: io.sessionMode,
+      // Resolved once, by the same rule the prompt uses, so the transport
+      // and the system prompt can never disagree about what this turn is.
+      surface: resolvePromptSurface(io.surface, Boolean(activeProject)),
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
       // Local replay uses the bounded Context Ledger recall window.

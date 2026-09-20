@@ -5,7 +5,8 @@ import {
   COMPACT_CHAT_PROMPT,
   COMPACT_CODING_AGENT_PROMPT,
   composeSystemPrompt,
-  coreAgentPrompt
+  coreAgentPrompt,
+  resolvePromptSurface
 } from '../prompts'
 
 /**
@@ -205,5 +206,47 @@ describe('prompt surface selection', () => {
     it('is materially shorter in its compact form', () => {
       expect(COMPACT_CHAT_PROMPT.length).toBeLessThan(CHAT_PROMPT.length * 0.6)
     })
+  })
+})
+
+/**
+ * The same answer the system prompt turns on, now also read by the local
+ * transport to decide whether the model deliberates before replying. Two
+ * copies of this rule would be one too many, so there is one function and
+ * this pins what it says.
+ */
+describe('resolvePromptSurface', () => {
+  it('is a chat only when the caller asked for one and no project is open', () => {
+    expect(resolvePromptSurface('chat', false)).toBe('chat')
+  })
+
+  it('is an agent turn the moment a project is open, whatever the caller said', () => {
+    // Opening a project is what puts the mutating tools on the table, and
+    // that is the thing being decided — not a preference.
+    expect(resolvePromptSurface('chat', true)).toBe('agent')
+  })
+
+  it('leaves an agent caller alone', () => {
+    expect(resolvePromptSurface('agent', false)).toBe('agent')
+    expect(resolvePromptSurface('agent', true)).toBe('agent')
+  })
+
+  it('treats an unstated surface as agent, so older callers are unaffected', () => {
+    expect(resolvePromptSurface(undefined, false)).toBe('agent')
+    expect(resolvePromptSurface(undefined, true)).toBe('agent')
+  })
+
+  it('agrees with the prompt it is derived from', () => {
+    // If these ever disagree, the model is told it is one thing and run as
+    // another.
+    const parts = { hasWorkspaceTools: false, contextWindowTokens: 32_768 }
+    expect(composeSystemPrompt({ ...parts, surface: 'chat', hasProject: false })).toContain(
+      CHAT_PROMPT
+    )
+    expect(resolvePromptSurface('chat', false)).toBe('chat')
+    expect(composeSystemPrompt({ ...parts, surface: 'chat', hasProject: true })).toContain(
+      CODING_AGENT_PROMPT
+    )
+    expect(resolvePromptSurface('chat', true)).toBe('agent')
   })
 })
