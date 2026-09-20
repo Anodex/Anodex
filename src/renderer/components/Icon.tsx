@@ -31,6 +31,8 @@ export type IconName =
   | 'sliders'
   | 'keyboard'
   | 'activity'
+  | 'speaker'
+  | 'pause'
   | 'monitor'
   | 'smartphone'
   | 'chevron-down'
@@ -255,6 +257,27 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M2 7.5A2.5 2.5 0 0 1 4.5 5H16l6 5.5v6A2.5 2.5 0 0 1 19.5 19h-15A2.5 2.5 0 0 1 2 16.5v-9z" />
       <path d="M6 10h8" strokeDasharray="2.5 3" strokeLinecap="butt" />
       <path d="M8 14.5h8" />
+    </>
+  ),
+  /* A cone with two arcs: reading a reply aloud.
+
+     Deliberately not a microphone. A microphone means the computer is listening,
+     which is the opposite errand, and the two are confused constantly — the fix
+     is to never draw them alike. */
+  speaker: (
+    <>
+      <path d="M4 9h3.5L12 5v14l-4.5-4H4z" />
+      <path d="M15.5 8.8a4.2 4.2 0 0 1 0 6.4" />
+      <path d="M18.2 6a7.8 7.8 0 0 1 0 12" />
+    </>
+  ),
+  /* Two bars, the only thing pause has ever looked like. Deliberately not a
+     crossed-out speaker, which was tried and read as "muted" — the difference
+     between stopping the reading and silencing the app matters at 12px. */
+  pause: (
+    <>
+      <rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
+      <rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
     </>
   ),
   /* A trace that ends in a filled head, borrowing the comet the app already uses

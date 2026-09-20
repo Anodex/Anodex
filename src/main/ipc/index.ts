@@ -22,6 +22,7 @@ import { registerStatsHandlers } from './stats.handlers'
 import { registerDiagnosticsHandlers } from './diagnostics.handlers'
 import { registerMemoryHandlers } from './memory.handlers'
 import { registerSkillHandlers } from './skill.handlers'
+import { registerVoiceHandlers } from '../voice/voice.handlers' // voice:seam
 import { registerChangeHandlers } from './change.handlers'
 import { registerCheckpointHandlers } from './checkpoint.handlers'
 import { registerTerminalHandlers } from './terminal.handlers'
@@ -71,6 +72,7 @@ export function registerIpcHandlers(): void {
   registerDiagnosticsHandlers()
   registerMemoryHandlers()
   registerSkillHandlers()
+  registerVoiceHandlers() // voice:seam
   registerChangeHandlers()
   registerCheckpointHandlers()
   registerTerminalHandlers()
