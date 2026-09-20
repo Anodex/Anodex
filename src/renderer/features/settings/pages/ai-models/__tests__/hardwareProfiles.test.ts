@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { pickTier } from '@shared/modelRecommendation'
+import { gpuMemoryGb } from '@shared/modelMemory'
 import {
   buildRecommendedSlots,
   fastMemoryGb,
@@ -169,7 +170,10 @@ describe('one ladder, not two', () => {
     // the recommendation directly beneath it: a 63GB machine with a 24GB card
     // read "best target: 14B Q4 or 7B Q4" above a card offering a 32B.
     const label = hardwareFitLabel(hw)
-    const tier = pickTier(hw.ramBytes / GB, hw.unifiedMemory || (hw.vramBytes ?? 0) / GB >= 4)
+    const tier = pickTier(
+      hw.ramBytes / GB,
+      gpuMemoryGb(hw.ramBytes / GB, (hw.vramBytes ?? 0) / GB, hw.unifiedMemory)
+    )
     expect(tier).not.toBeNull()
     expect(label).toContain(tier!.toUpperCase())
   })
