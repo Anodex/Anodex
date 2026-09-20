@@ -22,6 +22,17 @@ interface ModelState {
   /** In-progress/most-recent download per `RecommendedModel.id`. */
   downloads: Record<string, ModelDownloadProgress>
   /**
+   * What each downloading model is called, by the same key as `downloads`.
+   *
+   * `ModelDownloadProgress` crosses IPC carrying only an id, which is all a
+   * card needs — the card already knows the model it is drawing. Anything that
+   * reports downloads *without* a card in front of it has nothing to name them
+   * with, and a progress bar labelled `hf:unsloth/Qwen3.8-27B-GGUF` is not a
+   * label. Recorded here when the download starts, where the whole model is in
+   * hand, rather than widened into the IPC payload for one consumer.
+   */
+  downloadNames: Record<string, string>
+  /**
    * Set when the previous run died loading a model. While it is set, nothing
    * auto-loads — the whole point is to break the crash loop and let the user
    * choose.
@@ -63,6 +74,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   engine: INITIAL_ENGINE,
   pendingPath: null,
   downloads: {},
+  downloadNames: {},
   loadRecovery: null,
 
   refresh: async () => {
@@ -187,7 +199,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       downloads: {
         ...s.downloads,
         [model.id]: { modelId: model.id, receivedBytes: 0, totalBytes: null, status: 'downloading' }
-      }
+      },
+      downloadNames: { ...s.downloadNames, [model.id]: model.name }
     }))
 
     /**
