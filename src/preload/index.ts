@@ -1,11 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
-import {
-  IpcChannel,
-  type AnodexApi,
-  type ContextMenuRequest,
-  type VoiceModelDownload,
-  type VoiceProgress
-} from '@shared/ipc'
+import { IpcChannel, type AnodexApi, type ContextMenuRequest } from '@shared/ipc'
 import type { EngineState, ModelDownloadProgress } from '@shared/model.types'
 import type {
   ChatStreamChunk,
@@ -102,31 +96,6 @@ const api: AnodexApi = {
     onConfirmRequest: (listener) =>
       subscribe<ToolConfirmRequest>(IpcChannel.Tools.confirmRequest, listener),
     onConfirmCancelled: (listener) => subscribe<string>(IpcChannel.Tools.confirmCancelled, listener)
-  },
-  // voice:seam
-  voice: {
-    available: () => ipcRenderer.invoke(IpcChannel.Voice.available),
-    speak: (text) => ipcRenderer.invoke(IpcChannel.Voice.speak, text),
-    stop: () => ipcRenderer.invoke(IpcChannel.Voice.stop),
-    onProgress: (listener) => {
-      const handler = (_event: IpcRendererEvent, progress: VoiceProgress): void =>
-        listener(progress)
-      ipcRenderer.on(IpcChannel.Voice.progress, handler)
-      return () => {
-        ipcRenderer.removeListener(IpcChannel.Voice.progress, handler)
-      }
-    },
-    download: () => ipcRenderer.invoke(IpcChannel.Voice.download),
-    cancelDownload: () => ipcRenderer.invoke(IpcChannel.Voice.cancelDownload),
-    removeModel: () => ipcRenderer.invoke(IpcChannel.Voice.removeModel),
-    onDownloadProgress: (listener) => {
-      const handler = (_event: IpcRendererEvent, progress: VoiceModelDownload): void =>
-        listener(progress)
-      ipcRenderer.on(IpcChannel.Voice.downloadProgress, handler)
-      return () => {
-        ipcRenderer.removeListener(IpcChannel.Voice.downloadProgress, handler)
-      }
-    }
   },
   skills: {
     list: (projectId) => ipcRenderer.invoke(IpcChannel.Skills.list, projectId),

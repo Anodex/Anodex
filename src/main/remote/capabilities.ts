@@ -32,8 +32,6 @@
  * whole connection.
  */
 
-import { VOICE_CAPABILITY, voiceEnabled } from '../voice/voiceCapability' // voice:seam
-
 /**
  * The most capabilities that will be read from one handshake.
  *
@@ -57,9 +55,6 @@ const MAX_CAPABILITY_LENGTH = 64
  */
 export function desktopCapabilities(): readonly string[] {
   const announced: string[] = []
-  // voice:seam — the one line that puts voice on the wire. Removing voice is
-  // removing this line; nothing else here knows the feature exists.
-  if (voiceEnabled()) announced.push(VOICE_CAPABILITY)
   return announced
 }
 
