@@ -94,8 +94,19 @@ export type PairingOutcome =
  * Short because it is displayed on screen and its whole job is to be used within
  * seconds of being shown. A code that lives for an hour is an hour-long window in
  * which a photograph of the user's screen is a working credential.
+ *
+ * Three minutes rather than two, because two was not enough for the slower of
+ * the two ways to pair. Scanning the QR takes seconds and never came close;
+ * typing the address, port and code by hand on a phone keyboard, then checking
+ * a ten-group fingerprint character by character, overran it. Failing there
+ * costs the whole sequence, since the next code needs re-reading and
+ * re-typing too.
+ *
+ * The extra minute is a real if small widening of that photograph window, and
+ * it buys the manual path roughly double the slack it had. Anything longer
+ * would be buying convenience nobody asked for with a credential's lifetime.
  */
-export const PAIRING_WINDOW_MS = 2 * 60 * 1000
+export const PAIRING_WINDOW_MS = 3 * 60 * 1000
 
 /**
  * Failed attempts tolerated before pairing locks out.
