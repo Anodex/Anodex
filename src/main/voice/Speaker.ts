@@ -5,6 +5,8 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createLogger } from '../utils/logger'
 import { planSpeech, type SpeechChunk } from './speechPlan'
+import { planSpeechLoad, type SpeechLoad } from './speechLoad'
+import { toSpokenForm } from './spokenForm'
 
 const log = createLogger('voice')
 
@@ -72,26 +74,27 @@ export interface SpeakOptions {
   onChunk?: (chunk: SpokenChunk, index: number, total: number) => void
   /** Checked between chunks: a reply nobody is listening to should stop being made. */
   cancelled?: () => boolean
-  /** How many sentences to generate at once. See {@link DEFAULT_CONCURRENCY}. */
+  /** How many sentences to generate at once. Overrides the plan's own figure. */
   concurrency?: number
+  /** Where to run, for a caller that has already decided. See `speechLoad`. */
+  load?: SpeechLoad
 }
 
 /**
- * How many sentences are generated at the same time.
+ * How many sentences are generated at the same time, with nothing else running.
  *
- * Measured: every call spends about **2.1 seconds** starting the process and
- * loading a 1.8 GB model, and then generates at two to three times realtime. So a
- * three-sentence reply paid that toll three times and took 12.9 seconds to make
- * 9.2 seconds of audio — slower than it plays, which would have made streaming
- * pointless.
+ * Every call spends about 2.3 seconds starting a process and loading a 2.3 GB
+ * model before it generates anything, and the toll is per process, so
+ * overlapping them hides it behind work that was happening anyway. Two rather
+ * than more because each holds its own copy on the GPU: three took 169 s and
+ * four took 102 s against 36 s at two, on the same twelve sentences.
  *
- * The toll is per process, and the processes are independent, so overlapping them
- * hides it behind work that was happening anyway.
- *
- * Two rather than more, because each one holds its own copy of the model on the
- * GPU and the chat model is already there. Two is roughly 4.6 GB, which fits
- * beside a 27B at Q4 on a 24 GB card; three might not, and a voice that makes
- * chat fail is a bad trade.
+ * **This is the free-machine figure and it is no longer the only one.** When the
+ * chat model is on the GPU, queuing behind it is the worst thing Arc can do —
+ * `speechLoad` measures that case and moves to the CPU, where four at a time is
+ * right. That comment used to end "a voice that makes chat fail is a bad trade",
+ * which was the correct instinct aimed one step short: the trade is not just
+ * risky, it is slower for the voice too.
  */
 export const DEFAULT_CONCURRENCY = 2
 
@@ -203,7 +206,7 @@ export function silencePcm(ms: number): Buffer {
   return Buffer.alloc(Math.round((SPEECH_RATE * ms) / 1000) * 2)
 }
 
-async function generate(text: string, into: string): Promise<Buffer> {
+async function generate(text: string, into: string, gpuLayers: number): Promise<Buffer> {
   const { model, projector } = voiceModelPaths()
   const args = [
     '-m',
@@ -217,7 +220,7 @@ async function generate(text: string, into: string): Promise<Buffer> {
     '--tts-speaker-file',
     referenceClipPath(),
     '-ngl',
-    '99',
+    String(gpuLayers),
     '-o',
     into
   ]
@@ -241,8 +244,13 @@ async function generate(text: string, into: string): Promise<Buffer> {
  * wants a file uses the second, and neither has to know about the other.
  */
 export async function speak(text: string, options: SpeakOptions = {}): Promise<SpokenChunk[]> {
-  const plan = planSpeech(text)
+  // Markup is removed before the text is split, not after: a reply's asterisks
+  // and brackets cost more in generation time than the words around them, and a
+  // chunk boundary drawn through markdown is drawn in the wrong place anyway.
+  const plan = planSpeech(toSpokenForm(text))
   if (plan.length === 0) return []
+
+  const load = options.load ?? planSpeechLoad()
 
   const scratch = join(app.getPath('temp'), `anodex-voice-${process.pid}`)
   await mkdir(scratch, { recursive: true })
@@ -253,11 +261,14 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<S
   // Started ahead, delivered in order. Generation overlaps; the caller still
   // hears sentence two after sentence one, because audio that arrives out of
   // order is worse than audio that arrives late.
-  const width = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY)
+  const width = Math.max(1, options.concurrency ?? load.concurrency)
   const inFlight = new Map<number, Promise<Buffer>>()
   const start = (index: number): void => {
     if (index >= plan.length || inFlight.has(index)) return
-    inFlight.set(index, generate(plan[index].text, join(scratch, `chunk-${index}.wav`)))
+    inFlight.set(
+      index,
+      generate(plan[index].text, join(scratch, `chunk-${index}.wav`), load.gpuLayers)
+    )
   }
 
   try {
@@ -291,7 +302,8 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<S
   const seconds = spoken.reduce((total, c) => total + c.pcm.length / 2 / SPEECH_RATE, 0)
   log.info(
     `spoke ${seconds.toFixed(1)}s in ${spoken.length} chunks, ` +
-      `took ${((Date.now() - startedAt) / 1000).toFixed(1)}s`
+      `took ${((Date.now() - startedAt) / 1000).toFixed(1)}s ` +
+      `(${load.reason}, ${width} at a time, ngl ${load.gpuLayers})`
   )
   return spoken
 }
