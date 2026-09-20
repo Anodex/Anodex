@@ -684,8 +684,20 @@ export class RemoteService {
             : 'recovered the remote identity this phone paired with — pairings work again'
         )
         log.warn(
-          'the identity in use until now could not be read this launch; it is kept on disk ' +
-            'in case a later launch can read it'
+          choice.movedBecause === 'not-the-paired-one'
+            ? 'the identity in use until now was readable but was not the one any paired ' +
+                'device pinned; it is kept on disk'
+            : 'the identity in use until now could not be read this launch; it is kept on disk ' +
+                'in case a later launch can read it'
+        )
+      }
+      // Readable, served, and still not what the phone is expecting — there is
+      // nothing better on disk. Said out loud, because the alternative is a
+      // phone that refuses to connect for no stated reason.
+      if (choice.outcome === 'current' && choice.breaksPairing) {
+        log.warn(
+          'the remote identity being served is not the one any paired device pinned, and the ' +
+            'one they did pin cannot be read on this profile — pair again from this computer'
         )
       }
 
