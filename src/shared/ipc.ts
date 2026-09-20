@@ -334,6 +334,17 @@ export const IpcChannel = {
      */
     confirmCancelled: 'tools:confirm-cancelled'
   },
+  /** voice:seam — reading a reply aloud. See `src/main/voice/Speaker.ts`. */
+  Voice: {
+    /** Whether this build can speak, and if not, which part is missing. */
+    available: 'voice:available',
+    /** Text in, a complete wav back. Slower than playback, so not a stream. */
+    speak: 'voice:speak',
+    /** Stop after the sentence being generated. */
+    stop: 'voice:stop',
+    /** Pushed while a reply is being read: which sentence, of how many. */
+    progress: 'voice:progress'
+  },
   Skills: {
     list: 'skills:list',
     read: 'skills:read',
@@ -802,7 +813,31 @@ export interface ContextMenuRequest {
  * The typed API exposed to the renderer as `window.anodex`.
  * Each `on*` method returns an unsubscribe function.
  */
+export interface VoiceReadiness {
+  /** The feature is switched on for this build. */
+  enabled: boolean
+  /** The voice model has been fetched. */
+  modelReady: boolean
+  /** Everything needed is present, so a reply can actually be read aloud. */
+  ready: boolean
+}
+
+export interface VoiceProgress {
+  id: string
+  /** 1-based, so it reads as "2 of 5" without arithmetic at the call site. */
+  index: number
+  total: number
+}
+
 export interface AnodexApi {
+  /** voice:seam */
+  voice: {
+    available(): Promise<VoiceReadiness>
+    /** Resolves null when voice is unavailable, cancelled, or there was nothing to say. */
+    speak(text: string): Promise<ArrayBuffer | null>
+    stop(): Promise<boolean>
+    onProgress(listener: (progress: VoiceProgress) => void): () => void
+  }
   models: {
     list(): Promise<Result<ModelInfo[]>>
     /** Opens a file picker for a `.gguf` file; resolves `null` if cancelled. */
