@@ -430,6 +430,25 @@ export const COMPACT_PROMPT_MAX_CONTEXT_TOKENS = 24_000
  */
 export type PromptSurface = 'chat' | 'agent'
 
+/**
+ * Which surface a turn really is, as opposed to which one asked for it.
+ *
+ * A chat stops being a chat the moment a Project is open: that is precisely
+ * when the mutating tools appear, and the workspace is where coding belongs.
+ * Derived from capability rather than from a mode setting, so the prompt can
+ * never advertise something the turn cannot actually do.
+ *
+ * Exported because more than the prompt turns on this now — the local
+ * transport decides whether to let the model deliberate from the same
+ * answer, and two copies of the rule would be one rule too many.
+ */
+export function resolvePromptSurface(
+  surface: PromptSurface | undefined,
+  hasProject: boolean
+): PromptSurface {
+  return surface === 'chat' && !hasProject ? 'chat' : 'agent'
+}
+
 export function coreAgentPrompt(
   contextWindowTokens: number | undefined,
   surface: PromptSurface = 'agent'
@@ -613,7 +632,7 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   // when the mutating tools appear, and the workspace is where coding belongs.
   // Deriving it from capability rather than from a mode setting means the
   // prompt can never advertise something the turn cannot actually do.
-  const surface: PromptSurface = parts.surface === 'chat' && !parts.hasProject ? 'chat' : 'agent'
+  const surface = resolvePromptSurface(parts.surface, parts.hasProject)
   const core = coreAgentPrompt(parts.contextWindowTokens, surface)
   const compact = core === COMPACT_CODING_AGENT_PROMPT || core === COMPACT_CHAT_PROMPT
   const sections: string[] = [core]

@@ -18,8 +18,8 @@ import type {
   LlamaChatResponseFunctionCallParamsChunk
 } from 'node-llama-cpp'
 import { estimateTier } from '../models/huggingFaceCatalog'
+import { listGpuDevices, resolveGpuMemory } from './gpuDevices'
 import { contextSizeFor } from '@shared/modelRecommendation'
-import type { RecommendedModel } from '@shared/recommendedModels'
 import type {
   EngineState,
   ModelInfo,
@@ -52,7 +52,7 @@ import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { allocateContextBudget, MAX_FIXED_INPUT_FRACTION } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
-import { environmentDateFromPrompt } from '@shared/prompts'
+import { environmentDateFromPrompt, type PromptSurface } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import {
@@ -191,6 +191,14 @@ export interface GenerateParams {
    * native KV state from an earlier phase with the same durable run id.
    */
   sessionMode?: 'conversation' | 'isolated'
+  /**
+   * Which surface this turn really is, already resolved by
+   * `resolvePromptSurface`. The llama-server transport reads it to decide
+   * whether the model deliberates before answering; see
+   * `LlamaVisionService`. Absent means `agent`, so every existing caller
+   * keeps the deliberating behaviour it had.
+   */
+  surface?: PromptSurface
   /**
    * Fraction of the history budget this generation's session rebuild may
    * replay verbatim; the rest is summarized by the Context Ledger compaction
@@ -562,12 +570,21 @@ class LlamaService extends EventEmitter {
    * gate, so it never races a reply or a load.
    */
   private async warmUpPromptCache(modelPath: string): Promise<void> {
-    const release = await this.modelLock.acquire()
-    try {
-      if (this.currentModel?.path !== modelPath || !this.visionService.active) return
-      await this.visionService.warmUp(modelPath, this.modelLock.capacity)
-    } finally {
-      release()
+    // The lock is taken and released once per prefix rather than held across
+    // all of them. Warming is background work that can run to sixteen seconds
+    // on a large model; holding the gate for the whole run would make someone
+    // who opens Anodex and types straight away wait behind it. Between
+    // prefixes a real turn takes the gate and this picks up afterwards — or
+    // stops, if that turn swapped the model out.
+    const count = this.visionService.warmablePrefixCount(modelPath)
+    for (let index = 0; index < count; index++) {
+      const release = await this.modelLock.acquire()
+      try {
+        if (this.currentModel?.path !== modelPath || !this.visionService.active) return
+        if (!(await this.visionService.warmUpPrefix(modelPath, index))) return
+      } finally {
+        release()
+      }
     }
   }
 
@@ -2593,11 +2610,7 @@ class LlamaService extends EventEmitter {
       const probe = await this.getHardwareProbe()
       const ramGb = totalmem() / 1024 ** 3
       const vramGb = probe.unified ? 0 : (probe.vramBytes ?? 0) / 1024 ** 3
-      return contextSizeFor(
-        { tier: estimateTier(info.sizeBytes) } as RecommendedModel,
-        ramGb,
-        vramGb
-      )
+      return contextSizeFor(estimateTier(info.sizeBytes), ramGb, vramGb)
     } catch {
       return undefined
     }
@@ -2610,15 +2623,17 @@ class LlamaService extends EventEmitter {
   }> {
     try {
       const llama = await this.getLlamaBackend()
-      const [gpuNames, vram] = await Promise.all([
+      const [gpuNames, vram, devices] = await Promise.all([
         llama.getGpuDeviceNames().catch(() => [] as string[]),
-        llama.getVramState().catch(() => null)
+        llama.getVramState().catch(() => null),
+        listGpuDevices()
       ])
-      return {
-        gpuNames,
-        vramBytes: vram ? vram.total : null,
-        unified: vram ? (vram.unifiedSize ?? 0) > 0 : false
-      }
+      // `getVramState()` sums every device, and an integrated GPU's memory is
+      // system RAM — so on a machine with a card beside one, the aggregate
+      // counts the same memory twice and reports the whole machine as unified.
+      // See `resolveGpuMemory`; with no device listing this is the old reading.
+      const memory = resolveGpuMemory(devices, vram)
+      return { gpuNames, vramBytes: memory.vramBytes, unified: memory.unified }
     } catch (error) {
       log.warn('Hardware probe failed:', error)
       return { gpuNames: [], vramBytes: null, unified: false }

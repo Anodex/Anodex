@@ -210,6 +210,22 @@ describe('start', () => {
     expect(args[args.indexOf('--reasoning-budget') + 1]).toBe(String(reasoningBudgetTokens(4096)))
   })
 
+  /**
+   * At llama.cpp's default verbosity of 3 the load report — layers offloaded,
+   * KV cache size, the window it settled on — is not printed at all, so
+   * `summarizeServerStartup` had nothing to find. Measured on the pinned
+   * binary: level 4 prints it in 221 lines, level 5 dumps every tensor in
+   * 2,816.
+   */
+  it('asks llama.cpp to say how it placed the model', async () => {
+    respond({ '/health': () => jsonResponse({}), '/models': () => jsonResponse({ data: [] }) })
+
+    await new LlamaServerRuntime().start(options())
+    const args = spawn.mock.calls[0][1]
+
+    expect(args[args.indexOf('-lv') + 1]).toBe('4')
+  })
+
   it('tells the model what to do when the budget runs out', async () => {
     // Closing the thought silently is what put raw chain-of-thought into the
     // chat: llama-server's default for this message is none, so a model

@@ -10,6 +10,22 @@
   height: min(820px, 90vh);
 }
 
+/*
+ * Keep the header's own content clear of the close button.
+ *
+ * `.close` is absolutely positioned over the `PageHeader` rather than sitting
+ * inside it, so the header lays out as though that 30px button were not there
+ * and anything in its `actions` slot runs straight underneath it. With the
+ * active-downloads bar in that slot the two ended up all but touching.
+ *
+ * Reserving the button's own width plus its offset, and a gap on top, is what
+ * the header cannot work out for itself. Harmless on a settings page with no
+ * actions, since the title is left-aligned.
+ */
+.card :global(header) {
+  padding-right: calc(var(--space-5) + 30px + var(--space-3));
+}
+
 .close {
   position: absolute;
   /* Vertically centers within the 40px PageHeader this sits above. */

@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore, type SettingsSection } from '../../stores/uiStore'
-import { VoiceSettings } from '../voice/VoiceSettings' // voice:seam
 import { PageHeader } from '../../components/PageHeader'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui/Spinner'
+import { ActiveDownloads } from './ActiveDownloads'
 import { ProfileSettings } from './pages/profile/ProfileSettings'
 import { AppearanceSettings } from './pages/appearance/AppearanceSettings'
 import { KeyboardSettings } from './pages/keyboard/KeyboardSettings'
@@ -45,8 +45,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Assistant',
     items: [
       { id: 'memory', label: 'Memory', icon: <Icon name="memory" size={18} /> },
-      // voice:seam
-      { id: 'voice', label: 'Voice', icon: <Icon name="speaker" size={18} /> },
       { id: 'projects', label: 'Skills', icon: <Icon name="lightbulb" size={18} /> },
       { id: 'tools-skills', label: 'Tools', icon: <Icon name="wrench" size={18} /> }
     ]
@@ -92,7 +90,11 @@ export function SettingsView(): JSX.Element {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Configure Anodex and the local engine" />
+      <PageHeader
+        title="Settings"
+        subtitle="Configure Anodex and the local engine"
+        actions={<ActiveDownloads />}
+      />
 
       <div className={styles.layout}>
         <nav className={styles.sidebar} aria-label="Settings sections">
@@ -140,7 +142,6 @@ export function SettingsView(): JSX.Element {
                 />
               )}
               {section === 'memory' && <MemorySettings />}
-              {section === 'voice' && <VoiceSettings />} {/* voice:seam */}
               {section === 'projects' && <ProjectsSettings />}
               {section === 'tools-skills' && <ToolsSkillsSettings />}
               {section === 'ai-models' && <AiModelsSettings />}
