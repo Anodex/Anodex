@@ -1,23 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ContextMenuItem, ContextMenuRequest } from '@shared/ipc'
 import { anodex } from '../lib/anodex'
+import { useAnchoredPosition } from '../hooks/useAnchoredPosition'
 import styles from './ContextMenu.module.css'
-
-const VIEWPORT_MARGIN = 8
-
-interface MenuPosition {
-  x: number
-  y: number
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
 
 export function ContextMenu(): JSX.Element | null {
   const [request, setRequest] = useState<ContextMenuRequest | null>(null)
-  const [position, setPosition] = useState<MenuPosition | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const menuStyle = useAnchoredPosition(request ? { x: request.x, y: request.y } : null, menuRef)
 
   useEffect(() => anodex.contextMenu.onShow((next) => setRequest(next)), [])
 
@@ -48,24 +38,6 @@ export function ContextMenu(): JSX.Element | null {
     }
   }, [request])
 
-  useLayoutEffect(() => {
-    if (!request) {
-      setPosition(null)
-      return
-    }
-
-    const rect = menuRef.current?.getBoundingClientRect()
-    if (!rect) {
-      setPosition({ x: request.x, y: request.y })
-      return
-    }
-
-    setPosition({
-      x: clamp(request.x, VIEWPORT_MARGIN, window.innerWidth - rect.width - VIEWPORT_MARGIN),
-      y: clamp(request.y, VIEWPORT_MARGIN, window.innerHeight - rect.height - VIEWPORT_MARGIN)
-    })
-  }, [request])
-
   if (!request) return null
 
   const runItem = (item: ContextMenuItem): void => {
@@ -78,11 +50,7 @@ export function ContextMenu(): JSX.Element | null {
     <div
       ref={menuRef}
       className={styles.menu}
-      style={{
-        left: position?.x ?? request.x,
-        top: position?.y ?? request.y,
-        visibility: position ? 'visible' : 'hidden'
-      }}
+      style={menuStyle}
       role="menu"
       onContextMenu={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}

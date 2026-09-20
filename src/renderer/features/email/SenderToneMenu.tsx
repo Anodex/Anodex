@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../components/Icon'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import type { Sender } from './threadRow'
 import { customAvatarStyle, legibleHex } from './customTone'
 import {
@@ -15,7 +16,6 @@ import {
 } from './senderTones'
 import styles from './EmailView.module.css'
 
-const VIEWPORT_MARGIN = 8
 const SUGGESTED_CUSTOM = '#4f8cff'
 
 export interface SenderToneTarget {
@@ -45,7 +45,9 @@ export function SenderToneMenu({ target, onClose }: SenderToneMenuProps): JSX.El
   const overridden = useHasToneOverride(target.sender.address)
 
   const menuRef = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
+  // Measured first, then placed, so a right-click near the bottom of the
+  // window doesn't open a menu that runs off it.
+  const menuStyle = useAnchoredPosition({ x: target.x, y: target.y }, menuRef)
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent): void => {
@@ -71,33 +73,12 @@ export function SenderToneMenu({ target, onClose }: SenderToneMenuProps): JSX.El
     }
   }, [onClose])
 
-  // Measured first, then placed, so a right-click near the bottom of the
-  // window doesn't open a menu that runs off it.
-  useLayoutEffect(() => {
-    const rect = menuRef.current?.getBoundingClientRect()
-    if (!rect) return
-    setPosition({
-      x: Math.min(
-        Math.max(target.x, VIEWPORT_MARGIN),
-        window.innerWidth - rect.width - VIEWPORT_MARGIN
-      ),
-      y: Math.min(
-        Math.max(target.y, VIEWPORT_MARGIN),
-        window.innerHeight - rect.height - VIEWPORT_MARGIN
-      )
-    })
-  }, [target])
-
   return createPortal(
     <div
       ref={menuRef}
       role="menu"
       className={styles.toneMenu}
-      style={{
-        left: position?.x ?? target.x,
-        top: position?.y ?? target.y,
-        visibility: position ? 'visible' : 'hidden'
-      }}
+      style={menuStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
       <div className={styles.toneMenuHead}>

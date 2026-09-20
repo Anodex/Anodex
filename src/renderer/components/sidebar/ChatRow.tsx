@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { useChatStore, type Conversation } from '../../stores/chatStore'
 import type { ConversationExportFormat } from '@shared/backup.types'
 import { formatRelativeTime } from '../../lib/time'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import { anodex } from '../../lib/anodex'
 import { notifyError, useUiStore } from '../../stores/uiStore'
 import { Icon } from '../Icon'
@@ -302,10 +303,10 @@ function ChatContextMenu({
   onClose
 }: ChatContextMenuProps): JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
-  const menuWidth = 216
-  const menuHeight = 300
-  const left = Math.max(8, Math.min(point.x, window.innerWidth - menuWidth - 8))
-  const top = Math.max(8, Math.min(point.y, window.innerHeight - menuHeight - 8))
+  // Measured, not assumed: the menu's height is the sum of however many rows
+  // it happens to have, and a guessed one leaves the last of them under the
+  // bottom edge of the window the next time a row is added.
+  const menuStyle = useAnchoredPosition(point, menuRef)
 
   const entries = useMemo<ChatMenuEntry[]>(
     () => [
@@ -447,7 +448,7 @@ function ChatContextMenu({
     <div
       ref={menuRef}
       className={styles.contextMenu}
-      style={{ top, left }}
+      style={menuStyle}
       role="menu"
       tabIndex={-1}
       onMouseDown={(event) => event.stopPropagation()}
@@ -530,6 +531,14 @@ function ChatDetailCard({
   const [draft, setDraft] = useState(title)
   const [copied, setCopied] = useState(false)
   const copiedTimer = useRef<number | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  // Beside the row, lifted slightly so it reads as belonging to it — and slid
+  // back inside the window for rows at the very top or bottom of the sidebar.
+  const cardStyle = useAnchoredPosition(
+    { top: rect.top - 10, bottom: rect.bottom, left: rect.left, right: rect.right },
+    cardRef,
+    { side: 'right', gap: 10 }
+  )
 
   useEffect(() => {
     return () => {
@@ -550,8 +559,6 @@ function ChatDetailCard({
       notifyError('Could not copy chat ID', error instanceof Error ? error.message : undefined)
     }
   }
-  const top = Math.max(48, Math.min(rect.top - 10, window.innerHeight - 170))
-  const left = Math.min(rect.right + 10, window.innerWidth - 340)
 
   const save = (): void => {
     const next = draft.trim()
@@ -561,8 +568,9 @@ function ChatDetailCard({
 
   return (
     <div
+      ref={cardRef}
       className={styles.detailCard}
-      style={{ top, left }}
+      style={cardStyle}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >

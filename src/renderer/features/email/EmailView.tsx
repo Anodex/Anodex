@@ -14,6 +14,7 @@ import { useModelStore } from '../../stores/modelStore'
 import { useChatStore } from '../../stores/chatStore'
 import { notifyError, useUiStore } from '../../stores/uiStore'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { useAnchoredPosition } from '../../hooks/useAnchoredPosition'
 import { anodex } from '../../lib/anodex'
 import { HtmlMessageBody } from './HtmlMessageBody'
 import { EmailEmptyState } from './EmailEmptyState'
@@ -608,6 +609,13 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
   const [rect, setRect] = useState<DOMRect | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  // Left-aligned under the chip, but measured: with several linked accounts
+  // the list is taller than the space under a chip near the bottom of a short
+  // window, and wider than the room to its right in a narrow one.
+  const menuStyle = useAnchoredPosition(open ? rect : null, menuRef, {
+    align: 'start',
+    gap: 6
+  })
 
   useEffect(() => {
     if (!open) return
@@ -670,12 +678,7 @@ function AccountSwitcher({ accounts, active, onSelect }: AccountSwitcherProps): 
       {open &&
         rect &&
         createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            className={styles.accountMenu}
-            style={{ top: rect.bottom + 6, left: Math.max(8, rect.left) }}
-          >
+          <div ref={menuRef} role="menu" className={styles.accountMenu} style={menuStyle}>
             {accounts.map((account) => (
               <button
                 key={account.id}

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import type { WorkspaceTreeNode } from '@shared/workspaceFiles.types'
 import { anodex } from '../../../lib/anodex'
 import { formatBytes } from '../../../lib/format'
-import { positionPopover } from '../../../lib/positionPopover'
+import { useAnchoredPosition } from '../../../hooks/useAnchoredPosition'
 import { Icon } from '../../../components/Icon'
 import { notifyError } from '../../../stores/uiStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
@@ -23,11 +23,10 @@ interface NodeActionsMenuProps {
  * Hover-revealed "..." trigger on a file or folder row that opens a small
  * actions menu. Positioned via a portal (not CSS `position: absolute` in
  * place) because the Files tree scrolls — the same reason
- * `InstalledModelsList`'s reliability popover uses one — and re-measured
- * against the real viewport via `positionPopover` so it flips above the
- * trigger (or clamps horizontally) instead of getting cut off at an edge,
- * which a fixed "always open below" offset couldn't handle for rows near
- * the bottom of a long tree.
+ * `InstalledModelsList`'s reliability popover uses one — and measured against
+ * the window by `useAnchoredPosition` so it flips above the trigger (or clamps
+ * horizontally) instead of getting cut off at an edge, which a fixed "always
+ * open below" offset couldn't handle for rows near the bottom of a long tree.
  */
 export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.Element {
   const confirmDestructive = useSettingsStore((s) => s.settings?.general.confirmDestructive ?? true)
@@ -35,27 +34,17 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const trigger = triggerRef.current
-    const menu = menuRef.current
-    if (!trigger || !menu) return
-    const anchor = trigger.getBoundingClientRect()
-    const size = { width: menu.offsetWidth, height: menu.offsetHeight }
-    const viewport = { width: window.innerWidth, height: window.innerHeight }
-    setPos(positionPopover(anchor, size, viewport))
-  }, [open])
+  const open = anchor !== null
+  const menuStyle = useAnchoredPosition(anchor, menuRef)
 
   useLayoutEffect(() => {
     if (!open) return
     function handlePointerDown(event: MouseEvent): void {
       const target = event.target as Node
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
-      setOpen(false)
+      setAnchor(null)
     }
     document.addEventListener('mousedown', handlePointerDown)
     return () => document.removeEventListener('mousedown', handlePointerDown)
@@ -63,15 +52,15 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
 
   const toggle = (event: React.MouseEvent): void => {
     event.stopPropagation()
-    setPos(null)
-    setOpen((value) => !value)
+    const trigger = event.currentTarget.getBoundingClientRect()
+    setAnchor((current) => (current ? null : trigger))
   }
 
   const runAction =
     (action: () => Promise<void>) =>
     (event: React.MouseEvent): void => {
       event.stopPropagation()
-      setOpen(false)
+      setAnchor(null)
       void action()
     }
 
@@ -101,7 +90,7 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
 
   const openEditor = (event: React.MouseEvent): void => {
     event.stopPropagation()
-    setOpen(false)
+    setAnchor(null)
     if (node.type !== 'file') return
     setDockOpen(true)
     openInEditor(node)
@@ -109,7 +98,7 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
 
   const confirmDelete = (event: React.MouseEvent): void => {
     event.stopPropagation()
-    setOpen(false)
+    setAnchor(null)
     if (confirmDestructive) setConfirmingDelete(true)
     else void handleDelete()
   }
@@ -135,15 +124,7 @@ export function NodeActionsMenu({ node, onDeleted }: NodeActionsMenuProps): JSX.
       </button>
       {open &&
         createPortal(
-          <div
-            ref={menuRef}
-            className={styles.menu}
-            style={
-              pos
-                ? { top: pos.top, left: pos.left, visibility: 'visible' }
-                : { top: 0, left: 0, visibility: 'hidden' }
-            }
-          >
+          <div ref={menuRef} className={styles.menu} style={menuStyle}>
             <button type="button" className={styles.item} onClick={runAction(copyAbsolutePath)}>
               Copy path
             </button>
