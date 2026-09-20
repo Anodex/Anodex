@@ -442,7 +442,7 @@ export class LlamaServerRuntime {
 /** A health response that will not improve by polling — see `waitUntilReady`. */
 class HealthCheckRejected extends Error {}
 
-async function resolveLlamaServerBinary(): Promise<string> {
+export async function resolveLlamaServerBinary(): Promise<string> {
   const override = process.env.ANODEX_LLAMA_SERVER_PATH?.trim()
   if (override) {
     const resolved = resolve(override)
