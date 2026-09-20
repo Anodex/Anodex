@@ -556,6 +556,25 @@ export interface EmailSettings {
   sendRequiresApproval: true
 }
 
+/**
+ * Reading replies aloud. voice:seam
+ *
+ * One key, because there is one decision: whether Arc may speak. Everything
+ * else about voice — whether the model is present, whether the runtime shipped —
+ * is a fact about the machine and is asked rather than stored. Deleting this
+ * interface and the `voice` line below removes the setting entirely.
+ */
+export interface VoiceSettings {
+  /**
+   * Whether Arc may read replies aloud.
+   *
+   * Off until asked for, and deliberately not defaulted on once the model is
+   * present: the model is 2.3 GB that somebody chose to download, and a feature
+   * that switches itself on because a file appeared is a feature nobody chose.
+   */
+  enabled: boolean
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -600,6 +619,8 @@ export interface AppSettings {
   updates: UpdateSettings
   keyboard: KeyboardSettings
   email: EmailSettings
+  /** voice:seam */
+  voice: VoiceSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

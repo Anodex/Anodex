@@ -63,6 +63,17 @@ function bridge(): AnodexApi['voice'] | null {
  * two hundred identical questions across the bridge to be told the same thing.
  */
 let readiness: Promise<boolean> | null = null
+
+/**
+ * Throw away the cached answer, because it just stopped being true.
+ *
+ * The cache is right about a window's lifetime with one exception: Settings is
+ * where somebody downloads the voice or removes it, and either makes the cached
+ * answer wrong for every reply already on screen.
+ */
+export function forgetVoiceReadiness(): void {
+  readiness = null
+}
 export function voiceReady(): Promise<boolean> {
   readiness ??= (bridge()?.available() ?? Promise.resolve(null))
     .then((report) => report?.ready ?? false)

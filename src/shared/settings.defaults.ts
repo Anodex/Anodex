@@ -208,6 +208,10 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       accounts: [],
       primaryAccountId: null,
       sendRequiresApproval: true
+    },
+    /** voice:seam */
+    voice: {
+      enabled: false
     }
   }
 }
