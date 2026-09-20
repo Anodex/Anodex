@@ -1,3 +1,23 @@
+> **Removed on 2026-09-20.** Voice was built through stage 2, measured, and taken
+> out of both apps the same week. It is kept because the measurements are the
+> valuable part and they cost real hours to get.
+>
+> **The reason was hardware, not effort.** The speech model wants 2.3 GB of a
+> 24 GB card that already holds 20.3 GB of chat model — the same resource that
+> makes chat good. One sentence generated in 0.98 s with the card free and 5.22 s
+> with the chat model resident, and under contention the whole thing produced
+> 0.61 s of speech per second of work against the 1.0 that playback needs. Below
+> 1.0 it can never keep up, so no amount of streaming or buffering fixes it.
+> Reading one reply took five minutes.
+>
+> What would change the answer: a persistent runner that loads the model once.
+> `llama-tts` is one-shot and `llama-server` has no TTS, so that means compiling
+> our own llama.cpp for three platforms — a new burden on every release.
+>
+> The removal is in Anodex#278 and anodex-mobile#287. Arc's reference recording is
+> at `Desktop/voice recorder`. §9 described the removal before any of it was
+> written, and it went exactly as described.
+
 # Voice — design and handoff
 
 **Status: specification. No code exists yet.** This document is the decision record

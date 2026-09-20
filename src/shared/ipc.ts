@@ -334,25 +334,6 @@ export const IpcChannel = {
      */
     confirmCancelled: 'tools:confirm-cancelled'
   },
-  /** voice:seam — reading a reply aloud. See `src/main/voice/Speaker.ts`. */
-  Voice: {
-    /** Whether this build can speak, and if not, which part is missing. */
-    available: 'voice:available',
-    /** Text in, a complete wav back. Slower than playback, so not a stream. */
-    speak: 'voice:speak',
-    /** Stop after the sentence being generated. */
-    stop: 'voice:stop',
-    /** Pushed while a reply is being read: which sentence, of how many. */
-    progress: 'voice:progress',
-    /** Fetch the 2.3 GB model. Resolves when it is on disk. */
-    download: 'voice:download',
-    /** Abandon a download in progress. */
-    cancelDownload: 'voice:cancel-download',
-    /** Delete the model, keeping the setting and the reference clip. */
-    removeModel: 'voice:remove-model',
-    /** Pushed while the model downloads: bytes so far, of the whole pair. */
-    downloadProgress: 'voice:download-progress'
-  },
   Skills: {
     list: 'skills:list',
     read: 'skills:read',
@@ -821,46 +802,7 @@ export interface ContextMenuRequest {
  * The typed API exposed to the renderer as `window.anodex`.
  * Each `on*` method returns an unsubscribe function.
  */
-export interface VoiceModelDownload {
-  receivedBytes: number
-  totalBytes: number
-}
-
-export interface VoiceReadiness {
-  /** The feature is switched on for this build. */
-  enabled: boolean
-  /** The voice model has been fetched. */
-  modelReady: boolean
-  /** Everything needed is present, so a reply can actually be read aloud. */
-  ready: boolean
-  /** What the whole model costs, so the size can be said before it is fetched. */
-  modelBytes: number
-  /** How much of it is already on disk. */
-  modelBytesPresent: number
-  /** A download is running right now, possibly started by another window. */
-  downloading: boolean
-}
-
-export interface VoiceProgress {
-  id: string
-  /** 1-based, so it reads as "2 of 5" without arithmetic at the call site. */
-  index: number
-  total: number
-}
-
 export interface AnodexApi {
-  /** voice:seam */
-  voice: {
-    available(): Promise<VoiceReadiness>
-    /** Resolves null when voice is unavailable, cancelled, or there was nothing to say. */
-    speak(text: string): Promise<ArrayBuffer | null>
-    stop(): Promise<boolean>
-    onProgress(listener: (progress: VoiceProgress) => void): () => void
-    download(): Promise<Result<void>>
-    cancelDownload(): Promise<boolean>
-    removeModel(): Promise<Result<void>>
-    onDownloadProgress(listener: (progress: VoiceModelDownload) => void): () => void
-  }
   models: {
     list(): Promise<Result<ModelInfo[]>>
     /** Opens a file picker for a `.gguf` file; resolves `null` if cancelled. */

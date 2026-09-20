@@ -25,8 +25,6 @@ export type SettingsSection =
   | 'ai-models'
   | 'diagnostics'
   | 'about'
-  /** voice:seam — a name, not an import; removing voice removes this line. */
-  | 'voice'
 
 export interface Toast {
   id: string
