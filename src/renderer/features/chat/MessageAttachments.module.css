@@ -52,6 +52,18 @@
   color: #ffffff;
   background: linear-gradient(to top, rgb(0 0 0 / 72%), transparent);
   opacity: 0;
+  /*
+   * The bar is reference, not a target. Its name and size are text, and the
+   * picture underneath is the thing being clicked — so the bar lets pointers
+   * through and only the pin control inside it takes them back.
+   *
+   * Without this it swallowed every click aimed at the bottom of a picture:
+   * `opacity: 0` still receives pointer events, so even hidden it covered that
+   * strip, and once hover revealed it the strip was live. On a small
+   * attachment the bar covers the whole picture, which made opening one
+   * impossible rather than merely awkward.
+   */
+  pointer-events: none;
   transition: opacity var(--transition, 180ms ease);
 }
 
@@ -74,6 +86,8 @@
 
 .overlayButton {
   flex-shrink: 0;
+  /* The one thing in the bar that is a target — see `.overlay`. */
+  pointer-events: auto;
   margin-left: auto;
   padding: 2px var(--space-2);
   font: inherit;
