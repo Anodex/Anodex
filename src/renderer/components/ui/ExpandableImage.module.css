@@ -1,8 +1,25 @@
+/**
+ * The trigger takes its size from the image inside it, with a floor.
+ *
+ * It used to be `min-width: 0; min-height: 0` — the usual guard against a grid
+ * item refusing to shrink — which left nothing at the bottom end. A small
+ * attachment therefore produced a button the size of the picture: a 1x1 PNG
+ * gave a 1x1 button, and `.expandHint` is 28x28 and clipped by the
+ * `overflow: hidden` here, so there was no visible affordance either. The
+ * picture was a speck and the only way to open it was unhittable — the browser
+ * hit-tests the parent at that size, so a click aimed at the middle of the
+ * button never reaches it.
+ *
+ * 44px is the standard minimum pointer target, and it is a floor rather than a
+ * size: any image bigger than that is unaffected, because its intrinsic size
+ * already exceeds the minimum. `place-items: center` centres a smaller one in
+ * the box.
+ */
 .trigger {
   position: relative;
   display: grid;
-  min-width: 0;
-  min-height: 0;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   overflow: hidden;
   color: var(--text);
