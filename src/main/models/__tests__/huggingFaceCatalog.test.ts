@@ -6,6 +6,7 @@ import {
   fetchTopModels,
   inferPrimaryUse,
   inferSupportsTools,
+  templateHandlesTools,
   isSingleFileGguf,
   pickBestGgufFile,
   pickVisionProjector,
@@ -185,6 +186,55 @@ describe('inferSupportsTools', () => {
 
   it('does not extend the Qwen Coder trust to a plain, untested Qwen model', () => {
     expect(inferSupportsTools('Qwen/Qwen2.5-0.5B-Instruct-GGUF', [])).toBe(false)
+  })
+
+  /**
+   * The name rules alone recognised exactly one family. Measured against the
+   * live catalogue, only 2 of 21 current models came back tool-capable, so
+   * "Best Agent" could only ever offer a Qwen Coder — and once the newer one
+   * was taken by another slot, the card showed a 732-day-old model. Reading
+   * the template took that pool to 18 of 21.
+   */
+  const withTools = `{%- if tools %}{{- tools | tojson }}{%- endif %}
+{%- if message.tool_calls %}{{- message.tool_calls[0].function.name }}{%- endif %}`
+
+  it('believes a chat template that carries tool calls, whatever the model is called', () => {
+    expect(inferSupportsTools('unsloth/Qwen3.8-27B-GGUF', [], withTools)).toBe(true)
+    expect(inferSupportsTools('google/gemma-4-12B-it-qat-q4_0-gguf', [], withTools)).toBe(true)
+  })
+
+  it('believes a template that cannot carry one, over a hopeful tag', () => {
+    expect(
+      inferSupportsTools('some-org/agentic-sounding-GGUF', ['function-calling'], 'plain')
+    ).toBe(false)
+  })
+
+  /**
+   * The name rules stay ahead of the template because they encode something
+   * the template cannot say: that these lines were measured calling tools
+   * badly in practice, however willing their template looks.
+   */
+  it('keeps the measured family judgements ahead of the template', () => {
+    expect(inferSupportsTools('bartowski/DeepSeek-V4-Pro-GGUF', [], withTools)).toBe(false)
+    expect(inferSupportsTools('mistralai/Mistral-Large-GGUF', [], withTools)).toBe(false)
+  })
+
+  it('falls back to the tag when the repository publishes no template', () => {
+    expect(inferSupportsTools('some-org/some-model-GGUF', ['function-calling'], undefined)).toBe(
+      true
+    )
+    expect(inferSupportsTools('some-org/some-model-GGUF', ['chat'], undefined)).toBe(false)
+  })
+})
+
+describe('templateHandlesTools', () => {
+  it('needs both halves: the tools going in and the calls coming out', () => {
+    expect(templateHandlesTools('{%- if tools %}{{ message.tool_calls }}{%- endif %}')).toBe(true)
+    // A template that only takes a tool list, or only mentions the word, is
+    // not one that can render a call back.
+    expect(templateHandlesTools('{%- if tools %}{{ tools }}{%- endif %}')).toBe(false)
+    expect(templateHandlesTools('You are a helpful assistant with tools.')).toBe(false)
+    expect(templateHandlesTools('')).toBe(false)
   })
 })
 

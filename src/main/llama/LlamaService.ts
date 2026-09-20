@@ -18,6 +18,7 @@ import type {
   LlamaChatResponseFunctionCallParamsChunk
 } from 'node-llama-cpp'
 import { estimateTier } from '../models/huggingFaceCatalog'
+import { listGpuDevices, resolveGpuMemory } from './gpuDevices'
 import { contextSizeFor } from '@shared/modelRecommendation'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import type {
@@ -2610,15 +2611,17 @@ class LlamaService extends EventEmitter {
   }> {
     try {
       const llama = await this.getLlamaBackend()
-      const [gpuNames, vram] = await Promise.all([
+      const [gpuNames, vram, devices] = await Promise.all([
         llama.getGpuDeviceNames().catch(() => [] as string[]),
-        llama.getVramState().catch(() => null)
+        llama.getVramState().catch(() => null),
+        listGpuDevices()
       ])
-      return {
-        gpuNames,
-        vramBytes: vram ? vram.total : null,
-        unified: vram ? (vram.unifiedSize ?? 0) > 0 : false
-      }
+      // `getVramState()` sums every device, and an integrated GPU's memory is
+      // system RAM — so on a machine with a card beside one, the aggregate
+      // counts the same memory twice and reports the whole machine as unified.
+      // See `resolveGpuMemory`; with no device listing this is the old reading.
+      const memory = resolveGpuMemory(devices, vram)
+      return { gpuNames, vramBytes: memory.vramBytes, unified: memory.unified }
     } catch (error) {
       log.warn('Hardware probe failed:', error)
       return { gpuNames: [], vramBytes: null, unified: false }

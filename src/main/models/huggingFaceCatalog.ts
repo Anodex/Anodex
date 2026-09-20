@@ -94,19 +94,40 @@ export function uptakeRate(hit: { downloads?: number; createdAt?: string }, now:
 }
 
 /**
- * Best-effort guess at whether a live-discovered model supports tool/function
- * calling — Hugging Face has no verified field for this. Seeded with facts
- * this project already learned through real, hands-on reliability testing
- * (see `anodex-project` memory: Qwen Coder models call tools correctly,
- * DeepSeek Coder V2 Lite and Mistral mostly don't), not guessed from
- * scratch — the same reasoning `RECOMMENDED_MODELS`' hand-set `supportsTools`
- * values were originally based on. Falls back to an explicit tag/text
- * mention of tool- or function-calling for anything not covered by name.
- * Deliberately conservative (`false`, not `undefined`) so an untested model
- * never silently qualifies for "Best Agent" — only a real reliability record
- * (see `reliabilityScoreForRecommended`) should ever override this guess.
+ * Whether a GGUF's own chat template can carry a tool call.
+ *
+ * A tool-capable template does two things: it reads the `tools` it was handed
+ * and it renders the assistant's `tool_calls` back out. Both are required —
+ * a template that merely says the word "tool" in a system message is not one,
+ * and this is the pair llama.cpp's `--jinja` path actually drives.
  */
-export function inferSupportsTools(repoId: string, tags: string[]): boolean {
+export function templateHandlesTools(chatTemplate: string): boolean {
+  return /\btools\b/.test(chatTemplate) && /\btool_calls\b/.test(chatTemplate)
+}
+
+/**
+ * Whether a live-discovered model supports tool/function calling.
+ *
+ * Two sources, in order. First the families this project measured by hand
+ * (see `anodex-project` memory: Qwen Coder models call tools correctly,
+ * DeepSeek Coder V2 Lite and Mistral mostly don't) — those stay ahead of
+ * everything else because they encode something no metadata can say, which is
+ * how a model behaves when it actually tries. Then the model's own chat
+ * template, which is the authority on whether it can try at all; see
+ * `templateHandlesTools`.
+ *
+ * Reading the template is what lets a new generation qualify. The name rules
+ * alone answered `true` for exactly one family, so measured against the live
+ * catalogue only 2 of 21 current models came back tool-capable, and "Best
+ * Agent" could only ever offer a Qwen Coder — a 732-day-old one, once the
+ * newer Coder had been taken by another slot. With the template read, that
+ * pool was 18 of 21.
+ *
+ * Still conservative where there is nothing to read (`false`, not
+ * `undefined`): a repository publishing no template metadata falls back to an
+ * explicit tag or text mention of tool- or function-calling.
+ */
+export function inferSupportsTools(repoId: string, tags: string[], chatTemplate?: string): boolean {
   const name = repoId.toLowerCase()
   // Scoped to the Qwen *Coder* line specifically — that's the part of the
   // family this project actually tested. A plain small Qwen instruct/base
@@ -115,6 +136,11 @@ export function inferSupportsTools(repoId: string, tags: string[]): boolean {
   if (/qwen.*coder/.test(name)) return true
   if (/deepseek/.test(name)) return false
   if (/mistral|mixtral/.test(name)) return false
+  // The model's own chat template, which is the thing that actually decides
+  // this: llama.cpp renders tool calls through it (`--jinja`), so a template
+  // that takes a `tools` list and emits `tool_calls` *is* tool support, and
+  // one that does not cannot be talked into it by any naming.
+  if (chatTemplate) return templateHandlesTools(chatTemplate)
   const haystack = `${name} ${tags.join(' ')}`.toLowerCase()
   return /tool[-_ ]?call|function[-_ ]?call|\bagentic\b/.test(haystack)
 }
@@ -138,7 +164,7 @@ interface HfSearchHit {
 interface HfModelDetail {
   id: string
   siblings?: HfSibling[]
-  gguf?: { context_length?: number; architecture?: string }
+  gguf?: { context_length?: number; architecture?: string; chat_template?: string }
   tags?: string[]
 }
 
@@ -300,7 +326,8 @@ function toRecommendedModel(
   hit: HfSearchHit,
   file: HfSibling,
   contextLength?: number,
-  projector?: HfSibling | null
+  projector?: HfSibling | null,
+  chatTemplate?: string
 ): RecommendedModel {
   const size = file.size ?? 0
   const totalRuntimeSize = size + (projector?.size ?? 0)
@@ -308,7 +335,7 @@ function toRecommendedModel(
   const quant = extractQuant(file.rfilename)
   const displayName = `${hit.id.split('/').pop() ?? hit.id}${quant ? ` (${quant.toUpperCase()})` : ''}`
   const primaryUse = inferPrimaryUse(hit.id, hit.tags ?? [])
-  const supportsTools = inferSupportsTools(hit.id, hit.tags ?? [])
+  const supportsTools = inferSupportsTools(hit.id, hit.tags ?? [], chatTemplate)
 
   return {
     id: `hf:${hit.id}:${file.rfilename}`,
@@ -432,7 +459,13 @@ async function resolveHitsToModels(hits: HfSearchHit[]): Promise<RecommendedMode
         const file = pickBestGgufFile(detail.siblings ?? [])
         if (!file) return null
         const projector = pickVisionProjector(detail.siblings ?? [])
-        return toRecommendedModel(hit, file, detail.gguf?.context_length, projector)
+        return toRecommendedModel(
+          hit,
+          file,
+          detail.gguf?.context_length,
+          projector,
+          detail.gguf?.chat_template
+        )
       } catch (error) {
         // One repo failing (rate limit, malformed metadata) shouldn't drop the
         // rest of an otherwise-good result set.
