@@ -62,7 +62,7 @@ import type { GenerateOutcome, GenerateParams } from './LlamaService'
 import type { ModelInfo, ModelLoadOptions } from '@shared/model.types'
 import { basename } from 'node:path'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
-import type { PromptPrefix, PromptPrefixStore } from './promptWarmup'
+import type { PromptPrefixStore } from './promptWarmup'
 import { detectFallbackToolCall, stripFallbackCall } from './toolCallFallback'
 import { createTurnProgress } from '../tools/turnProgress'
 import { ToolGuidanceError } from '../tools/ToolGuidanceError'
@@ -330,29 +330,38 @@ export class LlamaVisionService {
    * asking for a single token each, so llama-server has them in its prompt
    * cache. The first real message then reads only its own words.
    *
-   * With more than one slot the slots are given *different* prefixes rather
-   * than the same one repeated. Repeating it was the older behaviour and it
-   * warmed the same surface twice while leaving the other one cold: a plain
-   * chat and a project run share almost nothing, so after a project run the
-   * first "Hello" in a chat read all 4,785 of its own tokens — 6,817 ms
-   * measured, against 90 ms once the prefix is cached. When only one prefix is
-   * on record every slot still gets it, which is the old behaviour exactly.
+   * Every remembered prefix is warmed, not one per slot, because a slot is not
+   * where a warmed prefix has to end up. llama-server keeps prompt caches
+   * pushed out of a slot in host RAM and restores them: measured with a single
+   * slot, four different prefixes sent in turn all came back at 100% on the
+   * second pass, 78 ms against 1,449 ms cold. So the last one warmed stays
+   * resident and the rest are a restore away, which is nearly as good and far
+   * better than a read.
+   *
+   * That matters because the surface the user opens is not necessarily the one
+   * they closed. Warming only the most recent left the first "Hello" of a
+   * session reading its whole prefix — measured in the app at 2,807 tokens,
+   * 4,024 ms, 0% cached.
+   *
+   * One prefix per call so the caller can take the engine lock around each and
+   * let a real message cut in; warming four in one hold would make somebody who
+   * starts typing immediately wait for all of them.
    *
    * Never throws: a failed warm-up costs one slow first message, nothing more.
    */
-  async warmUp(modelPath: string, slots = 1): Promise<boolean> {
+  async warmUpPrefix(modelPath: string, index: number): Promise<boolean> {
     const connection = this.runtime.activeConnection
-    const slotCount = Math.max(1, slots)
-    const prefixes = this.promptPrefixes?.loadRecent(modelPath, slotCount) ?? []
-    if (!connection || prefixes.length === 0) return false
+    const prefix = this.promptPrefixes?.loadRecent(modelPath, index + 1)[index]
+    if (!connection || !prefix) return false
     const client = new OpenAI({
       apiKey: connection.apiKey,
       baseURL: connection.baseUrl,
       timeout: 5 * 60_000,
       maxRetries: 0
     })
-    const warm = (prefix: PromptPrefix): Promise<unknown> =>
-      client.chat.completions.create({
+    try {
+      const started = Date.now()
+      await client.chat.completions.create({
         model: connection.modelId,
         messages: repairLoneSurrogatesDeep([prefix.system, { role: 'user', content: '.' }]),
         tools: prefix.tools,
@@ -361,24 +370,17 @@ export class LlamaVisionService {
         max_tokens: 1,
         stream: false
       })
-    // One request per slot, each taking the next prefix and wrapping round when
-    // there are fewer prefixes than slots — a slot left unwarmed is a slot the
-    // next message may land on cold.
-    const perSlot = Array.from({ length: slotCount }, (_, i) => prefixes[i % prefixes.length])
-    try {
-      const started = Date.now()
-      await Promise.all(perSlot.map(warm))
-      log.info('Prompt cache warmed', {
-        modelPath,
-        slots: slotCount,
-        prefixes: prefixes.length,
-        ms: Date.now() - started
-      })
+      log.info('Prompt cache warmed', { modelPath, prefix: index, ms: Date.now() - started })
       return true
     } catch (error) {
       log.warn('Prompt cache warm-up failed:', error)
       return false
     }
+  }
+
+  /** How many remembered prefixes {@link warmUpPrefix} has to work through. */
+  warmablePrefixCount(modelPath: string): number {
+    return this.promptPrefixes?.loadRecent(modelPath, Number.MAX_SAFE_INTEGER).length ?? 0
   }
 
   get active(): boolean {
