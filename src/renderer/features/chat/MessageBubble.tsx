@@ -18,6 +18,7 @@ import { useChatStore, type MessageEditOptions } from '../../stores/chatStore'
 import { useUiStore } from '../../stores/uiStore'
 import { MemoryUsedCard } from './MemoryUsedCard'
 import { TranscriptRecallCard } from './TranscriptRecallCard'
+import { ReadAloudButton } from '../voice/ReadAloudButton' // voice:seam
 import { MessageContent } from './MessageContent'
 import { MessageSources } from './MessageSources'
 import { LiveActivityIndicator } from './LiveActivityIndicator'
@@ -435,6 +436,14 @@ function MessageBubbleImpl({
               <Icon name={copied ? 'check' : 'copy'} size={12} />
               {copied ? 'Copied' : 'Copy'}
             </button>
+          )}
+          {/* Renders nothing unless this build can speak. voice:seam */}
+          {showCopy && !isUser && (
+            <ReadAloudButton
+              token={message.id}
+              text={message.content}
+              className={styles.copyButton}
+            />
           )}
           {showRegenerate && (
             <button

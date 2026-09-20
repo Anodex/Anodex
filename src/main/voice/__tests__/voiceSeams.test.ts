@@ -31,10 +31,19 @@ const ALLOWED_SEAMS = new Set([
   // Announces `voice.1` on the handshake when voice is switched on.
   join('src', 'main', 'remote', 'capabilities.ts'),
   // Routes binary frames to voice, and writes them back.
-  join('src', 'main', 'remote', 'RemoteBridge.ts')
+  join('src', 'main', 'remote', 'RemoteBridge.ts'),
+  // Registers the handlers behind reading a reply aloud.
+  join('src', 'main', 'ipc', 'index.ts'),
+  // Puts the listen control in a reply's footer.
+  join('src', 'renderer', 'features', 'chat', 'MessageBubble.tsx')
 ])
 
-const VOICE_ROOT = join('src', 'main', 'voice')
+/**
+ * Voice is two directories, not one: what speaks, and what a window shows for
+ * it. Both are deleted together, so both are exempt from the rule they exist to
+ * make enforceable.
+ */
+const VOICE_ROOTS = [join('src', 'main', 'voice'), join('src', 'renderer', 'features', 'voice')]
 const SOURCE_ROOT = 'src'
 
 function sourceFiles(directory: string): string[] {
@@ -58,7 +67,7 @@ function importsVoice(contents: string): boolean {
 describe('voice stays inside its own directory', () => {
   const files = sourceFiles(SOURCE_ROOT)
     .map((file) => relative(process.cwd(), file))
-    .filter((file) => !file.startsWith(VOICE_ROOT + sep))
+    .filter((file) => !VOICE_ROOTS.some((root) => file.startsWith(root + sep)))
     .filter((file) => !file.includes('__tests__'))
 
   const reaching = files.filter((file) => importsVoice(readFileSync(file, 'utf8')))
