@@ -209,9 +209,7 @@ describe('buildRecommendedSlots — Large Context', () => {
 
     const ramGb = bytesToGb(hw.ramBytes)
     const vramGb = bytesToGb(hw.vramBytes ?? 0)
-    const eligible = CATALOG_FIXTURE.filter(
-      (model) => model.recommended !== false && ramGb >= model.minRamGb
-    )
+    const eligible = CATALOG_FIXTURE.filter((model) => ramGb >= model.minRamGb)
     const bestPossibleContext = Math.max(
       ...eligible.map((model) => contextSizeFor(model.tier, ramGb, vramGb))
     )

@@ -33,10 +33,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 1,
     speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'qwen2.5-coder-3b-q4',
@@ -55,10 +52,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'coding',
     qualityRank: 3,
     speedRank: 5,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: true
   },
   {
     id: 'llama-3.2-3b-q4',
@@ -77,10 +71,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 2,
     speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'qwen3-8b-q4',
@@ -99,11 +90,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'agentic-coding',
     qualityRank: 5,
     speedRank: 4,
-    supportsTools: true,
-    supportsThinking: true,
-    nativeContextTokens: 32768,
-    stable: true,
-    recommended: true
+    supportsTools: true
   },
   {
     id: 'mistral-7b-instruct-v0.3-q4',
@@ -122,10 +109,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 4,
     speedRank: 4,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'gemma-3-4b-it-q4',
@@ -148,11 +132,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 4,
     speedRank: 5,
-    supportsTools: false,
-    supportsThinking: false,
-    nativeContextTokens: 131072,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'phi-4-q4-k-s',
@@ -171,11 +151,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 7,
     speedRank: 3,
-    supportsTools: false,
-    supportsThinking: false,
-    nativeContextTokens: 16384,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'qwen2.5-coder-14b-q4',
@@ -194,10 +170,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'coding',
     qualityRank: 7,
     speedRank: 3,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: true
   },
   {
     id: 'deepseek-coder-v2-lite-instruct-q4',
@@ -217,10 +190,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'coding',
     qualityRank: 8,
     speedRank: 4,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'codestral-22b-v0.1-q4',
@@ -240,10 +210,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'coding',
     qualityRank: 8,
     speedRank: 2,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   },
   {
     id: 'qwen2.5-coder-32b-q4',
@@ -264,10 +231,7 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'coding',
     qualityRank: 9,
     speedRank: 2,
-    supportsTools: true,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: true
   },
   {
     id: 'llama-3.3-70b-q4',
@@ -289,9 +253,6 @@ export const CATALOG_FIXTURE: RecommendedModel[] = [
     primaryUse: 'general',
     qualityRank: 10,
     speedRank: 1,
-    supportsTools: false,
-    supportsThinking: false,
-    stable: true,
-    recommended: true
+    supportsTools: false
   }
 ]
