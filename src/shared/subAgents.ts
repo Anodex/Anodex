@@ -325,6 +325,27 @@ export const MIN_SUB_AGENT_TOKENS = 1_000
  *
  * An unlimited parent has nothing to divide, and its children are unlimited
  * too. That is the setting doing what it says rather than a gap.
+ *
+ * ## What is bounded, exactly
+ *
+ * **Tokens are.** Each child gets a slice of what is left, and whatever the
+ * children spend is added back to the parent's own total the moment it is
+ * known, so a delegation cannot push a run past the token budget it was
+ * given. Tokens are what a provider bills, so this is the bound that matters.
+ *
+ * **Turns are not, quite.** The parent counts its turns with its own loop
+ * counter and the children count theirs separately, so a fan-out can run more
+ * turns in total than `maxTurns` names. It is still bounded — the parent
+ * cannot exceed `maxTurns` and the children together cannot exceed what was
+ * left when it delegated, so the worst case is under twice the limit — but it
+ * is not the flat guarantee the token bound gives.
+ *
+ * Deliberately left that way. The turn limit exists to stop a run going
+ * forever, which a factor of two does not threaten, and tightening it would
+ * mean a second accounting path of a different shape running beside the loop
+ * counter. Spending complexity to tighten a guard that is already bounded,
+ * on a cost nobody is billed for, is how a codebase accumulates the kind of
+ * machinery that breaks the thing it was meant to protect.
  */
 export function splitRunBudget(
   parent: RunBudget,
