@@ -68,6 +68,15 @@ interface AutorunSpec {
   maxDurationMinutes?: number
   limitsEnabled?: boolean
   requirePlan?: boolean
+  /**
+   * Set the sub-agents setting before starting, for an A/B sweep.
+   *
+   * The arms of that sweep differ only in this one flag, and toggling it by
+   * hand between runs is exactly the kind of step that silently does not
+   * happen — a whole arm then measures the other arm and looks like a result.
+   * Left out, the setting is not touched.
+   */
+  subAgentsEnabled?: boolean
 }
 
 const POLL_MS = 2000
@@ -113,6 +122,11 @@ async function driveRun(specPath: string): Promise<void> {
         MODEL_READY_TIMEOUT_MS,
         'model to become ready'
       )
+    }
+
+    if (typeof spec.subAgentsEnabled === 'boolean') {
+      settingsStore.update({ agents: { subAgentsEnabled: spec.subAgentsEnabled } })
+      log.info('Autorun set sub-agents:', spec.subAgentsEnabled)
     }
 
     const run = await agentRunService.start({
