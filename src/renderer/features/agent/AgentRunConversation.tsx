@@ -407,11 +407,7 @@ ${child.delegatedTask ?? child.goal}`}
           aria-label={`Open ${subAgentName(index)}, ${STATUS_LABEL[child.status]}`}
           onClick={() => onOpenRun(child.id)}
         >
-          <SubAgentMark
-            index={index}
-            size={16}
-            className={child.status === 'running' ? styles.turning : undefined}
-          />
+          <SubAgentMark index={index} size={16} working={child.status === 'running'} />
           <span className={styles.subAgentName}>{subAgentName(index)}</span>
         </button>
       ))}

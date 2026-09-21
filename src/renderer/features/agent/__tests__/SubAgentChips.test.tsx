@@ -83,10 +83,29 @@ describe('SubAgentChips', () => {
       />
     )
 
-    const petals = [...container.querySelectorAll('svg')].map(
-      (svg) => svg.querySelectorAll('circle').length
+    // Spokes, which is the node count: Alpha three, Bravo four, Charlie five.
+    const spokes = [...container.querySelectorAll('svg')].map(
+      (svg) => svg.querySelectorAll('line').length
     )
-    expect(petals).toEqual([4, 6, 8])
+    expect(spokes).toEqual([3, 4, 5])
+  })
+
+  it('animates only the sub-agents that are actually working', () => {
+    // The app's rule for bespoke motion: it marks something genuinely
+    // happening and stops when that stops. A finished sub-agent still
+    // pulsing would be saying it was busy.
+    const { container } = render(
+      <SubAgentChips
+        subAgents={[child('run-a', { status: 'running' }), child('run-b', { status: 'done' })]}
+        onOpenRun={vi.fn()}
+      />
+    )
+
+    const [working, finished] = [...container.querySelectorAll('svg')]
+    const animated = (svg: Element): boolean =>
+      [...svg.querySelectorAll('circle')].some((node) => node.getAttribute('class'))
+    expect(animated(working)).toBe(true)
+    expect(animated(finished)).toBe(false)
   })
 
   it('names the task on hover, so "what is it doing" needs no click', () => {

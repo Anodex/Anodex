@@ -256,9 +256,8 @@ function RunCard({
                 <SubAgentMark
                   index={subAgentIndex}
                   size={13}
-                  className={`${styles[`identity-${subAgentIndex % 3}`]} ${
-                    run.status === 'running' ? styles.turning : ''
-                  }`}
+                  working={run.status === 'running'}
+                  className={styles[`identity-${subAgentIndex % 3}`]}
                 />
                 {subAgentName(subAgentIndex)}
               </span>

@@ -718,44 +718,26 @@
   letter-spacing: 0.02em;
 }
 
-/* Each sub-agent's own colour, from the palette the app already validated as
-   distinguishable against every theme's surface. Worn while it is working;
-   once it finishes, the status colour takes over — see the component. */
+/* Each sub-agent's own colour, worn while it is working; once it finishes the
+   status colour takes over — see the component.
+
+   Violet, blue, magenta. From `--series-*` rather than the brand's own
+   violet-to-cyan ramp because the light themes deliberately reuse the dark
+   accents, so `--accent-cyan` on a near-white surface is barely there, while
+   the series palette is defined per theme and was validated against each
+   one's surface. Series 2 and 3 are skipped: a teal and an amber sitting a
+   few pixels from `--success` and `--warn` would say "finished" and "stopped"
+   when they mean "Bravo" and "Charlie". */
 .identity-0 {
   color: var(--series-1);
 }
 
 .identity-1 {
-  color: var(--series-2);
+  color: var(--accent);
 }
 
 .identity-2 {
   color: var(--series-4);
-}
-
-/* The one animation: the mark turns while its sub-agent is working, and stops
-   when it stops. Slow enough (6s) to register as "still going" rather than to
-   pull the eye away from the title it sits beside. */
-.turning {
-  animation: subAgentTurn 6s linear infinite;
-}
-
-@keyframes subAgentTurn {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Motion off, identity intact: the mark is still its own shape and its own
-   colour, which is what was carrying the meaning anyway. */
-@media (prefers-reduced-motion: reduce) {
-  .turning {
-    animation: none;
-  }
 }
 
 /* Where this sub-agent came from. Quiet: it is orientation, not an action

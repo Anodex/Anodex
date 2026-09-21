@@ -1,46 +1,53 @@
 import type { JSX } from 'react'
+import styles from './SubAgentMark.module.css'
 
 /**
- * The identity mark for one sub-agent: a rosette of overlapping petals.
+ * The identity mark for one sub-agent: a hub wired to three, four or five
+ * nodes, lighting in turn while it works.
  *
- * ## Why a generated mark rather than a letter or a number
+ * ## Why this shape
  *
- * A delegation is several agents working at once, and the only thing the user
- * has to do with them is tell them apart — at a glance, in a header, at 18px.
- * A letter has to be read. A shape is recognised, and it keeps working once it
- * is also the thing sitting beside that run's card in the list and its report
- * in the transcript.
+ * It is the delegation itself, drawn — a centre that sent work out, and the
+ * points it sent work to, answering one after another. Alone among the shapes
+ * considered for this, its form means what the feature means, and it echoes
+ * the constellation the app already runs behind chat.
  *
- * ## Why the petal count changes and not just the colour
+ * It is also drawn in this app's language rather than a borrowed one: flat
+ * angular geometry in `currentColor`, no gradients, no fills that need a
+ * theme to look right. An earlier version of this used soft overlapping
+ * circles, which looked well enough and belonged to a different product.
+ *
+ * ## Why the node count changes and not just the colour
  *
  * Colour alone would carry identity for most people and none of it for anyone
- * with a red-green deficiency — and this app already uses red and green for
- * "failed" and "finished" a few pixels away. Alpha has four petals, Bravo six,
- * Charlie eight, so the marks stay distinct in a screenshot, in greyscale, and
- * for a reader who cannot separate the hues at all. Colour is then free to
- * carry the thing it is better at: state.
- *
- * Petals are drawn as overlapping translucent circles, so where they cross the
- * fill doubles and the mark gets its own interior structure for free — no
- * gradients, no paths to hand-tune per count, and it stays legible when it is
- * the size of a full stop.
+ * with a red-green deficiency — and this view puts red and green a few pixels
+ * away meaning "failed" and "finished". It also fails for everyone at the
+ * moment it matters most: once all three sub-agents finish, their colours
+ * converge on green and stop distinguishing anything at all. Alpha has three
+ * nodes, Bravo four, Charlie five, so the marks stay apart in a screenshot,
+ * in greyscale, and after the colours have collapsed. Colour is then free to
+ * carry the thing it is better at, which is state.
  */
 export function SubAgentMark({
-  /** Which sub-agent this is, counting from zero. Decides the petal count. */
+  /** Which sub-agent this is, counting from zero. Decides the node count. */
   index,
+  /** Whether that sub-agent is working right now — the only thing that animates. */
+  working = false,
   size = 18,
   className
 }: {
   index: number
+  working?: boolean
   size?: number
   className?: string
 }): JSX.Element {
-  const petals = PETALS[index % PETALS.length]
-  // A petal sits this far from the middle, leaving the centre overlapped by
-  // every one of them — which is what makes the mark read as a single object
-  // rather than a ring of dots.
-  const orbit = 5.4
-  const radius = 4.6
+  const nodes = NODES[index % NODES.length]
+  const points = Array.from({ length: nodes }, (_, node) => {
+    // Starting at twelve o'clock, so every mark has a node at the top and the
+    // set reads as one family rather than as shapes at arbitrary rotations.
+    const angle = (node / nodes) * Math.PI * 2 - Math.PI / 2
+    return { x: 12 + Math.cos(angle) * ORBIT, y: 12 + Math.sin(angle) * ORBIT }
+  })
 
   return (
     <svg
@@ -51,26 +58,45 @@ export function SubAgentMark({
       aria-hidden="true"
       focusable="false"
     >
-      {Array.from({ length: petals }, (_, petal) => {
-        const angle = (petal / petals) * Math.PI * 2 - Math.PI / 2
-        return (
-          <circle
-            key={petal}
-            cx={12 + Math.cos(angle) * orbit}
-            cy={12 + Math.sin(angle) * orbit}
-            r={radius}
-            fill="currentColor"
-            fillOpacity={0.5}
-          />
-        )
-      })}
+      {/* Spokes first, so the nodes sit on top of where they meet. */}
+      {points.map((point, node) => (
+        <line
+          key={`spoke-${node}`}
+          x1={12}
+          y1={12}
+          x2={point.x}
+          y2={point.y}
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeOpacity={0.4}
+        />
+      ))}
+      {points.map((point, node) => (
+        <circle
+          key={`node-${node}`}
+          cx={point.x}
+          cy={point.y}
+          r={2.5}
+          fill="currentColor"
+          className={working ? styles.node : undefined}
+          // Staggered round the ring, so the lighting travels rather than
+          // every node blinking at once. Set here and not in CSS because the
+          // node count is not fixed.
+          style={working ? { animationDelay: `${node * 0.3}s` } : undefined}
+        />
+      ))}
+      <circle cx={12} cy={12} r={3} fill="currentColor" />
     </svg>
   )
 }
 
 /**
- * Petals per position. Four, six and eight rather than four, five and six:
- * adjacent counts are hard to tell apart at this size, and there are only ever
- * three of these on screen — see `MAX_SUB_AGENTS`.
+ * Nodes per position. Three, four and five: enough of a step to tell apart at
+ * the 16px this is usually drawn at, and there are only ever three of these on
+ * screen — see `MAX_SUB_AGENTS`.
  */
-const PETALS = [4, 6, 8]
+const NODES = [3, 4, 5]
+
+/** How far each node sits from the hub, in viewBox units. */
+const ORBIT = 7.6

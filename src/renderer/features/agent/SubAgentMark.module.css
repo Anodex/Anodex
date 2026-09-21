@@ -1,0 +1,33 @@
+/*
+ * The sub-agent mark's own motion, kept beside the component that draws it
+ * rather than in the two views that use it — it was defined twice before, and
+ * two copies of an animation are two chances for them to drift apart.
+ */
+
+/* Each node lights in turn while the sub-agent is working: something sent out
+   and answered, which is what a delegation is. The stagger is set per node in
+   the component, because the node count varies with the agent. */
+.node {
+  animation: subAgentRelay 2.2s ease-in-out infinite;
+}
+
+@keyframes subAgentRelay {
+  0%,
+  70%,
+  100% {
+    opacity: 0.32;
+  }
+
+  25% {
+    opacity: 1;
+  }
+}
+
+/* Motion off, identity intact: the mark is still its own shape and its own
+   colour, which is what was carrying the meaning anyway. Nodes rest lit so a
+   working sub-agent does not read as a half-drawn one. */
+@media (prefers-reduced-motion: reduce) {
+  .node {
+    animation: none;
+  }
+}
