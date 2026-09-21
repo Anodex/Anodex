@@ -35,6 +35,26 @@ export const MAX_SUB_AGENTS = 3
 /** Longest a single delegated task description may be, in characters. */
 export const MAX_TASK_LENGTH = 2_000
 
+/**
+ * What each sub-agent is called, by the order it was sent out.
+ *
+ * A name rather than a number because a delegation is several agents working
+ * at once and the user has to hold them apart — "Bravo found the null" is a
+ * sentence someone can carry; "sub-agent 2 found the null" is a lookup. The
+ * NATO alphabet because it exists for exactly this job: naming parallel units
+ * unambiguously, out loud, without them being confused for each other.
+ *
+ * The same name is used everywhere a sub-agent appears — the report the parent
+ * reads back, the mark beside the run's title, the card in the run list — so
+ * those are one identity rather than three coincidences.
+ */
+export const SUB_AGENT_NAMES = ['Alpha', 'Bravo', 'Charlie'] as const
+
+/** The name for the sub-agent at this position, counting from zero. */
+export function subAgentName(index: number): string {
+  return SUB_AGENT_NAMES[index] ?? `Agent ${index + 1}`
+}
+
 /** What came back from one sub-agent. */
 export interface SubAgentReport {
   task: string
@@ -111,7 +131,7 @@ export function renderReports(reports: readonly SubAgentReport[]): string {
       const body =
         entry.report.trim() ||
         `_Reported nothing. The run ended as "${entry.status}" — open it to see what happened._`
-      return `### Sub-agent ${index + 1} — ${entry.status}\nTask: ${entry.task}\n\n${body}`
+      return `### ${subAgentName(index)} — ${entry.status}\nTask: ${entry.task}\n\n${body}`
     })
     .join('\n\n')
 }

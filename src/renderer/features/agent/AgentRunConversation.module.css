@@ -668,3 +668,115 @@
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
+
+/* ---- sub-agents ---- */
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.subAgents {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* Mark plus name. The name is here rather than in a tooltip because holding
+   three agents apart is the whole job of this control, and a label that has to
+   be hovered for is not holding anything apart. */
+.subAgentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2) 2px 3px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.subAgentChip:hover {
+  border-color: currentcolor;
+}
+
+.subAgentChip:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* The name reads as a label, not as the loud part — the mark carries the
+   identity and the colour carries the state. */
+.subAgentName {
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Each sub-agent's own colour, from the palette the app already validated as
+   distinguishable against every theme's surface. Worn while it is working;
+   once it finishes, the status colour takes over — see the component. */
+.identity-0 {
+  color: var(--series-1);
+}
+
+.identity-1 {
+  color: var(--series-2);
+}
+
+.identity-2 {
+  color: var(--series-4);
+}
+
+/* The one animation: the mark turns while its sub-agent is working, and stops
+   when it stops. Slow enough (6s) to register as "still going" rather than to
+   pull the eye away from the title it sits beside. */
+.turning {
+  animation: subAgentTurn 6s linear infinite;
+}
+
+@keyframes subAgentTurn {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Motion off, identity intact: the mark is still its own shape and its own
+   colour, which is what was carrying the meaning anyway. */
+@media (prefers-reduced-motion: reduce) {
+  .turning {
+    animation: none;
+  }
+}
+
+/* Where this sub-agent came from. Quiet: it is orientation, not an action
+   anyone came here to take. */
+.parentLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 220px;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: inherit;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.parentLink:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

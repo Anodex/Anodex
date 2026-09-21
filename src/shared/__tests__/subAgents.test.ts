@@ -4,6 +4,7 @@ import {
   MAX_TASK_LENGTH,
   renderReports,
   splitRunBudget,
+  subAgentName,
   subAgentTools,
   validateDelegation,
   type SubAgentReport
@@ -77,6 +78,18 @@ describe('subAgentTools', () => {
   })
 })
 
+describe('subAgentName', () => {
+  it('names the three positions a delegation can fill', () => {
+    expect([0, 1, 2].map(subAgentName)).toEqual(['Alpha', 'Bravo', 'Charlie'])
+  })
+
+  it('falls back rather than returning undefined past the ceiling', () => {
+    // `MAX_SUB_AGENTS` keeps this unreachable today, but a name that came back
+    // undefined would render as the word "undefined" in a report heading.
+    expect(subAgentName(9)).toBe('Agent 10')
+  })
+})
+
 describe('renderReports', () => {
   const report = (overrides: Partial<SubAgentReport> = {}): SubAgentReport => ({
     task: 'check the auth module',
@@ -94,7 +107,10 @@ describe('renderReports', () => {
     ])
     expect(text).toContain('Task: auth')
     expect(text).toContain('Task: parsing')
-    expect(text.indexOf('Sub-agent 1')).toBeLessThan(text.indexOf('Sub-agent 2'))
+    // Named, and named in order — the same names the pips beside the run's
+    // title carry, so "Bravo found the null" points at something.
+    expect(text).toContain('### Alpha')
+    expect(text.indexOf('Alpha')).toBeLessThan(text.indexOf('Bravo'))
   })
 
   it('says a sub-agent produced nothing rather than leaving a gap', () => {

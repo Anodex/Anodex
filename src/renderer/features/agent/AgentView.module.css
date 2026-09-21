@@ -677,3 +677,39 @@
   gap: var(--space-1);
   color: var(--text-muted);
 }
+
+/* Each sub-agent's own colour, from the palette the app already validated as
+   distinguishable against every theme's surface. See SubAgentMark. */
+.identity-0 {
+  color: var(--series-1);
+}
+
+.identity-1 {
+  color: var(--series-2);
+}
+
+.identity-2 {
+  color: var(--series-4);
+}
+
+/* The one sub-agent animation, matching the run header's: the mark turns while
+   that agent is working, and stops when it stops. */
+.turning {
+  animation: subAgentTurn 6s linear infinite;
+}
+
+@keyframes subAgentTurn {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turning {
+    animation: none;
+  }
+}

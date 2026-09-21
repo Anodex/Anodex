@@ -444,7 +444,11 @@ Key capabilities:
 - Optionally let a run split its goal across up to three sub-agents that work at
   the same time and report back (off by default, in Settings to Tools to Agent
   runs). Each sub-agent is a real run with its own transcript, nested under the
-  run that sent it, and can be stopped on its own.
+  run that sent it, and can be stopped on its own. Each one is named (Alpha,
+  Bravo, Charlie) and carries a generated mark of its own — a rosette whose
+  petal count and colour identify it — beside the run's title, on its card, and
+  at the head of its section in the report. The mark turns while that sub-agent
+  is working and stops when it stops.
 
 Why it is good:
 

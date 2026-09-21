@@ -24,12 +24,19 @@ import {
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
 import { CopyableId } from '../../components/CopyableId'
+import { SubAgentMark } from './SubAgentMark'
+import { subAgentName } from '@shared/subAgents'
 
 interface AgentRunConversationProps {
   run: AgentRun
+  /** Sub-agents this run delegated, in the order it sent them out. */
+  subAgents: AgentRun[]
+  /** The run that delegated this one, when this is itself a sub-agent. */
+  parentRun: AgentRun | null
   projectName: string | null
   stopping: boolean
   deciding: boolean
+  onOpenRun: (runId: string) => void
   onBack: () => void
   onStop: () => void
   onRetry: () => void
@@ -346,11 +353,80 @@ function TurnView({
  * agent run has one run and many turns, so this segments by turn — and adds
  * the live state a schedule never has: an approval gate, a plan, and budgets.
  */
+/**
+ * The sub-agents this run sent out, one named mark each, beside its title.
+ *
+ * ## The identity
+ *
+ * Each sub-agent gets a rosette of its own (see `SubAgentMark`) and a name of
+ * its own, and carries both everywhere it appears — here, on its card in the
+ * run list, and as the heading of its section in the report the parent reads
+ * back. "Bravo found the null" then points at something the eye can find,
+ * which a numbered list of otherwise identical rows does not.
+ *
+ * ## The one animation, and what its colour means
+ *
+ * There is a single motion: the mark turns, slowly, while that sub-agent is
+ * working. It stops when the sub-agent stops, which is the bar this app holds
+ * bespoke motion to — it marks something genuinely happening rather than
+ * decorating a header forever.
+ *
+ * Colour then carries state on top of identity. A working sub-agent shows its
+ * own colour; a finished one takes the colour of how it finished, so a glance
+ * at a row of marks answers "are they done, and did any of them fail" without
+ * reading anything. The shapes are what keep them apart once the colours have
+ * converged on green — which is exactly when colour stops distinguishing them
+ * and would otherwise leave three identical dots.
+ */
+export function SubAgentChips({
+  subAgents,
+  onOpenRun
+}: {
+  subAgents: AgentRun[]
+  onOpenRun: (runId: string) => void
+}): JSX.Element | null {
+  if (subAgents.length === 0) return null
+  return (
+    <div
+      className={styles.subAgents}
+      aria-label={`${subAgents.length} sub-agent${subAgents.length === 1 ? '' : 's'}`}
+    >
+      {subAgents.map((child, index) => (
+        <button
+          key={child.id}
+          type="button"
+          className={`${styles.subAgentChip} ${
+            child.status === 'running'
+              ? styles[`identity-${index % 3}`]
+              : styles[`status-${child.status}`]
+          }`}
+          // The task, because "what is it doing" is the question these are here
+          // to answer, and a tooltip answers it without spending a click.
+          title={`${subAgentName(index)} — ${STATUS_LABEL[child.status]}
+${child.delegatedTask ?? child.goal}`}
+          aria-label={`Open ${subAgentName(index)}, ${STATUS_LABEL[child.status]}`}
+          onClick={() => onOpenRun(child.id)}
+        >
+          <SubAgentMark
+            index={index}
+            size={16}
+            className={child.status === 'running' ? styles.turning : undefined}
+          />
+          <span className={styles.subAgentName}>{subAgentName(index)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function AgentRunConversation({
   run,
+  subAgents,
+  parentRun,
   projectName,
   stopping,
   deciding,
+  onOpenRun,
   onBack,
   onStop,
   onRetry,
@@ -377,10 +453,26 @@ export function AgentRunConversation({
           All runs
         </button>
         <div className={styles.headerText}>
-          <h2 className={styles.title} title={goalHeadline(run.goal)}>
-            {goalHeadline(run.goal)}
-          </h2>
+          <div className={styles.titleRow}>
+            <h2 className={styles.title} title={goalHeadline(run.goal)}>
+              {goalHeadline(run.goal)}
+            </h2>
+            <SubAgentChips subAgents={subAgents} onOpenRun={onOpenRun} />
+          </div>
           <p className={styles.subtitle}>
+            {parentRun && (
+              // A sub-agent's transcript starts mid-thought otherwise: it was
+              // given one slice of somebody else's goal and never saw the rest.
+              <button
+                type="button"
+                className={styles.parentLink}
+                onClick={() => onOpenRun(parentRun.id)}
+                title={parentRun.goal}
+              >
+                <Icon name="chevron-left" size={11} />
+                part of {goalHeadline(parentRun.goal)}
+              </button>
+            )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon
                 name={STATUS_ICON[run.status]}

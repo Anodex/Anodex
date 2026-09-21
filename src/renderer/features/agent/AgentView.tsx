@@ -21,6 +21,8 @@ import {
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
 import { describeSubAgents, groupRunsByParent } from './runTree'
+import { SubAgentMark } from './SubAgentMark'
+import { subAgentName } from '@shared/subAgents'
 import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
@@ -205,6 +207,7 @@ function RunCard({
   retryRun,
   deleteRun,
   subAgents = [],
+  subAgentIndex = null,
   orchestrated = false,
   spotlit = false,
   cardRef
@@ -212,6 +215,8 @@ function RunCard({
   run: AgentRun
   /** Sub-agents this run delegated, rendered as their own cards beneath it. */
   subAgents?: AgentRun[]
+  /** Where this run sits among its parent's sub-agents — its name and mark. */
+  subAgentIndex?: number | null
   stoppingId: string | null
   projectName: (projectId: string | null) => string | null
   openRun: (run: AgentRun) => void
@@ -243,10 +248,19 @@ function RunCard({
       <div className={styles.runRow}>
         <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
           <div className={styles.runTitleRow}>
-            {run.parentRunId && (
+            {run.parentRunId && subAgentIndex !== null && (
+              // The same mark and name this run carries beside its parent's
+              // title and at the head of its section in the report — one
+              // identity in three places rather than three coincidences.
               <span className={styles.subRunTag} title="Delegated by another run">
-                <Icon name="bot" size={11} />
-                Sub-agent
+                <SubAgentMark
+                  index={subAgentIndex}
+                  size={13}
+                  className={`${styles[`identity-${subAgentIndex % 3}`]} ${
+                    run.status === 'running' ? styles.turning : ''
+                  }`}
+                />
+                {subAgentName(subAgentIndex)}
               </span>
             )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
@@ -496,6 +510,9 @@ export function AgentView(): JSX.Element {
       <div className={styles.view}>
         <AgentRunConversation
           run={selectedRun}
+          subAgents={runs.filter((run) => run.parentRunId === selectedRun.id)}
+          parentRun={runs.find((run) => run.id === selectedRun.parentRunId) ?? null}
+          onOpenRun={setSelectedRunId}
           projectName={projectName(selectedRun.projectId)}
           stopping={stoppingId === selectedRun.id}
           deciding={decidingId === selectedRun.id}
@@ -588,11 +605,16 @@ export function AgentView(): JSX.Element {
               />
             )}
             {groupRunsByParent(visibleRuns).map(({ run, children }) => {
-              const card = (entry: AgentRun, subAgents: AgentRun[] = []): JSX.Element => (
+              const card = (
+                entry: AgentRun,
+                subAgents: AgentRun[] = [],
+                subAgentIndex: number | null = null
+              ): JSX.Element => (
                 <RunCard
                   key={entry.id}
                   run={entry}
                   subAgents={subAgents}
+                  subAgentIndex={subAgentIndex}
                   stoppingId={stoppingId}
                   projectName={projectName}
                   openRun={(r) => setSelectedRunId(r.id)}
@@ -613,7 +635,9 @@ export function AgentView(): JSX.Element {
                   {card(run, children)}
                   {/* Indented under the run that sent them out, so the shape of
                       a fan-out is legible without opening anything. */}
-                  <div className={styles.subRuns}>{children.map((child) => card(child))}</div>
+                  <div className={styles.subRuns}>
+                    {children.map((child, index) => card(child, [], index))}
+                  </div>
                 </div>
               )
             })}
