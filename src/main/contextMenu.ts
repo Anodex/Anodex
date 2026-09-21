@@ -1,9 +1,8 @@
-import { BrowserWindow, clipboard, ipcMain, shell, type ContextMenuParams } from 'electron'
+import { BrowserWindow, clipboard, ipcMain, type ContextMenuParams } from 'electron'
+import { isSafeExternalUrl, openExternalSafely } from './safeExternalUrl'
 import { IpcChannel, type ContextMenuItem, type ContextMenuRequest } from '@shared/ipc'
 import { sendToWindow } from './broadcast'
-import { createLogger } from './utils/logger'
 
-const log = createLogger('context-menu')
 /**
  * One action map per opened menu, keyed by an incrementing generation
  * rather than a single shared `Map` that gets wiped on every new menu.
@@ -59,11 +58,14 @@ function buildContextMenu(
   const actionMap = new Map<string, () => void>()
 
   if (params.linkURL) {
-    createAction(items, actionMap, 'Open Link in Browser', () => {
-      shell
-        .openExternal(params.linkURL)
-        .catch((error) => log.error('Failed to open external URL:', params.linkURL, error))
-    })
+    // Offered only for a link the OS should actually be handed. A
+    // `file:` or `ms-msdt:` link is still copyable — that is inert — but
+    // "Open Link in Browser" on one would not open a browser.
+    if (isSafeExternalUrl(params.linkURL)) {
+      createAction(items, actionMap, 'Open Link in Browser', () => {
+        void openExternalSafely(params.linkURL)
+      })
+    }
     createAction(items, actionMap, 'Copy Link', () => clipboard.writeText(params.linkURL))
     createSeparator(items)
   }

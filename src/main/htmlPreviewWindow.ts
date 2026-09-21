@@ -1,4 +1,5 @@
-import { BrowserWindow, screen, shell } from 'electron'
+import { BrowserWindow, screen } from 'electron'
+import { openExternalSafely } from './safeExternalUrl'
 import { readFile, stat } from 'node:fs/promises'
 import type { ChatImageInput } from '@shared/chat.types'
 import type { ComputerControlScope, ValidatedComputerAction } from '@shared/computerControl.types'
@@ -98,17 +99,13 @@ export function openHtmlPreviewWindow(
   // window into an uncontrolled, un-navigable browser of its own.
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (controlEnabledKeys.has(key)) return { action: 'deny' }
-    if (/^https?:/i.test(url)) {
-      shell.openExternal(url).catch((error) => log.error('Failed to open external URL:', error))
-    }
+    void openExternalSafely(url)
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, url) => {
     event.preventDefault()
     if (controlEnabledKeys.has(key)) return
-    if (/^https?:/i.test(url)) {
-      shell.openExternal(url).catch((error) => log.error('Failed to open external URL:', error))
-    }
+    void openExternalSafely(url)
   })
   // An active control session may never turn a page interaction into a file
   // transfer or an outbound request. The preview itself may have loaded

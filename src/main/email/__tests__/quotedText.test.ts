@@ -9,7 +9,7 @@ describe('stripQuotedReply', () => {
       "That's great glad to hear emails being worked on. Do you think",
       'tomorrow at 12pm you can give me a new update?',
       '',
-      'On Fri, Jul 24, 2026, 10:57 PM <invictioncraft@gmail.com> wrote:',
+      'On Fri, Jul 24, 2026, 10:57 PM <taylor@example.com> wrote:',
       '',
       '> Hi Gabriel,',
       '>',
@@ -25,8 +25,8 @@ describe('stripQuotedReply', () => {
     const body = [
       'Sounds good.',
       '',
-      'On Fri, Jul 24, 2026 at 10:57 PM Gabriel Shaw',
-      '<gabeshaw4christ@gmail.com> wrote:',
+      'On Fri, Jul 24, 2026 at 10:57 PM Jordan Fields',
+      '<jordan@example.com> wrote:',
       '> the original'
     ].join('\n')
 
@@ -44,7 +44,7 @@ describe('stripQuotedReply', () => {
     const body = [
       'Answering below.',
       '',
-      'From: Gabriel Shaw',
+      'From: Jordan Fields',
       'Sent: Friday, July 24',
       'To: me'
     ].join('\n')

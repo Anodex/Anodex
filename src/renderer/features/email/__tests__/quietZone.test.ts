@@ -23,7 +23,7 @@ function thread(from: string, overrides: Partial<EmailThreadSummary> = {}): Emai
   }
 }
 
-const PERSON = 'Gabe Shaw <gabeshaw4christ@gmail.com>'
+const PERSON = 'Jordan Fields <jordan@example.com>'
 
 describe('isBulkThread', () => {
   it('catches the mailboxes nobody reads replies to', () => {

@@ -14,7 +14,7 @@ import {
 function message(
   id: string,
   date: number,
-  from = 'Gabriel Shaw <gabeshaw4christ@gmail.com>'
+  from = 'Jordan Fields <jordan@example.com>'
 ): EmailMessage {
   return {
     id,
@@ -24,7 +24,7 @@ function message(
     accountId: 'account-1',
     subject: 'Anodex update',
     from,
-    to: ['invictioncraft@gmail.com'],
+    to: ['taylor@example.com'],
     cc: [],
     bcc: [],
     snippet: '',
@@ -76,17 +76,17 @@ describe('newestThreadMessage', () => {
 })
 
 describe('threadParticipants', () => {
-  const GABE = 'Gabriel Shaw <gabeshaw4christ@gmail.com>'
+  const OTHER = 'Jordan Fields <jordan@example.com>'
   const SUPPORT = 'Namecheap Support <support@namecheap.com>'
 
   it('lists each distinct speaker once, newest first', () => {
     expect(
       threadParticipants([
-        message('a', 100, GABE),
+        message('a', 100, OTHER),
         message('b', 200, SUPPORT),
-        message('c', 300, GABE)
+        message('c', 300, OTHER)
       ]).map((sender) => sender.name)
-    ).toEqual(['Gabriel Shaw', 'Namecheap Support'])
+    ).toEqual(['Jordan Fields', 'Namecheap Support'])
   })
 
   it('treats two addresses at one company as one participant', () => {
@@ -105,27 +105,27 @@ describe('threadParticipants', () => {
 })
 
 describe('senderDisplayName', () => {
-  const SELF = 'invictioncraft@gmail.com'
+  const SELF = 'taylor@example.com'
 
   it('names the account\'s own messages "You"', () => {
-    expect(senderDisplayName(parseSender(`Gabe <${SELF}>`), SELF)).toBe('You')
-    expect(isSelfSender(parseSender(`Gabe <${SELF}>`), SELF)).toBe(true)
+    expect(senderDisplayName(parseSender(`Taylor <${SELF}>`), SELF)).toBe('You')
+    expect(isSelfSender(parseSender(`Taylor <${SELF}>`), SELF)).toBe(true)
   })
 
   it('ignores case and stray whitespace on either side', () => {
-    expect(senderDisplayName(parseSender('Gabe <  INVICTIONCRAFT@Gmail.com >'), SELF)).toBe('You')
+    expect(senderDisplayName(parseSender('Taylor <  TAYLOR@Example.com >'), SELF)).toBe('You')
   })
 
   it('leaves everyone else alone', () => {
-    const other = parseSender('Gabriel Shaw <gabeshaw4christ@gmail.com>')
-    expect(senderDisplayName(other, SELF)).toBe('Gabriel Shaw')
+    const other = parseSender('Jordan Fields <jordan@example.com>')
+    expect(senderDisplayName(other, SELF)).toBe('Jordan Fields')
     expect(isSelfSender(other, SELF)).toBe(false)
   })
 
   it('claims nothing when the mailbox is unknown', () => {
     // No account address means no basis to call anything "You".
-    expect(isSelfSender(parseSender(`Gabe <${SELF}>`), undefined)).toBe(false)
-    expect(senderDisplayName(parseSender(`Gabe <${SELF}>`), undefined)).toBe('Gabe')
+    expect(isSelfSender(parseSender(`Taylor <${SELF}>`), undefined)).toBe(false)
+    expect(senderDisplayName(parseSender(`Taylor <${SELF}>`), undefined)).toBe('Taylor')
   })
 })
 

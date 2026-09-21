@@ -1,9 +1,10 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 import { IpcChannel } from '@shared/ipc'
 import { installContextMenu } from './contextMenu'
 import { sendToWindow } from './broadcast'
 import { createLogger } from './utils/logger'
+import { openExternalSafely } from './safeExternalUrl'
 
 const log = createLogger('window')
 
@@ -12,6 +13,30 @@ const log = createLogger('window')
  * `StartupOverlay.module.css`) so the first painted frame is seamless — no
  * flash between the native window appearing and the renderer's first paint.
  */
+/**
+ * Whether a URL is the app's own renderer rather than somewhere else.
+ *
+ * Two shapes: the packaged build loads `index.html` off disk, and a dev run
+ * loads the Vite server. Compared by origin for the dev server so its
+ * reloads and query strings pass, and by scheme for the file build, where
+ * every renderer asset is `file:` and nothing else should be.
+ */
+export function isOwnPage(url: string, devServerUrl: string | undefined): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol === 'file:') return true
+  if (!devServerUrl) return false
+  try {
+    return parsed.origin === new URL(devServerUrl).origin
+  } catch {
+    return false
+  }
+}
+
 const BACKGROUND_COLOR = '#060708'
 
 /**
@@ -100,10 +125,30 @@ export function createMainWindow(): BrowserWindow {
   window.on('maximize', () => sendToWindow(window, IpcChannel.Window.maximizedChanged, true))
   window.on('unmaximize', () => sendToWindow(window, IpcChannel.Window.maximizedChanged, false))
 
-  // Open external links in the user's default browser, never inside the app.
+  // Open external links in the user's default browser, never inside the app —
+  // and only when they are plain http(s). See `safeExternalUrl`.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url).catch((error) => log.error('Failed to open external URL:', url, error))
+    void openExternalSafely(url)
     return { action: 'deny' }
+  })
+
+  /**
+   * The app shell is not a browser tab, so nothing navigates it away.
+   *
+   * Every other window in this app already refused this; the main one did
+   * not, and it is the window that renders content Anodex did not write —
+   * web-search results in a reply, and any link a model puts in its output.
+   * A plain link without `target="_blank"` replaced the entire application
+   * with a remote page, with no back button anywhere in a frameless window:
+   * the only way out was to quit.
+   *
+   * Its own page is still allowed through, because that is not navigation
+   * away — it is the dev server reloading, or the renderer restoring itself.
+   */
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isOwnPage(url, devServerUrl)) return
+    event.preventDefault()
+    void openExternalSafely(url)
   })
 
   installContextMenu(window)

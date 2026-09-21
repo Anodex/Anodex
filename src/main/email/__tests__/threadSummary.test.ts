@@ -27,7 +27,7 @@ describe('threadPreview', () => {
         "That's great glad to hear emails being worked on. Do you think",
         'tomorrow at 12pm you can give me a new update?',
         '',
-        'On Fri, Jul 24, 2026, 10:57 PM <invictioncraft@gmail.com> wrote:',
+        'On Fri, Jul 24, 2026, 10:57 PM <taylor@example.com> wrote:',
         '',
         '> Hi Gabriel,',
         '>',
@@ -136,16 +136,13 @@ describe('dedupeParticipants', () => {
   it('collapses the same mailbox spelled two different ways', () => {
     // The exact pair a real summary printed side by side.
     expect(
-      dedupeParticipants([
-        'Invictioncraft@gmail.com',
-        'Invictioncraft@gmail.com <invictioncraft@gmail.com>'
-      ])
-    ).toEqual(['Invictioncraft@gmail.com'])
+      dedupeParticipants(['Taylor@example.com', 'Taylor@example.com <taylor@example.com>'])
+    ).toEqual(['Taylor@example.com'])
   })
 
   it('keeps the first spelling, so a display name survives', () => {
-    expect(dedupeParticipants(['"Gabriel Shaw" <gabe@example.com>', 'gabe@example.com'])).toEqual([
-      '"Gabriel Shaw" <gabe@example.com>'
+    expect(dedupeParticipants(['"Jordan Fields" <gabe@example.com>', 'gabe@example.com'])).toEqual([
+      '"Jordan Fields" <gabe@example.com>'
     ])
   })
 

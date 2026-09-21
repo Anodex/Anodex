@@ -482,3 +482,118 @@ test('a running download stays clear of the settings close button', async ({
     await rm(userDataDir, { recursive: true, force: true })
   }
 })
+
+/**
+ * The renderer globals the navigation test reaches for.
+ *
+ * Declared rather than taken from the DOM lib: this project's e2e config has
+ * no DOM types, so `document` and `window` resolve to `any` and every
+ * property access on them fails `no-unsafe-member-access`.
+ */
+interface PageGlobals {
+  location: { href: string }
+  open: (url: string, target: string) => unknown
+  document: {
+    readyState: string
+    title: string
+    body: { innerText: string }
+    getElementById: (id: string) => { childElementCount: number } | null
+    querySelectorAll: (selector: string) => ArrayLike<{
+      getAttribute: (name: string) => string | null
+      textContent: string | null
+      click: () => void
+    }>
+  }
+}
+
+/**
+ * The app shell is not a browser tab.
+ *
+ * Every other window in Anodex refused outside navigation; the main one did
+ * not, and it is the window that shows content Anodex did not write — search
+ * results in a reply, and any link a model puts in its output. A plain link
+ * replaced the whole application with a remote page, in a frameless window
+ * with no back button.
+ *
+ * Note the DOM is queried directly at the end rather than through a locator.
+ * A cancelled navigation stays "pending" as far as Playwright is concerned,
+ * so its auto-waiting locators block on a page that is perfectly healthy.
+ */
+test('the app shell cannot be navigated away', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'anodex-nav-'))
+  const app = await electron.launch({ args: ['out/main/index.js', `--user-data-dir=${dir}`] })
+
+  try {
+    const w = await app.firstWindow()
+    await waitForStartup(w)
+    const before = w.url()
+
+    // Count what reaches the OS, so "blocked" cannot secretly mean "opened
+    // in a browser instead".
+    await app.evaluate(({ shell }) => {
+      const seen: string[] = []
+      ;(globalThis as unknown as { __opened: string[] }).__opened = seen
+      shell.openExternal = (url: string): Promise<void> => {
+        seen.push(url)
+        return Promise.resolve()
+      }
+    })
+
+    // A plain in-window navigation — the thing that used to replace the app.
+    await w.evaluate(() => {
+      ;(globalThis as unknown as PageGlobals).location.href = 'https://example.com/'
+    })
+    await w.waitForTimeout(3000)
+    expect(w.url()).toBe(before)
+
+    // A dangerous scheme must not reach the operating system at all.
+    await w.evaluate(() => {
+      const g = globalThis as unknown as PageGlobals
+      g.open('file:///C:/Windows/System32/calc.exe', '_blank')
+      g.open('ms-msdt:/id PCWDiagnostic', '_blank')
+      g.open('https://example.com/ok', '_blank')
+    })
+    await w.waitForTimeout(2000)
+
+    const opened = await app.evaluate(
+      () => (globalThis as unknown as { __opened: string[] }).__opened
+    )
+    expect(opened).toEqual(['https://example.com/', 'https://example.com/ok'])
+    expect(w.url()).toBe(before)
+
+    // Queried directly rather than through an auto-waiting locator: a
+    // cancelled navigation stays "pending" as far as Playwright is
+    // concerned, so its locators block on a page that is perfectly healthy.
+    const health = await w.evaluate(() => {
+      const d = (globalThis as unknown as PageGlobals).document
+      return {
+        readyState: d.readyState,
+        hasRoot: Boolean(d.getElementById('root')?.childElementCount),
+        title: d.title
+      }
+    })
+    expect(health).toMatchObject({ readyState: 'complete', hasRoot: true, title: 'Anodex' })
+
+    // And it still responds to a real interaction afterwards.
+    const clicked = await w.evaluate(() => {
+      const d = (globalThis as unknown as PageGlobals).document
+      const button = Array.from(d.querySelectorAll('button')).find(
+        (candidate) =>
+          candidate.getAttribute('aria-label') === 'Settings' ||
+          candidate.textContent?.trim() === 'Settings'
+      )
+      if (!button) return false
+      button.click()
+      return true
+    })
+    expect(clicked).toBe(true)
+    await w.waitForTimeout(1500)
+    const settingsOpened = await w.evaluate(() =>
+      (globalThis as unknown as PageGlobals).document.body.innerText.includes('AI & Models')
+    )
+    expect(settingsOpened).toBe(true)
+  } finally {
+    await app.close()
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -20,6 +20,17 @@
  */
 import { gradeLog, graderArgs, replyEchoesToolOutput } from './chat-grader-lib.mjs'
 
+/**
+ * The mailbox these checks expect Anodex to have linked.
+ *
+ * Read from the environment rather than written here. This repository is
+ * public and the address is a real inbox, so hard-coding it published it;
+ * the fallback only keeps the file readable, and a run against it will fail
+ * the `names-the-account` check loudly rather than quietly passing.
+ */
+const TEST_MAILBOX = process.env.ANODEX_TEST_MAILBOX ?? 'your-test-inbox@example.com'
+const MAILBOX_LOCAL = TEST_MAILBOX.split('@')[0]
+
 /*
  * The parser lives in `chat-grader-lib.mjs`, not here.
  *
@@ -50,7 +61,7 @@ gradeLog({
       id: 'names-the-account',
       needsAnswer: 1,
       why: 'The linked address is the one fact the accounts question has to return.',
-      test: () => /invictioncraft/i.test(reply(1))
+      test: () => new RegExp(MAILBOX_LOCAL, 'i').test(reply(1))
     },
     {
       id: 'lists-real-threads',
