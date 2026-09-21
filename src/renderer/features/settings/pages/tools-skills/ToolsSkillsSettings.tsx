@@ -178,8 +178,8 @@ export function ToolsSkillsSettings(): JSX.Element {
           label="Let a run use sub-agents"
           description={
             settings.agents.subAgentsEnabled
-              ? 'A run can split a goal across up to three smaller agents that work at the same time and report back — useful when a goal divides into independent parts, like searching different areas of a codebase. They appear under the run that sent them, share its budget rather than adding to it, and can never use a tool it did not have.'
-              : 'A run does all of its own work in one sequence. Turn this on to let it split a goal across up to three smaller agents that work at the same time and report back.'
+              ? 'Cloud runs only. A run can split a goal across up to three smaller agents that work at the same time and report back — useful when a goal divides into independent parts, like searching different areas of a codebase. They appear under the run that sent them, share its budget rather than adding to it, and can never use a tool it did not have. A run on the local engine ignores this: the engine runs one generation at a time, so a parent waiting on its sub-agents would be holding the very slot they need.'
+              : 'A run does all of its own work in one sequence. Turn this on to let a cloud run split a goal across up to three smaller agents that work at the same time and report back. The local engine runs one generation at a time, so local runs are unaffected either way.'
           }
           control={
             <ToggleControl

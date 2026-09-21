@@ -1160,6 +1160,26 @@ class AgentRunService {
    */
   private canDelegate(run: AgentRun): boolean {
     if (run.parentRunId) return false
+    // The local engine cannot run a sub-agent at all, and the failure is a
+    // deadlock rather than a refusal.
+    //
+    // `LlamaService.generate()` holds a single-slot model gate for the whole
+    // turn, by design, so no auxiliary call can race the runtime. Tool calls
+    // happen inside that turn, so a parent blocked in `delegate` is holding
+    // the only slot while waiting for children who each need it to generate.
+    // Neither side can move. Measured: a parent and its one sub-agent sat at
+    // turn zero with zero tokens for 33 minutes, the log silent from the
+    // instant the child was created.
+    //
+    // Raising `parallelJobs` does not fix it. With capacity N the parent
+    // holds one slot and leaves N-1, so a fan-out of N or more deadlocks
+    // just the same — and the context divides N ways on top, which is the
+    // scarcer resource on the machines this would be for.
+    //
+    // Cloud providers have no such gate. They are HTTP calls and run
+    // genuinely concurrently, which is where the feature's premise actually
+    // holds.
+    if (run.provider === 'local') return false
     return settingsStore.get().agents.subAgentsEnabled
   }
 

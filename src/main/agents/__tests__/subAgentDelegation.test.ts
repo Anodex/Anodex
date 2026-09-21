@@ -174,7 +174,9 @@ async function startAndSettle(request: Partial<CreateAgentRunRequest> = {}): Pro
     goal: 'Find the bugs',
     projectId: null,
     enabledTools: ['read_file', 'grep_files'],
-    provider: 'local',
+    // Cloud: delegation is refused on the local engine, where it deadlocks.
+    provider: 'anthropic',
+    model: 'claude-sonnet-5',
     requirePlan: false,
     ...request
   })
@@ -373,6 +375,37 @@ describe('a run that delegates', () => {
     // "the sub-agents found nothing".
     expect(refusal).toMatch(/not enough turns/i)
     expect(runs.filter((run) => run.parentRunId)).toHaveLength(0)
+  })
+})
+
+describe('on the local engine', () => {
+  it('never offers delegation, because a local delegation deadlocks', () => {
+    // `LlamaService.generate()` holds a single-slot model gate for the whole
+    // turn. A parent blocked inside `delegate` holds that slot while waiting
+    // for children who each need it, so neither can move. Measured: a parent
+    // and its sub-agent sat at turn zero, zero tokens, for 33 minutes.
+    subAgentsEnabled = true
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      noteTurn(request, io)
+      return finished(io, 'Done', 100)
+    })
+    return startAndSettle({ provider: 'local' }).then(() => {
+      expect(turns).toHaveLength(1)
+      expect(turns[0].hasDelegate).toBe(false)
+      expect(turns[0].enabledTools.has('delegate')).toBe(false)
+    })
+  })
+
+  it('still offers it to a cloud run, where calls are genuinely concurrent', () => {
+    subAgentsEnabled = true
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      noteTurn(request, io)
+      return finished(io, 'Done', 100)
+    })
+    return startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' }).then(() => {
+      expect(turns[0].hasDelegate).toBe(true)
+      expect(turns[0].enabledTools.has('delegate')).toBe(true)
+    })
   })
 })
 
