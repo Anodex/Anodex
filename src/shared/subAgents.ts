@@ -50,9 +50,142 @@ export const MAX_TASK_LENGTH = 2_000
  */
 export const SUB_AGENT_NAMES = ['Alpha', 'Bravo', 'Charlie'] as const
 
-/** The name for the sub-agent at this position, counting from zero. */
+/** The call-sign for the sub-agent at this position, counting from zero. */
 export function subAgentName(index: number): string {
   return SUB_AGENT_NAMES[index] ?? `Agent ${index + 1}`
+}
+
+/** Longest a derived label may be before the call-sign is better. */
+const MAX_LABEL_LENGTH = 20
+
+/**
+ * Words that carry no information about what a sub-agent was asked to do.
+ *
+ * Almost every delegated task opens the same way — "check the...", "look
+ * through the...", "search X for..." — because that is how the parent phrases
+ * an instruction. Those openings are identical across all three sub-agents,
+ * so a label built from them would read "Check the" three times.
+ */
+const FILLER = new Set([
+  'a',
+  'across',
+  'all',
+  'also',
+  'an',
+  'and',
+  'any',
+  'anything',
+  'are',
+  'assess',
+  'at',
+  'audit',
+  'check',
+  'determine',
+  'do',
+  'ensure',
+  'evaluate',
+  'examine',
+  'explore',
+  'find',
+  'for',
+  'gather',
+  'go',
+  'identify',
+  'in',
+  'inspect',
+  'investigate',
+  'into',
+  'is',
+  'it',
+  'its',
+  'list',
+  'locate',
+  'look',
+  'make',
+  'now',
+  'of',
+  'on',
+  'our',
+  'over',
+  'please',
+  'read',
+  'report',
+  'review',
+  'scan',
+  'search',
+  'some',
+  'study',
+  'that',
+  'the',
+  'their',
+  'then',
+  'these',
+  'this',
+  'those',
+  'through',
+  'to',
+  'trace',
+  'verify',
+  'whether',
+  'work',
+  'your'
+])
+
+/**
+ * A short label for one delegated task, or `null` if nothing usable survives.
+ *
+ * Deliberately conservative. A label is only worth having when it says
+ * something the call-sign does not, and a garbled two words are worse than
+ * "Bravo" — they look like information while being noise. So anything that
+ * reduces to filler, to nothing, or to a single character falls back.
+ */
+export function taskLabel(task: string): string | null {
+  const words = task
+    .replace(/[`*_#>]/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\w/\\.-]+|[^\w/\\.-]+$/g, ''))
+    // A path says more than the words around it, and its last segment says
+    // as much as the whole thing in a fraction of the width.
+    .map((word) => (/[/\\]/.test(word) ? (word.split(/[/\\]/).pop() ?? word) : word))
+    // A "word" of pure punctuation survives the trim above, because dots and
+    // dashes are kept for `registry.ts` and `off-by-one`. `...` is not a name.
+    .filter((word) => /[a-z0-9]/i.test(word) && !FILLER.has(word.toLowerCase()))
+
+  const kept: string[] = []
+  for (const word of words) {
+    if (kept.length >= 3) break
+    const next = [...kept, word].join(' ')
+    if (next.length > MAX_LABEL_LENGTH) break
+    kept.push(word)
+  }
+  const label = kept.join(' ')
+  if (label.length < 3) return null
+  // Only the first character, and only when the word is plainly a word:
+  // `readFile` and `src.ts` are names, and title-casing them makes them wrong.
+  return /^[a-z]+$/.test(kept[0]) ? label[0].toUpperCase() + label.slice(1) : label
+}
+
+/**
+ * What to call each sub-agent in a delegation, in the order they were sent.
+ *
+ * Derived from the task where that works, because the question these names
+ * answer is "what is each one doing" — and a label that says `Tokenizer`
+ * answers it where `Bravo` sends you to a tooltip.
+ *
+ * **All or nothing.** If any task yields no usable label, or two of them yield
+ * the same one, the whole set falls back to call-signs. Two sub-agents both
+ * called `Parser` is worse than no labels at all: the names exist to tell
+ * them apart, and a duplicate quietly stops doing the one job it has. A mixed
+ * set — `Tokenizer`, `Bravo`, `Unicode` — is no better, because the reader
+ * cannot tell whether `Bravo` is a label or a fallback.
+ */
+export function subAgentNames(tasks: readonly string[]): string[] {
+  const callSigns = tasks.map((_, index) => subAgentName(index))
+  const labels = tasks.map(taskLabel)
+  if (labels.some((label) => label === null)) return callSigns
+  const seen = new Set(labels.map((label) => label?.toLowerCase()))
+  if (seen.size !== labels.length) return callSigns
+  return labels as string[]
 }
 
 /** What came back from one sub-agent. */
@@ -126,12 +259,13 @@ export function subAgentTools(parentTools: Iterable<string>): string[] {
  */
 export function renderReports(reports: readonly SubAgentReport[]): string {
   if (reports.length === 0) return 'No sub-agents ran.'
+  const names = subAgentNames(reports.map((entry) => entry.task))
   return reports
     .map((entry, index) => {
       const body =
         entry.report.trim() ||
         `_Reported nothing. The run ended as "${entry.status}" — open it to see what happened._`
-      return `### ${subAgentName(index)} — ${entry.status}\nTask: ${entry.task}\n\n${body}`
+      return `### ${names[index]} — ${entry.status}\nTask: ${entry.task}\n\n${body}`
     })
     .join('\n\n')
 }

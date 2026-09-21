@@ -5,7 +5,9 @@ import {
   renderReports,
   splitRunBudget,
   subAgentName,
+  subAgentNames,
   subAgentTools,
+  taskLabel,
   validateDelegation,
   type SubAgentReport
 } from '../subAgents'
@@ -90,6 +92,68 @@ describe('subAgentName', () => {
   })
 })
 
+describe('taskLabel', () => {
+  it('drops the instruction and keeps the subject', () => {
+    // Every delegated task opens the same way, because that is how a parent
+    // phrases an instruction — three agents all labelled "Check the" would
+    // be worse than no labels.
+    expect(taskLabel('check the tokenizer for off-by-one errors')).toBe('Tokenizer off-by-one')
+    expect(taskLabel('Look through the error recovery paths')).toBe('Error recovery paths')
+  })
+
+  it('reduces a path to the part that identifies it', () => {
+    // Truncated to fit a chip, which is why it is the file and not the path.
+    expect(taskLabel('search src/main/tools/registry.ts for unchecked nulls')).toBe('registry.ts')
+  })
+
+  it('leaves an identifier’s own casing alone', () => {
+    // Title-casing `readFile` makes it a different name.
+    expect(taskLabel('review readFile error handling')).toBe('readFile error')
+  })
+
+  it('stays inside the width a chip can show', () => {
+    const label = taskLabel(
+      'investigate the extraordinarily convoluted authentication middleware layer'
+    )
+    expect(label && label.length).toBeLessThanOrEqual(20)
+  })
+
+  it('gives up rather than returning noise', () => {
+    // A label that is a garbled fragment looks like information while being
+    // none, which is worse than falling back to a call-sign.
+    expect(taskLabel('check the')).toBeNull()
+    expect(taskLabel('   ')).toBeNull()
+    expect(taskLabel('...')).toBeNull()
+  })
+})
+
+describe('subAgentNames', () => {
+  it('names each sub-agent after what it was sent to do', () => {
+    expect(
+      subAgentNames(['check the tokenizer', 'check error recovery paths', 'check unicode handling'])
+    ).toEqual(['Tokenizer', 'Error recovery paths', 'Unicode handling'])
+  })
+
+  it('falls back for the whole set when two labels collide', () => {
+    // Two sub-agents both called "Parser" stop doing the one job a name has.
+    expect(subAgentNames(['check the parser', 'review the parser'])).toEqual(['Alpha', 'Bravo'])
+  })
+
+  it('falls back for the whole set when one task yields nothing', () => {
+    // A mixed set is no better: the reader cannot tell whether "Bravo" is a
+    // label or a fallback.
+    expect(subAgentNames(['check the tokenizer', 'check the'])).toEqual(['Alpha', 'Bravo'])
+  })
+
+  it('ignores case when deciding two labels are the same', () => {
+    expect(subAgentNames(['check Parser rules', 'review parser rules'])).toEqual(['Alpha', 'Bravo'])
+  })
+
+  it('handles a delegation of one', () => {
+    expect(subAgentNames(['check the tokenizer'])).toEqual(['Tokenizer'])
+  })
+})
+
 describe('renderReports', () => {
   const report = (overrides: Partial<SubAgentReport> = {}): SubAgentReport => ({
     task: 'check the auth module',
@@ -107,10 +171,11 @@ describe('renderReports', () => {
     ])
     expect(text).toContain('Task: auth')
     expect(text).toContain('Task: parsing')
-    // Named, and named in order — the same names the pips beside the run's
-    // title carry, so "Bravo found the null" points at something.
-    expect(text).toContain('### Alpha')
-    expect(text.indexOf('Alpha')).toBeLessThan(text.indexOf('Bravo'))
+    // Named after the work rather than by position, and named in order — the
+    // same names the chips beside the run's title carry, so a reader can go
+    // from "Auth found the null" to that sub-agent's transcript.
+    expect(text).toContain('### Auth')
+    expect(text.indexOf('Auth')).toBeLessThan(text.indexOf('Parsing'))
   })
 
   it('says a sub-agent produced nothing rather than leaving a gap', () => {

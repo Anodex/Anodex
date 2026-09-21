@@ -22,7 +22,7 @@ import {
 import { useAwayArrivals } from './useAwayArrivals'
 import { describeSubAgents, groupRunsByParent } from './runTree'
 import { SubAgentMark } from './SubAgentMark'
-import { subAgentName } from '@shared/subAgents'
+import { subAgentNames } from '@shared/subAgents'
 import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
@@ -208,6 +208,7 @@ function RunCard({
   deleteRun,
   subAgents = [],
   subAgentIndex = null,
+  subAgentLabel = null,
   orchestrated = false,
   spotlit = false,
   cardRef
@@ -215,8 +216,10 @@ function RunCard({
   run: AgentRun
   /** Sub-agents this run delegated, rendered as their own cards beneath it. */
   subAgents?: AgentRun[]
-  /** Where this run sits among its parent's sub-agents — its name and mark. */
+  /** Where this run sits among its parent's sub-agents — decides its mark. */
   subAgentIndex?: number | null
+  /** What its parent calls it, resolved across the whole delegation. */
+  subAgentLabel?: string | null
   stoppingId: string | null
   projectName: (projectId: string | null) => string | null
   openRun: (run: AgentRun) => void
@@ -259,7 +262,7 @@ function RunCard({
                   working={run.status === 'running'}
                   className={styles[`identity-${subAgentIndex % 3}`]}
                 />
-                {subAgentName(subAgentIndex)}
+                {subAgentLabel}
               </span>
             )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
@@ -604,6 +607,11 @@ export function AgentView(): JSX.Element {
               />
             )}
             {groupRunsByParent(visibleRuns).map(({ run, children }) => {
+              // Resolved once for the whole fan-out, because whether a label
+              // is usable depends on the other tasks — see `subAgentNames`.
+              const names = subAgentNames(
+                children.map((child) => child.delegatedTask ?? child.goal)
+              )
               const card = (
                 entry: AgentRun,
                 subAgents: AgentRun[] = [],
@@ -614,6 +622,7 @@ export function AgentView(): JSX.Element {
                   run={entry}
                   subAgents={subAgents}
                   subAgentIndex={subAgentIndex}
+                  subAgentLabel={subAgentIndex === null ? null : names[subAgentIndex]}
                   stoppingId={stoppingId}
                   projectName={projectName}
                   openRun={(r) => setSelectedRunId(r.id)}

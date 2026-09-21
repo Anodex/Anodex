@@ -25,7 +25,7 @@ import {
 import styles from './AgentRunConversation.module.css'
 import { CopyableId } from '../../components/CopyableId'
 import { SubAgentMark } from './SubAgentMark'
-import { subAgentName } from '@shared/subAgents'
+import { subAgentNames } from '@shared/subAgents'
 
 interface AgentRunConversationProps {
   run: AgentRun
@@ -386,6 +386,9 @@ export function SubAgentChips({
   onOpenRun: (runId: string) => void
 }): JSX.Element | null {
   if (subAgents.length === 0) return null
+  // Derived from what each one was actually sent to do, falling back to
+  // call-signs when that would not be useful — see `subAgentNames`.
+  const names = subAgentNames(subAgents.map((child) => child.delegatedTask ?? child.goal))
   return (
     <div
       className={styles.subAgents}
@@ -402,13 +405,13 @@ export function SubAgentChips({
           }`}
           // The task, because "what is it doing" is the question these are here
           // to answer, and a tooltip answers it without spending a click.
-          title={`${subAgentName(index)} — ${STATUS_LABEL[child.status]}
+          title={`${names[index]} — ${STATUS_LABEL[child.status]}
 ${child.delegatedTask ?? child.goal}`}
-          aria-label={`Open ${subAgentName(index)}, ${STATUS_LABEL[child.status]}`}
+          aria-label={`Open ${names[index]}, ${STATUS_LABEL[child.status]}`}
           onClick={() => onOpenRun(child.id)}
         >
           <SubAgentMark index={index} size={16} working={child.status === 'running'} />
-          <span className={styles.subAgentName}>{subAgentName(index)}</span>
+          <span className={styles.subAgentName}>{names[index]}</span>
         </button>
       ))}
     </div>

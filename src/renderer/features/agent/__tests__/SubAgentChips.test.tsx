@@ -63,6 +63,23 @@ describe('SubAgentChips', () => {
     expect(onOpenRun).toHaveBeenCalledWith('run-b')
   })
 
+  it('names each sub-agent after what it was sent to do', () => {
+    // The whole reason these are on screen: seeing what each one is doing
+    // without hovering over it.
+    render(
+      <SubAgentChips
+        subAgents={[
+          child('run-a', { delegatedTask: 'check the tokenizer' }),
+          child('run-b', { delegatedTask: 'check unicode handling' })
+        ]}
+        onOpenRun={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText(/Open Tokenizer/).textContent).toBe('Tokenizer')
+    expect(screen.getByLabelText(/Open Unicode handling/).textContent).toBe('Unicode handling')
+  })
+
   it('names the marks to match the report the parent read back', () => {
     // `renderReports` heads each section "Bravo", so the name is what takes a
     // reader from that line to the transcript behind it.
@@ -116,7 +133,10 @@ describe('SubAgentChips', () => {
       />
     )
 
-    expect(screen.getByLabelText(/Open Alpha/).title).toContain('search the parser for off-by-ones')
+    // The name is the subject; the tooltip still carries the task in full.
+    expect(screen.getByLabelText(/Open Parser off-by-ones/).title).toContain(
+      'search the parser for off-by-ones'
+    )
   })
 
   it('carries each sub-agent’s own status, not just the fact it exists', () => {
