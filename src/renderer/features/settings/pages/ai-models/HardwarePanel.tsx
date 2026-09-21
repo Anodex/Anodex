@@ -46,46 +46,32 @@ export function HardwarePanel({
             <span>Detecting hardware…</span>
           </div>
         ) : (
-          <>
-            <div className={styles.hardwareSummary}>
-              <div className={styles.hardwareHeadline}>
-                <div>
-                  <h3 className={styles.hardwareTitle}>This computer</h3>
-                  <p className={styles.hardwareSubtitle}>{fit}</p>
-                </div>
-                <div
-                  className={styles.hardwareScore}
-                  style={{ '--score': `${hardwareScore ?? 0}%` } as CSSProperties}
-                  aria-label={`Hardware score ${hardwareScore ?? 0} out of 100`}
-                >
-                  <span>{hardwareScore ?? 0}</span>
-                </div>
+          <div className={styles.hardwareSummary}>
+            <div className={styles.hardwareHeadline}>
+              <div>
+                <h3 className={styles.hardwareTitle}>This computer</h3>
+                <p className={styles.hardwareSubtitle}>{fit}</p>
               </div>
-
-              <div className={styles.hardwareGrid}>
-                <Spec label="CPU" value={hardware.cpu} />
-                <Spec label="Cores" value={String(hardware.cores)} />
-                <Spec label="RAM" value={hardware.ram} />
-                <Spec label="GPU" value={hardware.gpu ?? 'Not detected'} />
-                <Spec label="GPU driver" value={hardware.gpuDriver ?? 'Not detected'} />
-                <Spec label="VRAM" value={hardware.vram ?? 'Not detected'} />
-                <Spec label="Free storage" value={hardware.storageFree ?? 'Unknown'} />
-                <Spec label="OS" value={hardware.os} />
+              <div
+                className={styles.hardwareScore}
+                style={{ '--score': `${hardwareScore ?? 0}%` } as CSSProperties}
+                aria-label={`Hardware score ${hardwareScore ?? 0} out of 100`}
+              >
+                <span>{hardwareScore ?? 0}</span>
               </div>
             </div>
 
-            {/* One recommendation, not two. This panel used to carry its own
-                "we suggest X" callout beside the specs, directly above a strip
-                whose whole job is recommending models for this computer -- and
-                the two were scored differently, so they could disagree. */}
-            <div className={styles.hardwareReasons}>
-              <div className={styles.hintLine}>
-                <span className={styles.hintDot} />
-                Scores are based on RAM, VRAM, quant size, model size, and expected local coding
-                workload.
-              </div>
+            <div className={styles.hardwareGrid}>
+              <Spec label="CPU" value={hardware.cpu} />
+              <Spec label="Cores" value={String(hardware.cores)} />
+              <Spec label="RAM" value={hardware.ram} />
+              <Spec label="GPU" value={hardware.gpu ?? 'Not detected'} />
+              <Spec label="GPU driver" value={hardware.gpuDriver ?? 'Not detected'} />
+              <Spec label="VRAM" value={hardware.vram ?? 'Not detected'} />
+              <Spec label="Free storage" value={hardware.storageFree ?? 'Unknown'} />
+              <Spec label="OS" value={hardware.os} />
             </div>
-          </>
+          </div>
         )}
       </div>
     </section>
