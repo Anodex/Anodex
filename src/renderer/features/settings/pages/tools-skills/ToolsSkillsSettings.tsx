@@ -170,6 +170,28 @@ export function ToolsSkillsSettings(): JSX.Element {
       </section>
 
       <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Agent runs</h2>
+        <p className={pageStyles.sectionDesc}>
+          How a goal-directed run in the Agent workbench is allowed to organise its own work.
+        </p>
+        <SettingRow
+          label="Let a run use sub-agents"
+          description={
+            settings.agents.subAgentsEnabled
+              ? 'A run can split a goal across up to three smaller agents that work at the same time and report back — useful when a goal divides into independent parts, like searching different areas of a codebase. They appear under the run that sent them, share its budget rather than adding to it, and can never use a tool it did not have.'
+              : 'A run does all of its own work in one sequence. Turn this on to let it split a goal across up to three smaller agents that work at the same time and report back.'
+          }
+          control={
+            <ToggleControl
+              checked={settings.agents.subAgentsEnabled}
+              ariaLabel="Let an agent run delegate work to sub-agents"
+              onChange={(value) => void update({ agents: { subAgentsEnabled: value } })}
+            />
+          }
+        />
+      </section>
+
+      <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Assistant tools</h2>
         <p className={pageStyles.sectionDesc}>
           Tools read and change files only inside an open project folder. Workspace access comes

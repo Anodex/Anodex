@@ -298,6 +298,14 @@ describe('validatePatch', () => {
     ).toThrow(/contextAssemblyStrategy/)
   })
 
+  it('accepts the sub-agents toggle', () => {
+    // `assertKnownKeys` checks a patch against the defaults, so a new setting
+    // that was added to the types but not to the defaults would typecheck and
+    // then be rejected at runtime — a toggle that silently does nothing.
+    expect(() => validatePatch({ agents: { subAgentsEnabled: true } })).not.toThrow()
+    expect(() => validatePatch({ agents: { subAgents: true } } as never)).toThrow()
+  })
+
   it('accepts an assistantStyle.globalStyle patch within the cap', () => {
     expect(() => validatePatch({ assistantStyle: { globalStyle: 'Be concise.' } })).not.toThrow()
   })

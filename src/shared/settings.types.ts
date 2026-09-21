@@ -556,6 +556,18 @@ export interface EmailSettings {
   sendRequiresApproval: true
 }
 
+export interface AgentSettings {
+  /**
+   * Whether an agent run may delegate parts of its work to sub-agents.
+   *
+   * Off by default. Delegation multiplies what one run costs and how much it
+   * does unattended, and both of those should be a decision rather than a
+   * surprise — a goal that quietly became four runs is not what someone
+   * pressing Start agreed to.
+   */
+  subAgentsEnabled: boolean
+}
+
 export interface SpendingSettings {
   /**
    * Whether a provider's daily token cap refuses a send or only warns.
@@ -631,6 +643,7 @@ export interface AppSettings {
   email: EmailSettings
   git: GitSettings
   spending: SpendingSettings
+  agents: AgentSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

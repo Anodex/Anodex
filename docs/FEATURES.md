@@ -441,12 +441,25 @@ Key capabilities:
 - Track tokens, turns, provider, last result, and errors.
 - Flag suspected fabrication.
 - Show periodic check-in notifications during longer runs.
+- Optionally let a run split its goal across up to three sub-agents that work at
+  the same time and report back (off by default, in Settings to Tools to Agent
+  runs). Each sub-agent is a real run with its own transcript, nested under the
+  run that sent it, and can be stopped on its own.
 
 Why it is good:
 
 - Some tasks require more than one chat turn. Agent runs give Anodex a controlled
   way to continue working toward a goal while keeping budgets, tools, and plan
   approval visible.
+- Some goals are one question asked of several places at once, like "find the
+  bugs in this code". A single run walks the whole codebase in one sequence and
+  spends its entire context on the walk; three sub-agents each read a slice with
+  a fresh context. The work divides, and so does the context pressure, which is
+  what actually limits a local run.
+- Delegation cannot quietly cost more: sub-agents divide what is left of the
+  parent's turn and token budget rather than each receiving a fresh one, their
+  spending is charged back to it, and none of them can use a tool the parent did
+  not have or delegate any further itself.
 
 ## Scheduled Tasks
 

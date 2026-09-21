@@ -20,6 +20,7 @@ import {
   providerLabel
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
+import { describeSubAgents, groupRunsByParent } from './runTree'
 import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
@@ -203,11 +204,14 @@ function RunCard({
   handleStop,
   retryRun,
   deleteRun,
+  subAgents = [],
   orchestrated = false,
   spotlit = false,
   cardRef
 }: {
   run: AgentRun
+  /** Sub-agents this run delegated, rendered as their own cards beneath it. */
+  subAgents?: AgentRun[]
   stoppingId: string | null
   projectName: (projectId: string | null) => string | null
   openRun: (run: AgentRun) => void
@@ -239,6 +243,12 @@ function RunCard({
       <div className={styles.runRow}>
         <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
           <div className={styles.runTitleRow}>
+            {run.parentRunId && (
+              <span className={styles.subRunTag} title="Delegated by another run">
+                <Icon name="bot" size={11} />
+                Sub-agent
+              </span>
+            )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon name={STATUS_ICON[run.status]} size={12} />
               {STATUS_LABEL[run.status]}
@@ -264,6 +274,12 @@ function RunCard({
               >
                 <Icon name="alert" size={12} />
                 Unlimited spend
+              </span>
+            )}
+            {describeSubAgents(subAgents) && (
+              <span className={styles.subAgentCount}>
+                <Icon name="bot" size={12} />
+                {describeSubAgents(subAgents)}
               </span>
             )}
             {run.flaggedTurns > 0 && (
@@ -571,24 +587,36 @@ export function AgentView(): JSX.Element {
                 aria-hidden="true"
               />
             )}
-            {visibleRuns.map((run) => (
-              <RunCard
-                key={run.id}
-                run={run}
-                stoppingId={stoppingId}
-                projectName={projectName}
-                openRun={(r) => setSelectedRunId(r.id)}
-                handleStop={(r) => void handleStop(r)}
-                retryRun={retryRun}
-                deleteRun={(r) => void handleDelete(r)}
-                orchestrated={away.orchestrated(run.id)}
-                spotlit={away.spotlightId === run.id}
-                cardRef={(element) => {
-                  if (element) cardEls.current.set(run.id, element)
-                  else cardEls.current.delete(run.id)
-                }}
-              />
-            ))}
+            {groupRunsByParent(visibleRuns).map(({ run, children }) => {
+              const card = (entry: AgentRun, subAgents: AgentRun[] = []): JSX.Element => (
+                <RunCard
+                  key={entry.id}
+                  run={entry}
+                  subAgents={subAgents}
+                  stoppingId={stoppingId}
+                  projectName={projectName}
+                  openRun={(r) => setSelectedRunId(r.id)}
+                  handleStop={(r) => void handleStop(r)}
+                  retryRun={retryRun}
+                  deleteRun={(r) => void handleDelete(r)}
+                  orchestrated={away.orchestrated(entry.id)}
+                  spotlit={away.spotlightId === entry.id}
+                  cardRef={(element) => {
+                    if (element) cardEls.current.set(entry.id, element)
+                    else cardEls.current.delete(entry.id)
+                  }}
+                />
+              )
+              if (children.length === 0) return card(run)
+              return (
+                <div key={run.id} className={styles.runGroup}>
+                  {card(run, children)}
+                  {/* Indented under the run that sent them out, so the shape of
+                      a fan-out is legible without opening anything. */}
+                  <div className={styles.subRuns}>{children.map((child) => card(child))}</div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

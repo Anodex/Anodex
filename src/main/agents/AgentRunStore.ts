@@ -81,7 +81,20 @@ class AgentRunStore {
    */
   create(
     request: CreateAgentRunRequest,
-    prepared: { id?: string; attachments?: ChatAttachment[] } = {}
+    /**
+     * Set by the service rather than the caller. `parentRunId` deliberately
+     * is not part of `CreateAgentRunRequest`: that request crosses IPC from
+     * the renderer and from a phone, and a run that could nominate its own
+     * parent could claim to be a sub-agent of something it has nothing to do
+     * with. Only `AgentRunService` knows a run is delegated, because only it
+     * delegates.
+     */
+    prepared: {
+      id?: string
+      attachments?: ChatAttachment[]
+      parentRunId?: string
+      delegatedTask?: string
+    } = {}
   ): AgentRun {
     const now = Date.now()
     // What a run asked for nothing specific gets. A phone never asks, so this is the
@@ -92,6 +105,8 @@ class AgentRunStore {
     )
     const run: AgentRun = {
       id: prepared.id ?? generateAgentRunId(),
+      ...(prepared.parentRunId ? { parentRunId: prepared.parentRunId } : {}),
+      ...(prepared.delegatedTask ? { delegatedTask: prepared.delegatedTask } : {}),
       goal: request.goal.trim(),
       status: 'running',
       projectId: request.projectId,

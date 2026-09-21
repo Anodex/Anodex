@@ -216,6 +216,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     spending: {
       stopAtDailyCap: false
+    },
+    agents: {
+      subAgentsEnabled: false
     }
   }
 }
