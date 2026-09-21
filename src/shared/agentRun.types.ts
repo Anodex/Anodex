@@ -157,6 +157,18 @@ export const MAX_MAX_DURATION_MINUTES = 240
  */
 export interface AgentRun {
   id: string
+  /**
+   * The ongoing piece of work this run belongs to.
+   *
+   * A first run's series is its own id, so every run has one and nothing has
+   * to special-case "the first". Runs that continue it share the value, which
+   * is what lets a later run read what the earlier ones did.
+   *
+   * Absent on runs recorded before this existed; read it through
+   * {@link seriesIdOf}, which falls back to the run's own id — a lone run
+   * *is* a series of one, so that is true rather than a placeholder.
+   */
+  seriesId?: string
   goal: string
   status: AgentRunStatus
   /** The project this run's tools are scoped to, or null for a plain chat. */
@@ -279,6 +291,16 @@ export interface AgentRunAttachmentRequest {
  */
 export interface CreateAgentRunRequest {
   goal: string
+  /**
+   * Pick up an existing series rather than starting a new one.
+   *
+   * The new run inherits the series' journal and is told, in its kickoff
+   * prompt, that it is continuing work rather than meeting the goal for the
+   * first time. Everything else — tools, project, budgets — is chosen fresh,
+   * because a continuation may legitimately need a different shape from the
+   * run that came before it.
+   */
+  continuesSeriesId?: string
   projectId: string | null
   enabledTools: string[]
   provider: AgentRunProviderId
@@ -334,4 +356,14 @@ export interface RemoteRunTurn {
   /** The same colour the desktop run page gives this turn. */
   health: 'ok' | 'warn' | 'error'
   error: string | null
+}
+
+/**
+ * Which series a run belongs to.
+ *
+ * A run persisted before series existed has no `seriesId`, and its own id is
+ * the honest answer: it ran once, on its own, and nothing continued it.
+ */
+export function seriesIdOf(run: Pick<AgentRun, 'id' | 'seriesId'>): string {
+  return run.seriesId ?? run.id
 }

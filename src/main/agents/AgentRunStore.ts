@@ -90,8 +90,12 @@ class AgentRunStore {
       toolsCanChangeFiles(request.enabledTools),
       runContextSize(request)
     )
+    const id = prepared.id ?? generateAgentRunId()
     const run: AgentRun = {
-      id: prepared.id ?? generateAgentRunId(),
+      id,
+      // A first run's series is its own id, so every run has one and nothing
+      // downstream has to special-case "the first".
+      seriesId: request.continuesSeriesId ?? id,
       goal: request.goal.trim(),
       status: 'running',
       projectId: request.projectId,
