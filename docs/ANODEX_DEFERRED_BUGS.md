@@ -15,47 +15,6 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
-### FIXED 2026-09-04: the confirmation card says "Apply file change?" for things that are not files
-
-**Fixed in `e240374`, and this entry simply never moved.** It was filed in
-`ce4eceb` on 2026-09-03, in the commit that added the delete tool, and fixed the
-same day. `confirmCardPresentation.ts` now keys on `request.diff` — present only
-for a real file change — and falls back to the request’s own title otherwise,
-which is what the "where to start" note below suggested. Six tests cover it,
-including the exact reported call: `delete_scheduled_task` titled
-`Delete scheduled task "Interval test"`.
-
-Keyed on the diff rather than on a list of file-tool names on purpose, so the
-next `kind: 'write'` tool does not inherit the file wording by default — which
-is precisely how this happened.
-
-**Seen:** approving a `delete_scheduled_task` call in the GUI. The card is
-correct in every other respect -- it is badged DESTRUCTIVE and shows the task it
-resolved (name, schedule, next run, prompt) -- but its header reads "Apply file
-change?" for the removal of a Scheduler task. Nothing about a file is involved.
-
-**Evidence:** `ToolConfirmCard.tsx` picks the header from `KIND_CONFIG[kind]`,
-and every mutating tool declares `kind: 'write'`, so any non-file write gets the
-file wording. This is not new and not specific to the delete tool: creating a
-reminder with `schedule_task` has always said the same thing.
-
-**Why it matters more than a typo:** it is the wording on a destructive
-confirmation. A user reading "Apply file change?" while deleting standing work
-is being told the wrong thing about what they are approving.
-
-**Why it was left:** `ToolConfirmRequest.title` already carries a specific title
-(here, `Delete scheduled task "Interval test"`), and the email-draft branch in
-the same component already demonstrates overriding the header. So the fix is
-small -- prefer the request's own title when the write is not a file change. But
-that header is shared by file writes, commands, MCP calls and web searches, and
-changing it blind means changing every confirmation card in the app. It wants
-one pass with eyes on each card type, not a one-line change at the end of an
-unrelated piece of work.
-
-**Where to start:** `src/renderer/features/chat/ToolConfirmCard.tsx` around
-`KIND_CONFIG`; `request.diff` is the existing signal that a write really is a
-file change.
-
 ### PARTLY FIXED 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
 
 **The dead-window half is fixed; the 4K project run is not.** `boundTools` now
@@ -134,6 +93,82 @@ tuning change.
 `node scripts/chat-matrix.mjs <out> qwen27b-4k --script scripts/chat-script-hard.json
 --criteria scripts/chat-hard-criteria.mjs` reproduces it in about two minutes,
 and the grader states plainly when a run produced nothing.
+
+### DEFERRED: a skill can be pinned or deleted, but not kept and hidden
+
+Anodex will ship with demo skills (currently five), and users create their own.
+There is no way to keep a skill and stop it being offered: the options are
+pinned, unpinned-but-still-findable, or deleted.
+
+**Most of this already exists, and the scope is smaller than it looks.** A
+`togglePinned` control is already in Settings -> Tools & Skills and in Projects
+settings, and pinning already gates the expensive path: a skill's instructions
+enter the system prompt _only_ when it is pinned to a project
+(`runGeneration.ts`, `activeProject.pinnedSkillNames.length > 0`), and
+`pinnedSkillNames` starts empty. So shipping five demo skills does **not** put
+five skills in every prompt. It puts none there.
+
+What is missing is one flag — "keep this skill, do not offer it" — respected by
+`find_skill`, with a checkbox beside the existing pin toggle. One field on the
+skill record, one filter in `skillTools.ts`, one control. Not a subsystem.
+**Do not rebuild pinning.**
+
+**Do not gate `find_skill` on something being pinned.** It was considered and it
+does not work in either state: with nothing pinned the tool disappears and no
+skill can ever be discovered, and with something pinned that skill's
+instructions are already in the prompt, so the tool's only remaining value is
+finding the skills that are _not_ pinned — exactly the ones the gate would hide.
+The useful gate is on the store being empty, not on pinning.
+
+**Why it is deferred rather than fixed.** Nothing is broken: the costly path is
+controlled, and pin, unpin and delete all work today. The worst case from a
+demo skill is a model finding and loading one irrelevant skill — a wasted call,
+not a wrong answer.
+
+## Fixed, kept for the reasoning
+
+<!-- Entries below were moved out of "Open" on 2026-09-20. They were already marked FIXED or DECIDED where they sat, which made the Open section read as six live problems when two were. Nothing was rewritten. -->
+
+### FIXED 2026-09-04: the confirmation card says "Apply file change?" for things that are not files
+
+**Fixed in `e240374`, and this entry simply never moved.** It was filed in
+`ce4eceb` on 2026-09-03, in the commit that added the delete tool, and fixed the
+same day. `confirmCardPresentation.ts` now keys on `request.diff` — present only
+for a real file change — and falls back to the request’s own title otherwise,
+which is what the "where to start" note below suggested. Six tests cover it,
+including the exact reported call: `delete_scheduled_task` titled
+`Delete scheduled task "Interval test"`.
+
+Keyed on the diff rather than on a list of file-tool names on purpose, so the
+next `kind: 'write'` tool does not inherit the file wording by default — which
+is precisely how this happened.
+
+**Seen:** approving a `delete_scheduled_task` call in the GUI. The card is
+correct in every other respect -- it is badged DESTRUCTIVE and shows the task it
+resolved (name, schedule, next run, prompt) -- but its header reads "Apply file
+change?" for the removal of a Scheduler task. Nothing about a file is involved.
+
+**Evidence:** `ToolConfirmCard.tsx` picks the header from `KIND_CONFIG[kind]`,
+and every mutating tool declares `kind: 'write'`, so any non-file write gets the
+file wording. This is not new and not specific to the delete tool: creating a
+reminder with `schedule_task` has always said the same thing.
+
+**Why it matters more than a typo:** it is the wording on a destructive
+confirmation. A user reading "Apply file change?" while deleting standing work
+is being told the wrong thing about what they are approving.
+
+**Why it was left:** `ToolConfirmRequest.title` already carries a specific title
+(here, `Delete scheduled task "Interval test"`), and the email-draft branch in
+the same component already demonstrates overriding the header. So the fix is
+small -- prefer the request's own title when the write is not a file change. But
+that header is shared by file writes, commands, MCP calls and web searches, and
+changing it blind means changing every confirmation card in the app. It wants
+one pass with eyes on each card type, not a one-line change at the end of an
+unrelated piece of work.
+
+**Where to start:** `src/renderer/features/chat/ToolConfirmCard.tsx` around
+`KIND_CONFIG`; `request.diff` is the existing signal that a write really is a
+file change.
 
 ### FIXED 2026-09-03: memory capture cannot be measured against the live store
 
@@ -292,37 +327,6 @@ record into shared and drive the dropdown from it:
 long; `sortActiveFirst` orders within a section, but the active provider's
 section should also come first.
 
-### DEFERRED: a skill can be pinned or deleted, but not kept and hidden
-
-Anodex will ship with demo skills (currently five), and users create their own.
-There is no way to keep a skill and stop it being offered: the options are
-pinned, unpinned-but-still-findable, or deleted.
-
-**Most of this already exists, and the scope is smaller than it looks.** A
-`togglePinned` control is already in Settings -> Tools & Skills and in Projects
-settings, and pinning already gates the expensive path: a skill's instructions
-enter the system prompt _only_ when it is pinned to a project
-(`runGeneration.ts`, `activeProject.pinnedSkillNames.length > 0`), and
-`pinnedSkillNames` starts empty. So shipping five demo skills does **not** put
-five skills in every prompt. It puts none there.
-
-What is missing is one flag — "keep this skill, do not offer it" — respected by
-`find_skill`, with a checkbox beside the existing pin toggle. One field on the
-skill record, one filter in `skillTools.ts`, one control. Not a subsystem.
-**Do not rebuild pinning.**
-
-**Do not gate `find_skill` on something being pinned.** It was considered and it
-does not work in either state: with nothing pinned the tool disappears and no
-skill can ever be discovered, and with something pinned that skill's
-instructions are already in the prompt, so the tool's only remaining value is
-finding the skills that are _not_ pinned — exactly the ones the gate would hide.
-The useful gate is on the store being empty, not on pinning.
-
-**Why it is deferred rather than fixed.** Nothing is broken: the costly path is
-controlled, and pin, unpin and delete all work today. The worst case from a
-demo skill is a model finding and loading one irrelevant skill — a wasted call,
-not a wrong answer.
-
 ### FIXED and verified: a small window made re-reading necessary, and the loop guard made it impossible
 
 **Verified, not inferred.** The refused calls in the 4B runs carry exactly one
@@ -354,8 +358,6 @@ necessity when it is not. `allocateContextBudget` knows the working set; nothing
 connects that to the loop guard today.
 
 ---
-
-## Fixed, kept for the reasoning
 
 An entry moves here rather than being deleted, because _why it was skipped_ and
 _what changed the decision_ are the parts worth having later.

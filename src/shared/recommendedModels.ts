@@ -65,20 +65,21 @@ export interface RecommendedModel {
   tags: string[]
   /** Primary reason Anodex would recommend this model. */
   primaryUse?: RecommendedModelUse
-  /** Higher means better answer quality within this curated catalog. */
+  /**
+   * Hand-verified 1-10 ranks, if a model ever has them.
+   *
+   * Nothing sets these today. They were the curated catalog's, and the
+   * catalog is gone; `qualityRankOf`/`speedRankOf` fall back to a prior
+   * derived from the tier, which is what every live entry gets. They are
+   * kept because the fallback needs something to fall back *from* and
+   * because measured ranks are the intended long-term replacement for the
+   * prior — see `ModelReliabilityStore`, which already does this for real
+   * observed tool-calling. If that never lands, delete these and the `??`.
+   */
   qualityRank?: number
-  /** Higher means faster/lighter within this curated catalog. */
   speedRank?: number
   /** Whether the model is a good default for tool-calling/agentic code work. */
   supportsTools?: boolean
-  /** Whether the model exposes useful reasoning/thinking traces locally. */
-  supportsThinking?: boolean
-  /** Native context limit published by the model provider, when verified. */
-  nativeContextTokens?: number
-  /** False for experimental models that should only appear behind advanced UI. */
-  stable?: boolean
-  /** False hides a catalog entry from the default recommendation path. */
-  recommended?: boolean
   /**
    * `'catalog'` (the default, when omitted) is this file's own hand-vetted
    * list — every field above was chosen by a person. `'huggingface'` means it
