@@ -383,6 +383,12 @@ export function ProviderConnectionsPanel({
   onUpdate: (patch: SettingsPatch) => Promise<void>
   onOpenModels: () => void
 }): JSX.Element {
+  // Kept in step with the policy row above: a field that says it never blocks
+  // while the setting above says it does is worse than either wording alone.
+  const capDescription = settings.spending.stopAtDailyCap
+    ? 'Sends stop once this many tokens have gone through today.'
+    : 'Optional warning threshold. It never blocks a message.'
+
   // Offered models come from what the key can actually reach, so a model that
   // has been retired stops being listed here — see `useLiveCloudModels`.
   const openAiModelOptions = useLiveCloudModels('openai', OPENAI_MODELS)
@@ -473,6 +479,25 @@ export function ProviderConnectionsPanel({
             {connectedCount} connected · {PROVIDERS.length} providers
           </span>
         </div>
+
+        {/* The cap itself is per provider, a few fields down; what it *means*
+            is one decision. Eleven copies of this toggle would be eleven
+            chances for one of them to disagree with the rest. */}
+        <SettingRow
+          label="When a daily token cap is reached"
+          description={
+            settings.spending.stopAtDailyCap
+              ? 'Anodex refuses the send and says which provider ran out. The local engine is never capped — nothing there is billed.'
+              : 'Anodex shows the gauge filling up and sends anyway. Turn this on to make a cap actually stop.'
+          }
+          control={
+            <ToggleControl
+              checked={settings.spending.stopAtDailyCap}
+              ariaLabel="Stop sends when a provider reaches its daily token cap"
+              onChange={(value) => void onUpdate({ spending: { stopAtDailyCap: value } })}
+            />
+          }
+        />
 
         <div className={styles.providerWorkspace}>
           <aside className={styles.providerCatalog} aria-label="Provider catalog">
@@ -636,7 +661,7 @@ export function ProviderConnectionsPanel({
                 />
                 <SettingRow
                   label="Daily token cap"
-                  description="Optional warning threshold. It never blocks a message."
+                  description={capDescription}
                   control={
                     <DailyCapInput
                       value={settings.provider.openai.dailyTokenCap}
@@ -692,7 +717,7 @@ export function ProviderConnectionsPanel({
                 />
                 <SettingRow
                   label="Daily token cap"
-                  description="Optional warning threshold. It never blocks a message."
+                  description={capDescription}
                   control={
                     <DailyCapInput
                       value={settings.provider.anthropic.dailyTokenCap}
@@ -763,7 +788,7 @@ export function ProviderConnectionsPanel({
                 />
                 <SettingRow
                   label="Daily token cap"
-                  description="Optional warning threshold. It never blocks a message."
+                  description={capDescription}
                   control={
                     <DailyCapInput
                       value={settings.provider[selected.id].dailyTokenCap}
@@ -847,7 +872,7 @@ export function ProviderConnectionsPanel({
                 />
                 <SettingRow
                   label="Daily token cap"
-                  description="Optional warning threshold. It never blocks a message."
+                  description={capDescription}
                   control={
                     <DailyCapInput
                       value={settings.provider.azure.dailyTokenCap}

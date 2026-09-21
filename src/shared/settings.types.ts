@@ -556,6 +556,22 @@ export interface EmailSettings {
   sendRequiresApproval: true
 }
 
+export interface SpendingSettings {
+  /**
+   * Whether a provider's daily token cap refuses a send or only warns.
+   *
+   * The cap is per provider because the numbers differ; this policy is
+   * global because wanting a cap to *mean* different things on different
+   * providers is not a real need, and eleven copies of one toggle is eleven
+   * chances for one to be wrong. See `shared/dailyCap.ts`.
+   *
+   * Off by default: the caps already in people's settings were set against a
+   * row that says "It never blocks a message", and turning them into hard
+   * stops under someone would be a surprise with a bill attached.
+   */
+  stopAtDailyCap: boolean
+}
+
 export interface GitSettings {
   /**
    * Add a `Co-Authored-By: Anodex` trailer to commits Anodex writes.
@@ -614,6 +630,7 @@ export interface AppSettings {
   keyboard: KeyboardSettings
   email: EmailSettings
   git: GitSettings
+  spending: SpendingSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

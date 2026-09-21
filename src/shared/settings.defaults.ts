@@ -213,6 +213,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     git: {
       attributeCommits: true,
       attributionEmail: ANODEX_COMMIT_EMAIL
+    },
+    spending: {
+      stopAtDailyCap: false
     }
   }
 }

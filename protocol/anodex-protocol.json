@@ -10187,6 +10187,12 @@
           "type": {
             "$ref": "GitSettings"
           }
+        },
+        "spending": {
+          "optional": false,
+          "type": {
+            "$ref": "SpendingSettings"
+          }
         }
       }
     },
@@ -23416,6 +23422,17 @@
             "of": {
               "kind": "string"
             }
+          }
+        }
+      }
+    },
+    "SpendingSettings": {
+      "kind": "object",
+      "properties": {
+        "stopAtDailyCap": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
           }
         }
       }

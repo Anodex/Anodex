@@ -28,7 +28,13 @@ const mocks = vi.hoisted(() => ({
   /** The reply ceiling configured for the cloud providers, or null for none. */
   configuredMaxTokens: null as number | null,
   /** `options` as the provider actually received it, per call. */
-  seenOptions: [] as Array<GenerateParams['options']>
+  seenOptions: [] as Array<GenerateParams['options']>,
+  /** Whether a daily cap refuses a send, rather than only warning. */
+  stopAtDailyCap: false,
+  /** The configured daily cap for every cloud provider in this mock. */
+  dailyTokenCap: null as number | null,
+  /** What `TokenActivityStore` reports has been spent today. */
+  todayTokens: 0
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -40,15 +46,20 @@ vi.mock('../../settings/SettingsStore', () => ({
       webSearch: {},
       email: {},
       git: { attributeCommits: true, attributionEmail: 'anodex@anodex.dev' },
+      spending: { stopAtDailyCap: mocks.stopAtDailyCap },
       memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: true },
       transcriptRecall: { cloudProviderEnabled: false },
       assistantStyle: { globalStyle: '', personalities: [], activePersonalityId: null },
       provider: {
         active: mocks.providerActive,
-        anthropic: { model: 'claude-x' },
-        openai: { model: 'gpt-x', maxResponseTokens: mocks.configuredMaxTokens },
-        azure: { deploymentName: '' },
-        google: { model: 'gemini-x' }
+        anthropic: { model: 'claude-x', dailyTokenCap: mocks.dailyTokenCap },
+        openai: {
+          model: 'gpt-x',
+          maxResponseTokens: mocks.configuredMaxTokens,
+          dailyTokenCap: mocks.dailyTokenCap
+        },
+        azure: { deploymentName: '', dailyTokenCap: mocks.dailyTokenCap },
+        google: { model: 'gemini-x', dailyTokenCap: mocks.dailyTokenCap }
       }
     })
   }
@@ -85,7 +96,7 @@ vi.mock('../../stats/TokenActivityStore', () => ({
     recordGeneration: (entry: Record<string, unknown>) => mocks.recordedGenerations.push(entry),
     getTodayTokensForModelIds: (ids: readonly string[]) => {
       mocks.usageQueriedModelIds = [...ids]
-      return 0
+      return mocks.todayTokens
     }
   }
 }))
@@ -178,6 +189,9 @@ beforeEach(() => {
   mocks.providerActive = 'local'
   mocks.writeDuringTurn = false
   mocks.configuredMaxTokens = null
+  mocks.stopAtDailyCap = false
+  mocks.dailyTokenCap = null
+  mocks.todayTokens = 0
   mocks.seenOptions.length = 0
 })
 
@@ -276,6 +290,79 @@ describe('runGeneration — token activity', () => {
     await runGeneration(request(), io)
 
     expect(mocks.usageQueriedModelIds).toContain('gemini-x')
+  })
+})
+
+/**
+ * A daily cap that actually stops.
+ *
+ * The cap existed and drew a progress bar; the settings row said plainly that
+ * it never blocks a message. That is a fine default and a poor only option —
+ * the reason to put a number on a metered API is usually that you want it to
+ * stop, and watching a bar fill while an agent loop spends money is not a
+ * control. The policy is opt-in, so the first case here is that nothing
+ * changed for anyone who already had a cap.
+ */
+describe('runGeneration — a daily token cap that stops', () => {
+  it('still only warns when the policy is off', async () => {
+    mocks.providerActive = 'openai'
+    mocks.dailyTokenCap = 100
+    mocks.todayTokens = 10_000
+    mocks.stopAtDailyCap = false
+
+    await expect(runGeneration(request(), io)).resolves.toBeDefined()
+  })
+
+  it('refuses the send once the cap is reached', async () => {
+    mocks.providerActive = 'openai'
+    mocks.dailyTokenCap = 1_000
+    mocks.todayTokens = 1_000
+    mocks.stopAtDailyCap = true
+
+    await expect(runGeneration(request(), io)).rejects.toThrow(/daily token cap/i)
+  })
+
+  it('refuses before the provider is called, not after the money is gone', async () => {
+    mocks.providerActive = 'openai'
+    mocks.dailyTokenCap = 1_000
+    mocks.todayTokens = 5_000
+    mocks.stopAtDailyCap = true
+    mocks.seenOptions = []
+
+    await expect(runGeneration(request(), io)).rejects.toThrow()
+
+    // The whole point. A check that runs after generation is a receipt.
+    expect(mocks.seenOptions).toEqual([])
+  })
+
+  it('lets a send through while there is budget left', async () => {
+    mocks.providerActive = 'openai'
+    mocks.dailyTokenCap = 1_000
+    mocks.todayTokens = 999
+    mocks.stopAtDailyCap = true
+
+    await expect(runGeneration(request(), io)).resolves.toBeDefined()
+  })
+
+  it('never caps the local engine, which bills nobody', async () => {
+    mocks.providerActive = 'local'
+    mocks.dailyTokenCap = 1
+    mocks.todayTokens = 1_000_000
+    mocks.stopAtDailyCap = true
+
+    await expect(runGeneration(request(), io)).resolves.toBeDefined()
+  })
+
+  it('names the provider, the cap and the spend in the refusal', async () => {
+    mocks.providerActive = 'openai'
+    mocks.dailyTokenCap = 2_000
+    mocks.todayTokens = 3_500
+    mocks.stopAtDailyCap = true
+
+    // The only useful next actions are "raise it" or "wait", and both need
+    // the two numbers.
+    await expect(runGeneration(request(), io)).rejects.toThrow(/3,500/)
+    await expect(runGeneration(request(), io)).rejects.toThrow(/2,000/)
   })
 })
 

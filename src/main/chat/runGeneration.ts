@@ -1,4 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -569,6 +570,24 @@ export async function runGeneration(
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
   const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
   const contextWindowTokens = activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
+
+  // Before anything is spent. The cap is a warning threshold unless the user
+  // asked for it to stop, and then it stops here rather than after the money
+  // is gone — see `shared/dailyCap.ts`. Checked against whichever provider
+  // actually runs, so a per-run override is capped by its own budget and not
+  // by the default provider's.
+  if (effectiveProviderId !== 'local' && modelDescriptor) {
+    const capState = {
+      todayTokens: tokenActivityStore.getTodayTokensForModelIds(
+        cloudModelIdsForUsageQuery(effectiveProviderId, modelDescriptor)
+      ),
+      cap: settings.provider[effectiveProviderId].dailyTokenCap,
+      stopAtCap: settings.spending.stopAtDailyCap
+    }
+    if (dailyCapReached(capState)) {
+      throw new Error(dailyCapRefusal(CLOUD_PROVIDER_LABELS[effectiveProviderId], capState))
+    }
+  }
 
   const memory = includeReferenceContext
     ? buildMemoryContext(
