@@ -312,6 +312,26 @@ describe('a run that delegates', () => {
     expect(runs.find((run) => run.id === parent.id)?.tokensUsed).toBe(1_200)
   })
 
+  it('still records what sub-agents spent when the turn then fails', async () => {
+    // The delegation returns, and the turn dies on the way out — a provider
+    // dropping, say. The children's tokens were really spent and are really
+    // billed, so losing them would leave the run under-reporting its own cost
+    // at exactly the moment someone goes looking for why it stopped.
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      noteTurn(request, io)
+      const runId = runOfConversation.get(request.conversationId) ?? 'unknown'
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, `Checked ${run.goal}`, 500)
+      await io.delegate(['check auth', 'check parsing'])
+      throw new Error('ENOTFOUND api.anthropic.com')
+    })
+    const parent = await startAndSettle()
+
+    const finishedRun = runs.find((run) => run.id === parent.id)
+    expect(finishedRun?.status).toBe('error')
+    expect(finishedRun?.tokensUsed).toBe(1_000)
+  })
+
   it('divides the parent’s budget rather than multiplying it', async () => {
     delegateOnce(['a', 'b'])
     const parent = await startAndSettle({ maxTurns: 10, maxTokens: 40_000 })

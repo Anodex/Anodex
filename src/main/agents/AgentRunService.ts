@@ -367,16 +367,14 @@ class AgentRunService {
     const runCalls: ToolCall[] = []
     const runUnverifiedPaths: PathClaimIssue[] = []
     /**
-     * Tokens this run's sub-agents have spent since the last turn, waiting to
-     * be folded into `tokensUsed`.
+     * Hand part of this run's work to sub-agents, when it is allowed any.
      *
-     * They belong to this run's total because they were paid for out of this
-     * run's budget — `splitRunBudget` hands each sub-agent a slice of what is
-     * left. Without adding them back the parent would keep spending as though
-     * the delegation had been free, and the split would bound the children
-     * while the run as a whole quietly went over.
+     * Whatever they spend is added to this run's own `tokensUsed`, because it
+     * was paid for out of this run's budget — `splitRunBudget` hands each of
+     * them a slice of what is left. Without adding it back, the parent would
+     * keep spending as though the delegation had been free, and the split
+     * would bound the children while the run as a whole quietly went over.
      */
-    let delegatedTokens = 0
     const delegate = canDelegate
       ? async (tasks: string[]): Promise<SubAgentReport[]> => {
           const split = splitRunBudget(
@@ -389,7 +387,11 @@ class AgentRunService {
           // read as "the sub-agents found nothing".
           if ('error' in split) throw new Error(split.error)
           const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
-          delegatedTokens += outcome.tokens
+          // Added the moment they are known, rather than handed back for the
+          // turn loop to fold in: this turn can still throw after the
+          // delegation returns, and a provider failure on the way out should
+          // not erase the record of what the sub-agents already spent.
+          tokensUsed += outcome.tokens
           return outcome.reports
         }
       : undefined
@@ -466,9 +468,7 @@ class AgentRunService {
           { handoff: contextEpoch, historyFrom },
           delegate
         )
-        // Sub-agents spend out of this run's budget — see `delegatedTokens`.
-        tokensUsed += tokens + delegatedTokens
-        delegatedTokens = 0
+        tokensUsed += tokens
         if (nextPlan) plan = nextPlan
         durableChangesMade += durableChanges
         // A turn the runtime ended for lack of room is not the model being
@@ -683,7 +683,7 @@ class AgentRunService {
         this.runningRunId = null
         this.activeController = null
       }
-      this.bankSegment(run.id, workedMs())
+      this.bankSegment(run.id, workedMs(), { turnsUsed, tokensUsed })
     }
   }
 
@@ -1271,9 +1271,25 @@ class AgentRunService {
    * against. Losing a duration figure for a run that no longer exists is not
    * worth taking down the service that has already released its lock.
    */
-  private bankSegment(runId: string, workedMs: number): void {
+  private bankSegment(
+    runId: string,
+    workedMs: number,
+    /**
+     * What the run had counted when it ended, for the paths that never get
+     * to the in-loop write — a turn that throws is the main one.
+     *
+     * This used to be lost. The loop persists its counters *after* a turn
+     * returns, so a turn that failed took its own accounting with it and the
+     * run's card reported fewer tokens than it had really spent. Sub-agents
+     * made that concrete rather than theoretical: their tokens are known and
+     * billed before the parent's turn is anywhere near finished, so a
+     * provider dropping on the way out would erase a figure nobody could
+     * recover.
+     */
+    counted?: { turnsUsed: number; tokensUsed: number }
+  ): void {
     try {
-      agentRunStore.update(runId, { activeMs: workedMs, activeSinceAt: null })
+      agentRunStore.update(runId, { activeMs: workedMs, activeSinceAt: null, ...counted })
       this.broadcastRunsChanged()
     } catch (error) {
       log.warn('Could not record worked time for agent run:', runId, error)
