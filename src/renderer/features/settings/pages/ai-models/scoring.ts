@@ -378,7 +378,7 @@ export function buildRecommendedSlots(
   // calendar moves under it.
   now: number = Date.now()
 ): RecommendedSlot[] {
-  const allCandidates = catalog.filter((model) => model.recommended !== false)
+  const allCandidates = catalog
   // Every card shares this strict eligibility gate. A model that misses its
   // catalog RAM or explicit GPU requirement must never appear as a safe
   // automatic choice; if nothing fits, the strip explains that rather than

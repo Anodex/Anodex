@@ -76,7 +76,6 @@ function liveModel(
     source: 'huggingface',
     publishedAt: '2026-06-01',
     hfDownloads: 500_000,
-    recommended: true,
     ...extra
   }
 }
