@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { withCommitAttribution } from '@shared/commitAttribution'
+import { settingsStore } from '../settings/SettingsStore'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { GitWorkspaceStatus } from '@shared/git.types'
@@ -210,7 +212,16 @@ export async function commitAll(folderPath: string, message: string): Promise<Gi
   const staged = await runGitCommand(['add', '-A'], folderPath)
   if (!staged.ok) throw new Error(staged.stderr.trim() || 'Could not stage changes.')
 
-  const commit = await runGitCommand(['commit', '-m', trimmedMessage], folderPath)
+  // Anodex staged and wrote this commit, so it says so. The person stays the
+  // author; see `shared/commitAttribution.ts` for why it is a co-author
+  // trailer rather than a rewritten author.
+  const git = settingsStore.get().git
+  const finalMessage = withCommitAttribution(trimmedMessage, {
+    enabled: git.attributeCommits,
+    email: git.attributionEmail
+  })
+
+  const commit = await runGitCommand(['commit', '-m', finalMessage], folderPath)
   if (!commit.ok) {
     throw new Error(commit.stderr.trim() || commit.stdout.trim() || 'Could not commit.')
   }

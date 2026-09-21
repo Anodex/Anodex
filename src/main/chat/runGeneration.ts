@@ -1,4 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import { commitAttributionLine } from '@shared/commitAttribution'
 import { randomUUID } from 'node:crypto'
 import type {
   ChatRequest,
@@ -659,7 +660,12 @@ export async function runGeneration(
     // introduces itself as Anodex under a header saying otherwise.
     assistantPersona: { name: activePersona.name, story: activePersona.story },
     projectRules,
-    activeSkillContext
+    activeSkillContext,
+    // Only when the setting is on; `composeSystemPrompt` drops the section
+    // when this is undefined.
+    commitAttributionLine: settings.git.attributeCommits
+      ? commitAttributionLine(settings.git.attributionEmail)
+      : undefined
   }
   // What the reference *headers* cost, as opposed to the material under them.
   //

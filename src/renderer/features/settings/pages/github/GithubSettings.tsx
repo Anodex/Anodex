@@ -5,6 +5,8 @@ import { anodex } from '../../../../lib/anodex'
 import { useMcpStore } from '../../../../stores/mcpStore'
 import { getActiveProject, useProjectStore } from '../../../../stores/projectStore'
 import { useUiStore } from '../../../../stores/uiStore'
+import { useSettingsStore } from '../../../../stores/settingsStore'
+import { ANODEX_COMMIT_EMAIL, commitAttributionLine } from '@shared/commitAttribution'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { SettingRow } from '../../SettingRow'
@@ -26,6 +28,9 @@ export function GithubSettings(): JSX.Element {
   const updateProject = useProjectStore((state) => state.update)
   const statuses = useMcpStore((state) => state.statuses)
   const activeProject = getActiveProject(projects, activeProjectId)
+  const settings = useSettingsStore((state) => state.settings)
+  const updateSettings = useSettingsStore((state) => state.update)
+  const git = settings?.git
 
   const [connection, setConnection] = useState<GithubConnectionState | null>(null)
   const [token, setToken] = useState('')
@@ -268,6 +273,42 @@ export function GithubSettings(): JSX.Element {
             {connection?.configured ? 'Save and reconnect' : 'Connect GitHub'}
           </Button>
         </div>
+      </section>
+
+      <section className={pageStyles.section}>
+        <h2 className={pageStyles.sectionTitle}>Commit credit</h2>
+        <p className={pageStyles.sectionDesc}>
+          A commit Anodex writes ends with a co-author line naming it. You stay the author; this
+          only adds a second name, the same way two people pairing on a commit would. GitHub shows
+          that name with its picture once the address below is verified on a GitHub account.
+        </p>
+        <SettingRow
+          label="Credit Anodex on its commits"
+          description={
+            git?.attributeCommits
+              ? commitAttributionLine(git.attributionEmail)
+              : 'Commits Anodex writes carry no trailer.'
+          }
+          control={
+            <ToggleControl
+              checked={git?.attributeCommits ?? false}
+              onChange={(value) => void updateSettings({ git: { attributeCommits: value } })}
+            />
+          }
+        />
+        {git?.attributeCommits && (
+          <SettingRow
+            label="Address"
+            description="Whichever GitHub account verifies this address is the one whose picture appears."
+            control={
+              <TextControl
+                value={git.attributionEmail}
+                placeholder={ANODEX_COMMIT_EMAIL}
+                onChange={(value) => void updateSettings({ git: { attributionEmail: value } })}
+              />
+            }
+          />
+        )}
       </section>
 
       <section className={pageStyles.section}>
