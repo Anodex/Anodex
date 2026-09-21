@@ -188,6 +188,17 @@ export function subAgentNames(tasks: readonly string[]): string[] {
   return labels as string[]
 }
 
+/**
+ * The capability a run is handed when it may delegate.
+ *
+ * Named, rather than written out at each of the six places it travels
+ * through, because it travels through six places: `runGeneration` builds it,
+ * every transport forwards it, and the registry reads it. Spelled out
+ * separately in each, one of them simply omitted it and nothing complained —
+ * see `ToolRuntimeContext.delegate`.
+ */
+export type DelegateCapability = (tasks: string[]) => Promise<SubAgentReport[]>
+
 /** What came back from one sub-agent. */
 export interface SubAgentReport {
   task: string

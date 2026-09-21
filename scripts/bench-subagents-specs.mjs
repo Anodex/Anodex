@@ -63,7 +63,7 @@ for (const arm of ARMS) {
       'read_file',
       'read_file_range',
       'read_multiple_files',
-      'grep_files',
+      'search_files',
       'find_files'
     ],
     provider: 'local',

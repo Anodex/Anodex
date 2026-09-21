@@ -1,5 +1,5 @@
 import type { ChatSessionModelFunction } from 'node-llama-cpp'
-import type { SubAgentReport } from '@shared/subAgents'
+import type { DelegateCapability } from '@shared/subAgents'
 import type { EmailSettings, PermissionMode, WebSearchSettings } from '@shared/settings.types'
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { ChatUserFile } from '@shared/chat.types'
@@ -76,7 +76,7 @@ export interface ToolRuntimeContext {
    * `delegate` tool registers on its presence, so a chat turn and a sub-run
    * alike simply never see the tool. See `shared/subAgents.ts`.
    */
-  delegate?: (tasks: string[]) => Promise<SubAgentReport[]>
+  delegate?: DelegateCapability
   /** Built-in tools disabled by the user for normal interactive chats. */
   disabledTools: Set<string>
   /**

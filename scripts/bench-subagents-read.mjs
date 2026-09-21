@@ -94,3 +94,29 @@ export function armOf(run) {
   if (!match) return 'off'
   return { one: '1', two: '2', three: '3' }[match[1].toLowerCase()] ?? match[1]
 }
+
+/**
+ * How many tool calls a run settled, and how many were refused.
+ *
+ * Counted from the transcript rather than from the run record, because the
+ * record keeps totals and the question here is about kinds: a read-only run
+ * lives entirely on gathering calls, and the gathering guard caps those at 34
+ * per run with no way to reset. Whether a delegating arm found more because
+ * it looked *smarter* or merely because three ledgers carry three times the
+ * budget is the difference between a feature and an accident.
+ */
+export function toolCalls(run) {
+  if (!run.conversationId) return { reads: 0, refused: 0 }
+  const file = conversationPath(run.conversationId)
+  if (!file) return { reads: 0, refused: 0 }
+  const conversation = readJson(file)
+  let reads = 0
+  let refused = 0
+  for (const message of conversation?.messages ?? []) {
+    for (const call of message.toolCalls ?? []) {
+      if (call.status === 'denied' || call.status === 'error') refused++
+      else reads++
+    }
+  }
+  return { reads, refused }
+}

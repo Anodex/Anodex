@@ -1,5 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
-import type { SubAgentReport } from '@shared/subAgents'
+import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
 import { randomUUID } from 'node:crypto'
@@ -118,7 +118,7 @@ export interface RunGenerationIo {
    * knows about the setting, about whether this run is itself a sub-run, and
    * about how to run another one. Nothing else in the chain has to care.
    */
-  delegate?: (tasks: string[]) => Promise<SubAgentReport[]>
+  delegate?: DelegateCapability
   /** Overrides the user's configured permission mode for this run (scheduled tasks force one). */
   permissionModeOverride?: PermissionMode
   /**

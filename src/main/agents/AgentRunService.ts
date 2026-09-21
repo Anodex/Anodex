@@ -45,7 +45,8 @@ import {
   splitRunBudget,
   subAgentTools,
   type SubAgentBudget,
-  type SubAgentReport
+  type SubAgentReport,
+  type DelegateCapability
 } from '@shared/subAgents'
 import { headlessConfirm } from '../tools/headlessConfirm'
 import { firstPlainLine, plainSummary } from '@shared/titleText'
@@ -307,6 +308,20 @@ class AgentRunService {
 
     const canDelegate = this.canDelegate(run)
     const enabledTools = buildRunEnabledTools(run, canDelegate)
+    // What this run can actually reach, recorded once at the top.
+    //
+    // Worth a line of log because the failure it catches is silent from every
+    // other angle: a run that cannot delegate looks exactly like a run that
+    // chose not to, and a model asked to delegate without the tool reports
+    // back that the feature does not exist. That happened, and three arms of
+    // a benchmark measured the baseline under another name before anyone
+    // noticed.
+    log.info(
+      'Run toolset:',
+      run.id,
+      `${enabledTools.size} tools, delegation ${canDelegate ? 'available' : 'unavailable'}`,
+      [...enabledTools].sort().join(',')
+    )
     // Never touches the user's global `provider.active` setting — see
     // `RunGenerationIo.providerOverride`.
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
@@ -879,7 +894,7 @@ class AgentRunService {
      * presence is what registers the `delegate` tool, so a planning turn —
      * which passes nothing — cannot fan out before its plan is even read.
      */
-    delegate?: (tasks: string[]) => Promise<SubAgentReport[]>
+    delegate?: DelegateCapability
   ): Promise<{
     finished: boolean
     summary: string | null
