@@ -39,6 +39,7 @@ vi.mock('../../settings/SettingsStore', () => ({
       general: { permissionMode: 'ask', defaultShell: '' },
       webSearch: {},
       email: {},
+      git: { attributeCommits: true, attributionEmail: 'anodex@anodex.dev' },
       memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: true },
       transcriptRecall: { cloudProviderEnabled: false },
       assistantStyle: { globalStyle: '', personalities: [], activePersonalityId: null },

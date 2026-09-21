@@ -5,6 +5,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { commitAll, createBranch, getGitWorkspaceStatus, initGitRepo } from '../gitWorkspace'
 
+function gitOutput(args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd }, (error, stdout) => resolve(error ? '' : stdout))
+  })
+}
+
 function git(args: string[], cwd: string): Promise<boolean> {
   return new Promise((resolve) => {
     execFile('git', args, { cwd }, (error) => resolve(!error))
@@ -91,5 +97,31 @@ describe('gitWorkspace', () => {
     const committedStatus = await commitAll(workspace, 'docs: add readme')
 
     expect(committedStatus.canPush).toBe(true)
+  })
+
+  it('credits Anodex on a commit it writes', async () => {
+    if (!gitAvailable) return
+    await initGitRepo(workspace)
+    // A CI runner has no global identity, so the repo needs one of its own.
+    await git(['config', 'user.email', 'test@anodex.local'], workspace)
+    await git(['config', 'user.name', 'Anodex Test'], workspace)
+    await writeFile(join(workspace, 'README.md'), '# hi')
+    await commitAll(workspace, 'docs: add readme')
+
+    // The end-to-end shape, read back out of git rather than out of the
+    // string that went in: the trailer has to survive `-m`, and it has to be
+    // its own line in the body rather than part of the subject.
+    const subject = (await gitOutput(['log', '-1', '--format=%s'], workspace)).trim()
+    const body = await gitOutput(['log', '-1', '--format=%b'], workspace)
+    expect(subject).toBe('docs: add readme')
+    expect(body).toContain('Co-Authored-By: Anodex <')
+
+    // And git itself agrees it is a trailer, not just a line that looks like
+    // one — which is what GitHub's parser is reading.
+    const trailers = await gitOutput(
+      ['log', '-1', '--format=%(trailers:key=Co-Authored-By,valueonly)'],
+      workspace
+    )
+    expect(trailers.trim()).toMatch(/^Anodex </)
   })
 })

@@ -208,6 +208,23 @@ If the material does not support part of what was asked, say so plainly in the t
 
 Write the requested text directly. Do not narrate what you are about to do, and do not open with a preamble about your approach — begin with the text itself.`
 
+/**
+ * Told to the model rather than enforced, because a commit written through
+ * `run_command` is a string the model composes and nothing downstream may
+ * rewrite: editing a message after the fact would mean re-writing history,
+ * and guessing where a trailer belongs inside a message somebody else framed
+ * is how a subject line acquires a `Co-Authored-By:` in the middle of it.
+ *
+ * The commit button in the UI goes through `commitAll`, which appends the
+ * same line from the same helper — one wording, two paths.
+ */
+export function renderCommitAttributionNote(line: string): string {
+  return `# Committing
+When you write a git commit, end the message with this line, on its own after a blank line:
+${line}
+It credits Anodex as a co-author; the person you are working for stays the author. Leave it off if the message already has it.`
+}
+
 export const TOOLING_UPDATE_NOTE = `Additional tool guidance: find_files, code_outline, preview_html, git_commit_summary, and run_project_check are available in project workflows. Prefer code_outline before reading many source files; prefer run_project_check over raw run_command for test/typecheck/lint/build verification; use git_commit_summary when drafting a commit message.`
 
 /**
@@ -477,6 +494,12 @@ export interface SystemPromptParts {
   /** Whether file/command tools are available (a workspace is set). */
   hasWorkspaceTools: boolean
   /**
+   * The `Co-Authored-By` line to end a commit message with, or undefined when
+   * the setting is off. Passed in rather than read here so this stays a pure
+   * function of its arguments.
+   */
+  commitAttributionLine?: string
+  /**
    * The active model's context window, when known. Selects the compact core
    * prompt on a small window — see `coreAgentPrompt`. Omitted by callers with
    * no model resolved yet (and by the Settings preview), which keeps the full
@@ -647,6 +670,12 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   // a model ends up announcing a call it never makes.
   if (parts.hasWorkspaceTools && !compact && surface !== 'chat') {
     sections.push(TOOLING_UPDATE_NOTE)
+  }
+  // Only where a commit can actually be made: a chat turn with no workspace
+  // has no shell to run `git commit` in, and an instruction about a thing the
+  // model cannot do is an instruction it may narrate instead.
+  if (parts.hasWorkspaceTools && parts.commitAttributionLine) {
+    sections.push(renderCommitAttributionNote(parts.commitAttributionLine))
   }
   if (parts.runtime) sections.push(renderRuntimeSection(parts.runtime))
   if (!parts.omitEnvironment) {
