@@ -102,6 +102,9 @@ describe('gitWorkspace', () => {
   it('credits Anodex on a commit it writes', async () => {
     if (!gitAvailable) return
     await initGitRepo(workspace)
+    // A CI runner has no global identity, so the repo needs one of its own.
+    await git(['config', 'user.email', 'test@anodex.local'], workspace)
+    await git(['config', 'user.name', 'Anodex Test'], workspace)
     await writeFile(join(workspace, 'README.md'), '# hi')
     await commitAll(workspace, 'docs: add readme')
 
