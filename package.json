@@ -18,6 +18,8 @@
     "protocol:check": "node scripts/generate-protocol.mjs --check",
     "design": "node scripts/generate-design-contract.mjs",
     "design:check": "node scripts/generate-design-contract.mjs --check",
+    "mobile:sync": "node scripts/sync-mobile-version.mjs",
+    "mobile:check": "node scripts/sync-mobile-version.mjs --check",
     "notices": "node scripts/generate-third-party-notices.mjs",
     "notices:check": "node scripts/generate-third-party-notices.mjs --check",
     "dist": "npm run prepare:vision && npm run prepare:desktop-control && npm run notices && electron-vite build && node scripts/package-app.mjs",

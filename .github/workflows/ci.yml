@@ -62,6 +62,20 @@ jobs:
       - name: Design contract is current
         run: npm run design:check
 
+      # The third hand-maintained pointer at the phone repository, and the one
+      # that had no gate at all. `EXPECTED_MOBILE_VERSION` tells a paired phone
+      # which build this desktop was tested against; it went stale twice and
+      # was caught by hand both times, because the script that syncs it read a
+      # sibling checkout and exited **0** when there wasn't one — which is
+      # every CI runner. It reads the phone's public repository now when the
+      # sibling is missing, so this step is a real check rather than a
+      # no-op. A network failure still passes: a desktop build must not break
+      # because GitHub blinked.
+      - name: Phone version pointer is in step
+        run: npm run mobile:check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # A `commit-msg` hook already strips coding-agent attribution, and it works —
   # but a hook only runs where somebody installed it. Forty-one trailers reached
   # `main` in the five weeks after that hook landed, from worktrees without husky
