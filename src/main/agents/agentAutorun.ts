@@ -113,8 +113,22 @@ async function driveRun(specPath: string): Promise<void> {
     if (typeof spec.contextSize === 'number') engine.contextSize = spec.contextSize
     if (typeof spec.parallelJobs === 'number') engine.parallelJobs = spec.parallelJobs
     if (Object.keys(engine).length > 0) {
-      settingsStore.update({ model: engine })
-      log.info('Autorun set engine:', JSON.stringify(engine))
+      // The remembered per-model size wins over the global one — see
+      // `resolveModelContextSize` — so setting only the global leaves the
+      // engine on whatever this model was last loaded at. Measured: a sweep
+      // configured for 65,536 ran its first arm at 8,192, because that is
+      // what this model had remembered, and nothing said so.
+      const activeModel = settingsStore.get().lastModelPath
+      const remembered =
+        engine.contextSize !== undefined && activeModel
+          ? { modelContextSizes: { [activeModel]: engine.contextSize } }
+          : {}
+      settingsStore.update({ model: engine, ...remembered })
+      log.info(
+        'Autorun set engine:',
+        JSON.stringify(engine),
+        activeModel ? `(remembered for ${activeModel})` : '(no active model)'
+      )
     }
     if (typeof spec.subAgentsEnabled === 'boolean') {
       settingsStore.update({ agents: { subAgentsEnabled: spec.subAgentsEnabled } })
