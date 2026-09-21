@@ -64,12 +64,38 @@ const splitInstruction = (n) =>
  * so two sub-agents is the local ceiling and a third is refused. Worth
  * measuring that it refuses quickly rather than hanging.
  */
+/**
+ * The taxonomy a parent writes for its sub-agents, folded into a solo goal.
+ *
+ * The per-bug table says the whole recall advantage of delegating is one
+ * bug, `retry-counter`, which no solo run has ever found and two sub-agents
+ * find every time. The parents' briefs name the category outright —
+ * "infinite loops, off-by-one on attempt counts" — where the user's goal
+ * only says "find the bugs".
+ *
+ * So the advantage may not be parallelism or context division at all, but
+ * the parent writing a better prompt than the user did. This arm tests that
+ * directly: if a solo run given the same enumeration finds the same bug, the
+ * fan-out was an expensive way of getting the model to brief itself, and the
+ * same result is available at a third of the cost.
+ */
+const TAXONOMY =
+  '\n\nLook specifically for: off-by-one errors, wrong comparison operators, inverted ' +
+  'boolean conditions, incorrect arithmetic, wrong units (milliseconds versus seconds), ' +
+  'float-versus-integer money handling, broken edge cases (empty input, zero, negatives), ' +
+  'cache eviction and recency mistakes, unanchored or over-permissive validation, broken ' +
+  'retry semantics (wrong delay growth, infinite loops, off-by-one on attempt counts), and ' +
+  'token or password checks that accept what they should reject. For each bug give the ' +
+  'file, the function, the offending line, and a concrete input that triggers it. Report ' +
+  'only real defects, not style.'
+
 const ARMS = [
   { name: 'off', subAgentsEnabled: false, parallelJobs: 1, goal: BASE },
   { name: 'off-split', subAgentsEnabled: false, parallelJobs: 3, goal: BASE },
   { name: '1', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(1) },
   { name: '2', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(2) },
-  { name: '3', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(3) }
+  { name: '3', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(3) },
+  { name: 'off-brief', subAgentsEnabled: false, parallelJobs: 1, goal: BASE + TAXONOMY }
 ]
 
 for (const arm of ARMS) {

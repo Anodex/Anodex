@@ -34,6 +34,20 @@ function sweepRunIds() {
   return new Set(recorded.map((entry) => entry.runId).filter(Boolean))
 }
 
+/**
+ * Which arm each run belongs to, as the sweep recorded it.
+ *
+ * Preferred over reading the goal, because two arms can share a goal: `off`
+ * and `off-split` differ only in the engine settings they were launched
+ * with, so inferring from prose collapsed them into one row and reported a
+ * six-run arm that never existed.
+ */
+function recordedArms() {
+  const recorded = readJson('scripts/bench-subagents-results.json', null)
+  if (!Array.isArray(recorded)) return new Map()
+  return new Map(recorded.filter((entry) => entry.runId).map((entry) => [entry.runId, entry.arm]))
+}
+
 const { all, parents: everyParent } = bugHuntRuns()
 const only = sweepRunIds()
 const parents = only ? everyParent.filter((run) => only.has(run.id)) : everyParent
@@ -45,11 +59,12 @@ if (parents.length === 0) {
   process.exit(1)
 }
 
+const armById = recordedArms()
 const scored = parents.map((run) => {
   const children = all.filter((other) => other.parentRunId === run.id)
   const hits = scoreReport([run, ...children].map(runText).join('\n'))
   return {
-    arm: armOf(run),
+    arm: armById.get(run.id) ?? armOf(run),
     runId: run.id,
     status: run.status,
     // What the model actually did, not what the arm asked for. An arm whose
@@ -89,7 +104,7 @@ const scored = parents.map((run) => {
   }
 })
 
-const ARMS = ['off', '1', '2', '3']
+const ARMS = ['off', 'off-split', 'off-brief', '1', '2', '3']
 const groups = ARMS.map((arm) => ({ arm, runs: scored.filter((run) => run.arm === arm) })).filter(
   (group) => group.runs.length > 0
 )

@@ -1,0 +1,128 @@
+[
+  {
+    "arm": "off",
+    "repeat": 1,
+    "runId": "run_mubqusyg_cs2w3",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-1.log",
+    "at": "2026-09-21T21:20:08.964Z"
+  },
+  {
+    "arm": "off-split",
+    "repeat": 1,
+    "runId": "run_mubr1etn_9rznw",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-split-1.log",
+    "at": "2026-09-21T21:24:27.502Z"
+  },
+  {
+    "arm": "1",
+    "repeat": 1,
+    "runId": "run_mubr6ytf_xp6n0",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-1-1.log",
+    "at": "2026-09-21T21:36:11.739Z"
+  },
+  {
+    "arm": "2",
+    "repeat": 1,
+    "runId": "run_mubrm1yk_retev",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-2-1.log",
+    "at": "2026-09-21T21:46:00.728Z"
+  },
+  {
+    "arm": "3",
+    "repeat": 1,
+    "runId": "run_mubryp0d_za7ex",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-3-1.log",
+    "at": "2026-09-21T21:59:10.167Z"
+  },
+  {
+    "arm": "off",
+    "repeat": 2,
+    "runId": "run_mubsfltq_n3t2w",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-2.log",
+    "at": "2026-09-21T22:01:43.526Z"
+  },
+  {
+    "arm": "off-split",
+    "repeat": 2,
+    "runId": "run_mubsiwnb_qi2pk",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-split-2.log",
+    "at": "2026-09-21T22:04:11.945Z"
+  },
+  {
+    "arm": "1",
+    "repeat": 2,
+    "runId": "run_mubsm31c_li8ze",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-1-2.log",
+    "at": "2026-09-21T22:15:16.104Z"
+  },
+  {
+    "arm": "2",
+    "repeat": 2,
+    "runId": "run_mubt0aur_fm3iv",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-2-2.log",
+    "at": "2026-09-21T22:27:55.490Z"
+  },
+  {
+    "arm": "3",
+    "repeat": 2,
+    "runId": "run_mubtgl4p_sik2s",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-3-2.log",
+    "at": "2026-09-21T22:38:24.774Z"
+  },
+  {
+    "arm": "off",
+    "repeat": 3,
+    "runId": "run_mubtu2v9_nlkr0",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-3.log",
+    "at": "2026-09-21T22:40:13.108Z"
+  },
+  {
+    "arm": "off-split",
+    "repeat": 3,
+    "runId": "run_mubtweaj_hqs9j",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-split-3.log",
+    "at": "2026-09-21T22:45:01.729Z"
+  },
+  {
+    "arm": "1",
+    "repeat": 3,
+    "runId": "run_mubu2lel_s2tsm",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-1-3.log",
+    "at": "2026-09-21T22:52:20.607Z"
+  },
+  {
+    "arm": "2",
+    "repeat": 3,
+    "runId": "run_mubuc03c_iinly",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-2-3.log",
+    "at": "2026-09-21T23:06:55.224Z"
+  },
+  {
+    "arm": "3",
+    "repeat": 3,
+    "runId": "run_mubuur0r_8mapb",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-3-3.log",
+    "at": "2026-09-21T23:18:19.566Z"
+  },
+  {
+    "arm": "off-brief",
+    "repeat": 1,
+    "runId": "run_mubv9pry_ppeai",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-brief-1.log",
+    "at": "2026-09-21T23:22:42.077Z"
+  },
+  {
+    "arm": "off-brief",
+    "repeat": 2,
+    "runId": "run_mubvf13e_lddmn",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-brief-2.log",
+    "at": "2026-09-21T23:30:00.926Z"
+  },
+  {
+    "arm": "off-brief",
+    "repeat": 3,
+    "runId": "run_mubvog7g_wfj5k",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-brief-3.log",
+    "at": "2026-09-21T23:37:45.041Z"
+  }
+]
