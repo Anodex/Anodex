@@ -723,7 +723,7 @@ function AccountIdentity({ name, address }: { name: string; address: string }): 
   )
 }
 
-/** `sinistercraftnetwork@gmail.com` -> `sinistercraftnetwork`. */
+/** `jordan@example.com` -> `jordan`. */
 function localPart(address: string): string {
   return address.split('@')[0] || address
 }
@@ -1348,7 +1348,7 @@ function SenderAvatar({ sender, className, ...rest }: SenderAvatarProps): JSX.El
   )
 }
 
-/** `You and Gabriel Shaw`, or `Gabriel Shaw and 3 others`. */
+/** `You and Jordan Fields`, or `Jordan Fields and 3 others`. */
 function formatParticipants(participants: Sender[], selfAddress: string | undefined): string {
   const names = participants.map((participant) => senderDisplayName(participant, selfAddress))
   if (names.length <= 1) return names[0] ?? ''

@@ -83,8 +83,8 @@ export function describeAttachmentsBriefly(
  * Collapses a thread's From/To values to one entry per mailbox, keeping the
  * first spelling seen so a display name survives. Comparing the raw header
  * strings listed the same person twice whenever two messages spelled them
- * differently — a real summary showed `Invictioncraft@gmail.com` next to
- * `Invictioncraft@gmail.com <invictioncraft@gmail.com>`.
+ * differently — a real summary showed `Taylor@example.com` next to
+ * `Taylor@example.com <taylor@example.com>`.
  */
 export function dedupeParticipants(values: readonly string[]): string[] {
   const byAddress = new Map<string, string>()
