@@ -15,5 +15,7 @@
   "maxTokens": 300000,
   "maxDurationMinutes": 45,
   "requirePlan": false,
-  "subAgentsEnabled": true
+  "subAgentsEnabled": true,
+  "contextSize": 65536,
+  "parallelJobs": 3
 }

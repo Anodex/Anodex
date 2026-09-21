@@ -46,11 +46,30 @@ const splitInstruction = (n) =>
   ` sub-agent${n === 1 ? '' : 's'} using the delegate tool, giving each one a different set of ` +
   'modules to read, then collate what they report.'
 
+/**
+ * The arms.
+ *
+ * `--ctx-size` is the total window and the engine divides it between
+ * parallel slots, so `parallelJobs` decides how much context *every* agent
+ * gets, solo or not. Two baselines therefore:
+ *
+ * - `off` runs with one job and the whole 65,536, which is the best a single
+ *   agent can do on this machine and the number to beat.
+ * - `off-split` runs with three jobs and so about 21,845, which is what a
+ *   solo run actually gets once you turn concurrency on. Without it, any win
+ *   for sub-agents could just be the baseline being handicapped, and any
+ *   loss could be hidden by the baseline being privileged.
+ *
+ * `3` is included knowing it cannot run: the parent holds one of three slots,
+ * so two sub-agents is the local ceiling and a third is refused. Worth
+ * measuring that it refuses quickly rather than hanging.
+ */
 const ARMS = [
-  { name: 'off', subAgentsEnabled: false, goal: BASE },
-  { name: '1', subAgentsEnabled: true, goal: BASE + splitInstruction(1) },
-  { name: '2', subAgentsEnabled: true, goal: BASE + splitInstruction(2) },
-  { name: '3', subAgentsEnabled: true, goal: BASE + splitInstruction(3) }
+  { name: 'off', subAgentsEnabled: false, parallelJobs: 1, goal: BASE },
+  { name: 'off-split', subAgentsEnabled: false, parallelJobs: 3, goal: BASE },
+  { name: '1', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(1) },
+  { name: '2', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(2) },
+  { name: '3', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(3) }
 ]
 
 for (const arm of ARMS) {
@@ -73,7 +92,9 @@ for (const arm of ARMS) {
     // No plan review: it spends turns from the same budget and adds a phase
     // that has nothing to do with what is being measured.
     requirePlan: false,
-    subAgentsEnabled: arm.subAgentsEnabled
+    subAgentsEnabled: arm.subAgentsEnabled,
+    contextSize: 65536,
+    parallelJobs: arm.parallelJobs
   }
   const file = `scripts/bench-subagents-${arm.name}.json`
   fs.writeFileSync(file, JSON.stringify(spec, null, 2) + '\n')

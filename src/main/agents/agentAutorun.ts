@@ -77,6 +77,21 @@ interface AutorunSpec {
    * Left out, the setting is not touched.
    */
   subAgentsEnabled?: boolean
+  /**
+   * Engine settings to apply before the model loads, for a sweep whose arms
+   * differ in them.
+   *
+   * `--ctx-size` is the *total* context, divided between parallel slots, so
+   * these two together decide how much window each agent actually gets:
+   * 65,536 over three jobs is about 21,845 each, and a solo run on the same
+   * setting gets the same 21,845 rather than the whole window. An arm sweep
+   * that varied sub-agents while holding these fixed would compare a
+   * handicapped baseline against itself.
+   *
+   * Applied before the model loads because the runtime is started with them.
+   */
+  contextSize?: number
+  parallelJobs?: number
 }
 
 const POLL_MS = 2000
@@ -91,6 +106,20 @@ async function driveRun(specPath: string): Promise<void> {
     const spec = readSpec(specPath)
     const provider = spec.provider ?? 'local'
     log.info('Autorun armed:', provider, '-', spec.goal.slice(0, 120))
+
+    // Engine settings first: the runtime is started with them, so applying
+    // them after the model has loaded would silently measure the old ones.
+    const engine: { contextSize?: number; parallelJobs?: number } = {}
+    if (typeof spec.contextSize === 'number') engine.contextSize = spec.contextSize
+    if (typeof spec.parallelJobs === 'number') engine.parallelJobs = spec.parallelJobs
+    if (Object.keys(engine).length > 0) {
+      settingsStore.update({ model: engine })
+      log.info('Autorun set engine:', JSON.stringify(engine))
+    }
+    if (typeof spec.subAgentsEnabled === 'boolean') {
+      settingsStore.update({ agents: { subAgentsEnabled: spec.subAgentsEnabled } })
+      log.info('Autorun set sub-agents:', spec.subAgentsEnabled)
+    }
 
     // Only a local run has a model to wait for. Gating a cloud run on the local
     // engine made a DeepSeek autorun sit here for fifteen minutes and then fail
@@ -122,11 +151,6 @@ async function driveRun(specPath: string): Promise<void> {
         MODEL_READY_TIMEOUT_MS,
         'model to become ready'
       )
-    }
-
-    if (typeof spec.subAgentsEnabled === 'boolean') {
-      settingsStore.update({ agents: { subAgentsEnabled: spec.subAgentsEnabled } })
-      log.info('Autorun set sub-agents:', spec.subAgentsEnabled)
     }
 
     const run = await agentRunService.start({

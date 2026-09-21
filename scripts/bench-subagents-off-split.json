@@ -17,5 +17,5 @@
   "requirePlan": false,
   "subAgentsEnabled": false,
   "contextSize": 65536,
-  "parallelJobs": 1
+  "parallelJobs": 3
 }
