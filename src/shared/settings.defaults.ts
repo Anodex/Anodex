@@ -11,6 +11,7 @@ import { DEFAULT_KIMI_MODEL } from './kimiModels'
 import { DEFAULT_QWEN_MODEL } from './qwenModels'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from './keyboardShortcuts'
 import { DEFAULT_RECALL_WINDOW_FRACTION } from './contextBudget'
+import { ANODEX_COMMIT_EMAIL } from './commitAttribution'
 
 /**
  * Default settings, parameterised by the platform-specific models directory
@@ -208,6 +209,10 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       accounts: [],
       primaryAccountId: null,
       sendRequiresApproval: true
+    },
+    git: {
+      attributeCommits: true,
+      attributionEmail: ANODEX_COMMIT_EMAIL
     }
   }
 }

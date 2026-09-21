@@ -556,6 +556,19 @@ export interface EmailSettings {
   sendRequiresApproval: true
 }
 
+export interface GitSettings {
+  /**
+   * Add a `Co-Authored-By: Anodex` trailer to commits Anodex writes.
+   *
+   * On by default: a commit an assistant wrote should say so, and the trailer
+   * is git's own way of saying it. See `shared/commitAttribution.ts` for what
+   * GitHub needs before the credit renders with an avatar.
+   */
+  attributeCommits: boolean
+  /** The address in that trailer; blank falls back to the built-in one. */
+  attributionEmail: string
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -600,6 +613,7 @@ export interface AppSettings {
   updates: UpdateSettings
   keyboard: KeyboardSettings
   email: EmailSettings
+  git: GitSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

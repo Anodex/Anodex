@@ -10181,6 +10181,12 @@
           "type": {
             "$ref": "EmailSettings"
           }
+        },
+        "git": {
+          "optional": false,
+          "type": {
+            "$ref": "GitSettings"
+          }
         }
       }
     },
@@ -18939,6 +18945,23 @@
                 }
               ]
             }
+          }
+        }
+      }
+    },
+    "GitSettings": {
+      "kind": "object",
+      "properties": {
+        "attributeCommits": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "attributionEmail": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }

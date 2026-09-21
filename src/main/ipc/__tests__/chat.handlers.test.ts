@@ -38,6 +38,7 @@ vi.mock('../../settings/SettingsStore', () => ({
     get: () => ({
       tools: { enabled: false },
       general: { permissionMode: 'ask', defaultShell: '' },
+      git: { attributeCommits: true, attributionEmail: 'anodex@anodex.dev' },
       webSearch: { provider: 'duckduckgo', requireApproval: false },
       memory: { crossChatEnabled: false, personalEnabled: false },
       transcriptRecall: {
