@@ -340,14 +340,22 @@
   color: var(--text);
 }
 
+/*
+ * As wide as the specs need and no wider.
+ *
+ * This was two columns, the second holding a single sentence explaining what
+ * the score is made of. That sentence cost a third of the settings width to
+ * say something the number beside it already implies, so it is gone — and
+ * with it the reason for the panel to span the page. Capped rather than left
+ * to stretch, because eight small facts spread across a 900px row read as a
+ * table of unrelated things rather than one machine.
+ */
 .hardwarePanel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.9fr);
+  max-width: 620px;
   overflow: hidden;
 }
 
 .hardwareLoading {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -359,7 +367,6 @@
 .hardwareSummary {
   min-width: 0;
   padding: var(--space-5);
-  border-right: 1px solid var(--border);
 }
 
 .hardwareHeadline {
@@ -420,14 +427,6 @@
   background: var(--bg-surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-}
-
-.hardwareReasons {
-  min-width: 0;
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
 }
 
 .hintLine {
