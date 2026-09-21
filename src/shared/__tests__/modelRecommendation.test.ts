@@ -5,7 +5,7 @@ import {
   recommendModel as findRecommendedModel,
   type HardwareProfile
 } from '../modelRecommendation'
-import { tierMemory } from '../modelMemory'
+import { tierMemory, tierSizeGb } from '../modelMemory'
 import type { ModelTier } from '../recommendedModels'
 
 const GB = 1024 ** 3
@@ -44,8 +44,12 @@ describe('recommendModel', () => {
     // At a rung's own minimum that rung is the answer: it is the largest that
     // fits, and the next one up is always further away.
     const { minRamGb } = tierMemory(tier)
-    // The 70B rung is withheld from CPU-only machines, so give this one a card.
-    const rec = recommendModel({ ramBytes: minRamGb * GB, vramBytes: 24 * GB, unified: false })
+    // The 70B rung needs a card big enough to hold it, so give this one that.
+    const rec = recommendModel({
+      ramBytes: minRamGb * GB,
+      vramBytes: tierSizeGb('70b') * GB,
+      unified: false
+    })
     expect(rec.tier).toBe(tier)
   })
 
@@ -61,7 +65,7 @@ describe('recommendModel', () => {
     // A ladder that goes backwards somewhere is a bug no single case shows.
     let previous = -1
     for (let ramGb = 4; ramGb <= 256; ramGb += 1) {
-      const rec = findRecommendedModel({ ramBytes: ramGb * GB, vramBytes: 24 * GB, unified: false })
+      const rec = findRecommendedModel({ ramBytes: ramGb * GB, vramBytes: 48 * GB, unified: false })
       if (!rec) continue
       const rung = LADDER.indexOf(rec.tier)
       expect(rung).toBeGreaterThanOrEqual(previous)

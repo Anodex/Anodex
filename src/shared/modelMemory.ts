@@ -68,3 +68,42 @@ const TIER_REFERENCE_SIZE_GB: Record<ModelTier, number> = {
 export function tierMemory(tier: ModelTier): { minRamGb: number; idealRamGb: number } {
   return estimateRamRequirements(TIER_REFERENCE_SIZE_GB[tier] * 1024 ** 3)
 }
+
+/** A tier's representative file size, for questions about where it has to fit. */
+export function tierSizeGb(tier: ModelTier): number {
+  return TIER_REFERENCE_SIZE_GB[tier]
+}
+
+/**
+ * Memory a *graphics* processor can reach, in GB — a card, or the whole of
+ * an Apple machine's unified pool. Zero on a CPU-only machine and on one
+ * whose only adapter is an integrated chip too small to hold anything.
+ *
+ * Distinct from {@link fastMemoryGb}, which falls back to a share of system
+ * RAM because its question is "how big should a model be to use this
+ * machine". This one's question is "can a GPU actually run it", and system
+ * RAM is not an answer to that however much of it there is.
+ */
+export function gpuMemoryGb(ramGb: number, vramGb: number, unified: boolean): number {
+  if (unified) return ramGb
+  return vramGb >= 4 ? vramGb : 0
+}
+
+/**
+ * The memory a model can run *fast* in, in GB.
+ *
+ * A graphics card only decides this when there is enough of it to hold a
+ * model worth running. Below the four-gigabyte bar the card is an integrated
+ * one sharing system memory, and llama.cpp puts most of the layers in RAM
+ * regardless — so measuring against its one or two gigabytes made a 0.6B
+ * model look like a perfect fit for a laptop and a 9B model look like it
+ * overflowed. Measured: on 16GB with a 1GB iGPU that was a 19-point swing in
+ * the toy model's favour, and it won Best Overall.
+ *
+ * System memory is discounted because it is never all available, and is
+ * slower than a card besides.
+ */
+export function fastMemoryGb(ramGb: number, vramGb: number, unified: boolean): number {
+  if (unified) return ramGb * 0.7
+  return vramGb >= 4 ? vramGb : ramGb * 0.6
+}

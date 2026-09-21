@@ -3,6 +3,7 @@ import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { recommendedModelFileName } from '@shared/recommendedModels'
 import { contextSizeFor, isModelHardwareCompatible, pickTier } from '@shared/modelRecommendation'
+import { fastMemoryGb as sharedFastMemoryGb, gpuMemoryGb } from '@shared/modelMemory'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
 import { computeReliabilityScore } from '@shared/modelReliability.types'
 
@@ -148,7 +149,7 @@ export function scoreHardwareProfile(hardware: HardwareInfo): number {
 export function hardwareFitLabel(hardware: HardwareInfo): string {
   const ramGb = bytesToGb(hardware.ramBytes)
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  const tier = pickTier(ramGb, hardware.unifiedMemory || vramGb >= 4)
+  const tier = pickTier(ramGb, gpuMemoryGb(ramGb, vramGb, hardware.unifiedMemory))
   if (!tier) return 'Limited local AI fit · below what a local model needs'
 
   const quality =
@@ -287,24 +288,19 @@ function modelSizeGb(model: RecommendedModel): number {
  * which works and crawls.
  */
 /**
- * The memory a model can actually run *fast* in, in GB.
+ * {@link sharedFastMemoryGb} for a detected machine.
  *
- * A graphics card only decides this when there is enough of it to hold a
- * model worth running. Below `recommendModel`'s own four-gigabyte bar the
- * card is an integrated one sharing system memory, and llama.cpp puts most
- * of the layers in RAM regardless — so measuring against its one or two
- * gigabytes made a 0.6B model look like a perfect fit for a laptop and a 9B
- * model look like it overflowed. Measured: on 16GB with a 1GB iGPU that was a
- * 19-point swing in the toy model's favour, and it won Best Overall.
- *
- * System memory is discounted because it is never all available and is
- * slower than a card besides.
+ * The rule itself lives in `shared/modelMemory` because the tier ladder needs
+ * it too — the top rung is only offered to a machine that can hold it in fast
+ * memory — and two copies of "where does a model actually run" is how the
+ * hardware panel and the recommendation beneath it came to disagree.
  */
 export function fastMemoryGb(hardware: HardwareInfo): number {
-  const ramGb = bytesToGb(hardware.ramBytes)
-  const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
-  if (hardware.unifiedMemory) return ramGb * 0.7
-  return vramGb >= 4 ? vramGb : ramGb * 0.6
+  return sharedFastMemoryGb(
+    bytesToGb(hardware.ramBytes),
+    hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0,
+    hardware.unifiedMemory
+  )
 }
 
 function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
