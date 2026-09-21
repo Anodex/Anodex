@@ -2,15 +2,8 @@
   {
     "arm": "off",
     "repeat": 1,
-    "runId": "run_mubhllr4_7zrj0",
+    "runId": "run_mubn5ur5_nboia",
     "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-off-1.log",
-    "at": "2026-09-21T17:08:14.488Z"
-  },
-  {
-    "arm": "1",
-    "repeat": 1,
-    "runId": "run_mubi1gjd_2r7ny",
-    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-1-1.log",
-    "at": "2026-09-21T17:23:09.122Z"
+    "at": "2026-09-21T19:58:22.936Z"
   }
 ]

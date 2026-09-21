@@ -7,7 +7,7 @@
 //
 // Usage: node scripts/bench-subagents-report.mjs [--markdown]
 import { ANSWER_KEY, scoreReport } from './bench-subagents-fixture.mjs'
-import { armOf, bugHuntRuns, runText, toolCalls } from './bench-subagents-read.mjs'
+import { armOf, bugHuntRuns, readJson, runText, toolCalls } from './bench-subagents-read.mjs'
 
 const median = (xs) => {
   if (xs.length === 0) return 0
@@ -18,7 +18,28 @@ const median = (xs) => {
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
 const round = (n, places = 1) => Number(n.toFixed(places))
 
-const { all, parents } = bugHuntRuns()
+/**
+ * Only the runs from the current sweep.
+ *
+ * The store keeps every bug-hunt run ever made, including the ones from
+ * before `delegate` reached a model and the ones killed mid-flight while
+ * clearing the app. Scoring those alongside real data does not dilute the
+ * result, it invents one: a killed run reads as 0/12 and drags whichever arm
+ * it belonged to. The sweep records the ids it started, so that file decides
+ * what counts; without it, everything does and the report says so.
+ */
+function sweepRunIds() {
+  const recorded = readJson('scripts/bench-subagents-results.json', null)
+  if (!Array.isArray(recorded) || recorded.length === 0) return null
+  return new Set(recorded.map((entry) => entry.runId).filter(Boolean))
+}
+
+const { all, parents: everyParent } = bugHuntRuns()
+const only = sweepRunIds()
+const parents = only ? everyParent.filter((run) => only.has(run.id)) : everyParent
+if (!only) {
+  console.log('(no sweep results file - scoring every bug-hunt run in the store)')
+}
 if (parents.length === 0) {
   console.error('No finished bug-hunt runs yet.')
   process.exit(1)
