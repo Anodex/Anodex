@@ -40,6 +40,7 @@ import {
   refusedRunReason
 } from './agentRunProgress'
 import { workspaceRootForProject } from '../projects/workspaceRoot'
+import { toolsCanChangeFiles } from '@shared/tools.types'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import {
   splitRunBudget,
@@ -331,7 +332,11 @@ class AgentRunService {
     // `Conversation`, including `toolCalls`), but nothing tracked *coverage*
     // across turns before this, so a long run could still burn turns/tokens
     // re-reading the same file ranges it already saw several turns back.
-    const ledger = createTaskLedger()
+    // A run with only read tools is exempt from the gathering ceiling — see
+    // `TaskLedger.canMutate`. Derived from the run's real toolset rather than
+    // from the goal's wording, because what a run can do is what was wired up
+    // for it, and a review asked in the imperative is still a review.
+    const ledger = createTaskLedger({ canMutate: toolsCanChangeFiles([...enabledTools]) })
     const startTurn = options?.startTurn ?? 1
     let turnsUsed = run.turnsUsed
     /** One provider failure per run is retried rather than ending it. */
