@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
@@ -155,7 +155,8 @@ function resolveDownloadTarget(targetDir: string, fileName: string): string {
 }
 
 /**
- * Stream a URL to `finalPath` via a sibling `.part` file, renamed on success
+ * Stream a URL to `finalPath` via a sibling `.part` file, renamed on success,
+ * resuming from whatever a previous attempt already wrote
  * — the shared mechanics behind {@link downloadModel}, factored out so
  * `EmbeddingService`'s one-off small-model download doesn't need to fabricate
  * a fake `RecommendedModel` (chat-catalog-shaped: tier, family, quality/speed
@@ -169,14 +170,66 @@ export async function downloadFile(
   onProgress: (receivedBytes: number, totalBytes: number | null) => void
 ): Promise<void> {
   const partPath = `${finalPath}.part`
+  const tagPath = `${partPath}.etag`
+
+  // What is already on disk, and the validator that says it is still the same
+  // remote file. Without a validator there is no safe resume, so a `.part`
+  // with no sidecar is discarded rather than trusted.
+  const resumeFrom = existsSync(partPath) && existsSync(tagPath) ? statSync(partPath).size : 0
+  const validator = resumeFrom > 0 ? readFileSync(tagPath, 'utf-8').trim() : ''
+
   try {
-    const response = await fetch(url, { signal })
+    const headers: Record<string, string> = {}
+    if (resumeFrom > 0 && validator) {
+      headers['range'] = `bytes=${resumeFrom}-`
+      // The whole safety of resuming. If the file changed since the part was
+      // written, the server ignores the Range and sends 200 with the new
+      // file, and the branch below starts over instead of splicing two
+      // different downloads into one corrupt GGUF.
+      headers['if-range'] = validator
+    }
+
+    const response = await fetch(url, { signal, headers })
+
+    // 416 means the part is at or past the end — a previous run that was
+    // killed between the last write and the rename, or a truncated remote
+    // file. Neither is resumable; start clean.
+    if (response.status === 416) {
+      await discardPartial(partPath, tagPath)
+      return downloadFile(url, finalPath, signal, onProgress)
+    }
     if (!response.ok || !response.body) {
+      // A resource that is gone stays gone, so anything already on disk for
+      // it can never be finished and would sit there unreachable — the app
+      // shows no partials, so nobody would ever find it to delete. A 5xx or a
+      // dropped socket is the opposite: exactly what resuming is for.
+      if (response.status === 404 || response.status === 410) {
+        await discardPartial(partPath, tagPath)
+      }
       throw new Error(`Download failed: HTTP ${response.status}`)
     }
 
-    const totalBytes = Number(response.headers.get('content-length')) || null
-    let receivedBytes = 0
+    const resumed = response.status === 206 && resumeFrom > 0
+    if (!resumed && resumeFrom > 0) {
+      // Server ignored the Range, or the validator no longer matches. Either
+      // way the bytes on disk are not a prefix of what is arriving.
+      log.info('Resume refused by the server; starting this download again', finalPath)
+      await discardPartial(partPath, tagPath)
+    }
+
+    // On a 206 the content-length is what is *left*, not the file. Reporting
+    // it as the total made a resumed 30GB download claim it was 2GB and
+    // finish at 700%.
+    const totalBytes = totalFromHeaders(response.headers, resumed ? resumeFrom : 0)
+
+    // Recorded before any bytes land, so an interrupted run can resume from
+    // whatever did.
+    const nextValidator = response.headers.get('etag') ?? response.headers.get('last-modified')
+    if (nextValidator) writeFileSync(tagPath, nextValidator, 'utf-8')
+    else await rm(tagPath, { force: true }).catch(() => {})
+
+    let receivedBytes = resumed ? resumeFrom : 0
+    if (resumed) onProgress(receivedBytes, totalBytes)
 
     const readable = Readable.fromWeb(response.body)
     readable.on('data', (chunk: Buffer) => {
@@ -184,10 +237,41 @@ export async function downloadFile(
       onProgress(receivedBytes, totalBytes)
     })
 
-    await pipeline(readable, createWriteStream(partPath))
+    await pipeline(readable, createWriteStream(partPath, resumed ? { flags: 'a' } : {}))
     await rename(partPath, finalPath)
+    await rm(tagPath, { force: true }).catch(() => {})
   } catch (error) {
-    await rm(partPath, { force: true }).catch(() => {})
+    // A cancelled download is the user saying stop, so it leaves nothing
+    // behind. A *failed* one keeps its part file: the network dropping at 95%
+    // of a thirty-gigabyte model used to mean starting again from zero, which
+    // is the single roughest edge in the app.
+    if (signal.aborted) await discardPartial(partPath, tagPath)
     throw error
   }
+}
+
+/** Remove a partial download and the validator that described it. */
+async function discardPartial(partPath: string, tagPath: string): Promise<void> {
+  await rm(partPath, { force: true }).catch(() => {})
+  await rm(tagPath, { force: true }).catch(() => {})
+}
+
+/**
+ * The size of the whole file, not of this response.
+ *
+ * A 206 carries `Content-Range: bytes 1000-1999/30000`, where the part after
+ * the slash is the only honest total. `content-length` on that same response
+ * is 1000. Falls back to content-length plus what is already on disk, which is
+ * right for a 200 and a reasonable guess for a 206 with no content-range.
+ */
+export function totalFromHeaders(headers: Headers, alreadyOnDisk: number): number | null {
+  const range = headers.get('content-range')
+  const slash = range?.lastIndexOf('/')
+  if (range && slash !== undefined && slash > -1) {
+    const total = Number(range.slice(slash + 1))
+    if (Number.isFinite(total) && total > 0) return total
+  }
+  const length = Number(headers.get('content-length'))
+  if (!Number.isFinite(length) || length <= 0) return null
+  return length + alreadyOnDisk
 }
