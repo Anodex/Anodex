@@ -1,5 +1,5 @@
 import { type ModelTier, type RecommendedModel } from './recommendedModels'
-import { tierMemory } from './modelMemory'
+import { gpuMemoryGb, tierMemory, tierSizeGb } from './modelMemory'
 
 /**
  * Maps detected hardware to the size of model it should run, and the runtime
@@ -116,7 +116,7 @@ export function recommendModel(hardware: HardwareProfile): ModelRecommendation |
   const vramGb = hardware.vramBytes ? bytesToGb(hardware.vramBytes) : 0
   const hasDedicatedGpu = !hardware.unified && vramGb >= 4
 
-  const tier = pickTier(ramGb, hasDedicatedGpu || hardware.unified)
+  const tier = pickTier(ramGb, gpuMemoryGb(ramGb, vramGb, hardware.unified))
   if (!tier) return null
   const contextSize = contextSizeFor(tier, ramGb, hasDedicatedGpu ? vramGb : 0)
 
@@ -152,13 +152,22 @@ const TIER_LADDER: ModelTier[] = ['1b', '3b', '7b', '14b', '32b', '70b']
  * ladder is monotonic by construction and `buildRationale` says "fits, but
  * only just" when the ideal is not met.
  *
- * The 70B rung needs graphics memory of some kind. A seventy-billion
- * parameter model on CPU alone technically loads on a large enough machine
- * and produces a couple of tokens a second, which is not a recommendation.
+ * The top rung additionally has to fit in graphics memory. CPU inference is
+ * bounded by memory bandwidth, so a 9GB model on a CPU is slow but usable
+ * while a 42GB one is a couple of tokens a second, which is not a
+ * recommendation — and a machine with a hundred gigabytes of system RAM and
+ * no card is still a CPU-only machine, which is why this asks
+ * `gpuMemoryGb` rather than `fastMemoryGb`. The old hand-written catalog encoded this
+ * as `requiresGpuRecommended` with `minVramGb: 48` on its single 70B entry,
+ * and deleting the catalog quietly deleted the rule with it — this machine
+ * went straight to advertising "best target: 70B Q4" on a 24GB card. The
+ * constraint belongs to the size, not to one row of a list, so it lives here
+ * now and is derived from the tier's own reference size rather than from a
+ * number somebody typed.
  */
-export function pickTier(ramGb: number, hasGpuMemory: boolean): ModelTier | null {
+export function pickTier(ramGb: number, gpuGb: number): ModelTier | null {
   const fits = TIER_LADDER.filter(
-    (tier) => (tier !== '70b' || hasGpuMemory) && ramGb >= tierMemory(tier).minRamGb
+    (tier) => ramGb >= tierMemory(tier).minRamGb && (tier !== '70b' || gpuGb >= tierSizeGb('70b'))
   )
   return fits.length > 0 ? fits[fits.length - 1] : null
 }
