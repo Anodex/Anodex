@@ -43,8 +43,10 @@ import { workspaceRootForProject } from '../projects/workspaceRoot'
 import { toolsCanChangeFiles } from '@shared/tools.types'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import {
+  maxSubAgentsFor,
   splitRunBudget,
   subAgentTools,
+  validateDelegation,
   type SubAgentBudget,
   type SubAgentReport,
   type DelegateCapability
@@ -397,6 +399,13 @@ class AgentRunService {
      */
     const delegate = canDelegate
       ? async (tasks: string[]): Promise<SubAgentReport[]> => {
+          // The authoritative ceiling. The tool advertises the product-wide
+          // maximum because it cannot see engine capacity; this can, and a
+          // fan-out wider than the spare slots would deadlock rather than
+          // queue — the parent is holding one of them.
+          const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
+          if ('error' in allowed) throw new Error(allowed.error)
+          tasks = allowed.tasks
           const split = splitRunBudget(
             run,
             { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
@@ -1160,27 +1169,25 @@ class AgentRunService {
    */
   private canDelegate(run: AgentRun): boolean {
     if (run.parentRunId) return false
-    // The local engine cannot run a sub-agent at all, and the failure is a
-    // deadlock rather than a refusal.
-    //
-    // `LlamaService.generate()` holds a single-slot model gate for the whole
-    // turn, by design, so no auxiliary call can race the runtime. Tool calls
-    // happen inside that turn, so a parent blocked in `delegate` is holding
-    // the only slot while waiting for children who each need it to generate.
-    // Neither side can move. Measured: a parent and its one sub-agent sat at
-    // turn zero with zero tokens for 33 minutes, the log silent from the
-    // instant the child was created.
-    //
-    // Raising `parallelJobs` does not fix it. With capacity N the parent
-    // holds one slot and leaves N-1, so a fan-out of N or more deadlocks
-    // just the same — and the context divides N ways on top, which is the
-    // scarcer resource on the machines this would be for.
-    //
-    // Cloud providers have no such gate. They are HTTP calls and run
-    // genuinely concurrently, which is where the feature's premise actually
-    // holds.
-    if (run.provider === 'local') return false
-    return settingsStore.get().agents.subAgentsEnabled
+    if (!settingsStore.get().agents.subAgentsEnabled) return false
+    // Zero on a local engine with a single generation slot, because the
+    // parent occupies it for the whole of its turn — see `maxSubAgentsFor`.
+    return this.subAgentCeiling(run) > 0
+  }
+
+  /**
+   * How many sub-agents this run may actually start.
+   *
+   * Read from the engine's real capacity rather than from a constant: on the
+   * local engine the parent holds one of `parallelJobs` slots for its whole
+   * turn, so the children share what is left, and asking for as many as
+   * there are slots deadlocks.
+   */
+  private subAgentCeiling(run: AgentRun): number {
+    // Defaulted rather than assumed present: this is read on every run's
+    // first turn, and a settings shape missing the group would otherwise
+    // throw there — turning "no sub-agents" into "the run failed".
+    return maxSubAgentsFor(run.provider, settingsStore.get().model?.parallelJobs ?? 1)
   }
 
   /**

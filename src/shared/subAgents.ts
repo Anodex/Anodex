@@ -32,6 +32,33 @@ import type { AgentRun } from './agentRun.types'
 /** Most sub-agents one delegation may start. See the note above on why three. */
 export const MAX_SUB_AGENTS = 3
 
+/**
+ * How many sub-agents this run may actually start, given where it runs.
+ *
+ * The local engine serialises generation behind a model gate of
+ * `parallelJobs` slots, and **the parent occupies one of them for the whole
+ * of its turn** — the delegation happens inside a tool call, inside that
+ * turn. So the children share what is left, and asking for as many children
+ * as there are slots deadlocks: the parent waits for children who are
+ * waiting for the slot the parent is holding.
+ *
+ * Measured 2026-09-21 at `parallelJobs: 1`: a parent and its single
+ * sub-agent sat at turn zero, zero tokens, for 33 minutes, the log silent
+ * from the moment the child was created.
+ *
+ * This is the correction to a mistake in the original design, which set the
+ * ceiling from `parallelJobs` alone — "the local engine offers 1, 2 or 3" —
+ * and forgot that the parent is one of the jobs. On local the ceiling is
+ * `parallelJobs - 1`, which is zero on a default single-slot setup.
+ *
+ * A cloud provider has no such gate: its calls are HTTP and genuinely
+ * concurrent, so the only ceiling there is {@link MAX_SUB_AGENTS}.
+ */
+export function maxSubAgentsFor(provider: string, parallelJobs: number): number {
+  if (provider !== 'local') return MAX_SUB_AGENTS
+  return Math.max(0, Math.min(MAX_SUB_AGENTS, Math.floor(parallelJobs) - 1))
+}
+
 /** Longest a single delegated task description may be, in characters. */
 export const MAX_TASK_LENGTH = 2_000
 
@@ -217,7 +244,11 @@ export interface SubAgentReport {
  * discovering it has nothing to do, and reports back noise the parent then
  * has to interpret.
  */
-export function validateDelegation(tasks: unknown): { tasks: string[] } | { error: string } {
+export function validateDelegation(
+  tasks: unknown,
+  /** The real ceiling for this run — see {@link maxSubAgentsFor}. */
+  ceiling: number = MAX_SUB_AGENTS
+): { tasks: string[] } | { error: string } {
   if (!Array.isArray(tasks)) {
     return { error: 'tasks must be a list of strings, one per sub-agent.' }
   }
@@ -231,10 +262,17 @@ export function validateDelegation(tasks: unknown): { tasks: string[] } | { erro
       error: 'No usable tasks: every entry was empty. Describe what each sub-agent should do.'
     }
   }
-  if (cleaned.length > MAX_SUB_AGENTS) {
+  if (ceiling < 1) {
     return {
       error:
-        `Too many sub-agents: ${cleaned.length} requested, ${MAX_SUB_AGENTS} is the most that can ` +
+        'Sub-agents are not available on this run: the local engine has no spare generation ' +
+        'slot for one while this run holds its own. Do the work directly.'
+    }
+  }
+  if (cleaned.length > ceiling) {
+    return {
+      error:
+        `Too many sub-agents: ${cleaned.length} requested, ${ceiling} is the most that can ` +
         'run at once. Combine the work into fewer tasks, or delegate again once these finish.'
     }
   }

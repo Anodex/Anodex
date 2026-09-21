@@ -30,6 +30,8 @@ const runGeneration = vi.fn<(request: any, io: any) => Promise<any>>()
 const notifyUser = vi.fn<(...args: unknown[]) => void>()
 const broadcastToWindows = vi.fn<(...args: unknown[]) => void>()
 let subAgentsEnabled = true
+/** Generation slots the local engine has; the parent occupies one. */
+let parallelJobs = 1
 
 /** Every run the service created, in creation order. */
 let runs: AgentRun[] = []
@@ -131,6 +133,9 @@ vi.mock('../../settings/SettingsStore', () => ({
     get: () => ({
       general: { permissionMode: 'ask' },
       generation: { turnTimeLimitMinutes: 0 },
+      // The local ceiling is parallelJobs - 1, so this decides whether a
+      // local run may delegate at all. Cloud runs ignore it.
+      model: { parallelJobs },
       agents: { subAgentsEnabled }
     })
   }
@@ -192,6 +197,7 @@ beforeEach(() => {
   conversations.clear()
   runOfConversation.clear()
   subAgentsEnabled = true
+  parallelJobs = 1
   runGeneration.mockReset()
   notifyUser.mockReset()
   broadcastToWindows.mockReset()

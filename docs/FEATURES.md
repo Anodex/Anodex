@@ -441,11 +441,13 @@ Key capabilities:
 - Track tokens, turns, provider, last result, and errors.
 - Flag suspected fabrication.
 - Show periodic check-in notifications during longer runs.
-- Optionally let a **cloud** run split its goal across up to three sub-agents
-  that work at the same time and report back (off by default, in Settings to
-  Tools to Agent runs). Local runs are excluded by design: the local engine
-  runs one generation at a time, so a parent waiting on its sub-agents would
-  be holding the slot they need to run at all. Each sub-agent is a real run with its own transcript, nested under the
+- Optionally let a run split its goal across sub-agents that work at the same
+  time and report back (off by default, in Settings to Tools to Agent runs). A
+  cloud run may start up to three. A local run may start one fewer than its
+  Parallel jobs setting, because the run itself occupies one of the engine's
+  generation slots for the whole of its turn — at the default of one job, that
+  means none, and asking for as many sub-agents as there are slots would hang
+  the run rather than queue it. Each sub-agent is a real run with its own transcript, nested under the
   run that sent it, and can be stopped on its own. Each one is named after what
   it was sent to do (falling back to Alpha, Bravo, Charlie when that would not
   be useful) and carries a mark of its own — a hub wired to three, four or five

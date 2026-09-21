@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_SUB_AGENTS,
   MAX_TASK_LENGTH,
+  maxSubAgentsFor,
   renderReports,
   splitRunBudget,
   subAgentName,
@@ -52,6 +53,54 @@ describe('validateDelegation', () => {
     const long = 'x'.repeat(MAX_TASK_LENGTH + 500)
     const result = validateDelegation([long])
     expect('tasks' in result && result.tasks[0].length).toBe(MAX_TASK_LENGTH)
+  })
+})
+
+describe('maxSubAgentsFor', () => {
+  it('leaves no room on a single-slot local engine', () => {
+    // The parent holds the only slot for the whole of its turn, so a child
+    // would wait for a slot the parent cannot release until the child is
+    // done. Measured: 33 minutes at turn zero, both sides silent.
+    expect(maxSubAgentsFor('local', 1)).toBe(0)
+  })
+
+  it('allows one fewer than the slots, because the parent is one of them', () => {
+    expect(maxSubAgentsFor('local', 2)).toBe(1)
+    expect(maxSubAgentsFor('local', 3)).toBe(2)
+  })
+
+  it('never exceeds the product ceiling however many slots there are', () => {
+    expect(maxSubAgentsFor('local', 99)).toBe(MAX_SUB_AGENTS)
+  })
+
+  it('ignores slots entirely for a cloud provider', () => {
+    // No gate there: the calls are HTTP and genuinely concurrent.
+    expect(maxSubAgentsFor('anthropic', 1)).toBe(MAX_SUB_AGENTS)
+    expect(maxSubAgentsFor('openai', 1)).toBe(MAX_SUB_AGENTS)
+  })
+
+  it('is not fooled by a nonsense slot count', () => {
+    expect(maxSubAgentsFor('local', 0)).toBe(0)
+    expect(maxSubAgentsFor('local', -3)).toBe(0)
+    expect(maxSubAgentsFor('local', 2.9)).toBe(1)
+  })
+})
+
+describe('validateDelegation against a real ceiling', () => {
+  it('refuses outright when the engine has no spare slot', () => {
+    const result = validateDelegation(['a'], 0)
+    expect('error' in result && result.error).toMatch(/no spare generation slot/i)
+  })
+
+  it('names the real ceiling rather than the product maximum', () => {
+    // Telling a model "3 is the most" when 2 is the most invites it to retry
+    // with 3 and deadlock.
+    const result = validateDelegation(['a', 'b', 'c'], 2)
+    expect('error' in result && result.error).toMatch(/3 requested, 2 is the most/)
+  })
+
+  it('accepts a fan-out that fits the spare slots', () => {
+    expect(validateDelegation(['a', 'b'], 2)).toEqual({ tasks: ['a', 'b'] })
   })
 })
 
