@@ -58,3 +58,8 @@ Thumbs.db
 
 # Test-runner artifacts
 /test-results/
+
+# Build-benchmark output: archived workspaces and per-run results, regenerated
+# by the sweep and not worth carrying in the repo.
+/scripts/bench-build-runs/
+/scripts/bench-build-results.json
