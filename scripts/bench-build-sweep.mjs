@@ -16,15 +16,26 @@ import { spawn, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { WORKSPACE, writeWorkspace } from './bench-build-fixture.mjs'
+// Which workload: the four-module CLI written from nothing, or the six
+// commands added to a project that already exists. Chosen here because the
+// only things that differ are the fixture and the arm names.
+const workload = process.argv.includes('--large') ? 'large' : 'small'
+const fixture =
+  workload === 'large'
+    ? await import('./bench-build-large-fixture.mjs')
+    : await import('./bench-build-fixture.mjs')
+const { WORKSPACE, writeWorkspace } = fixture
 
 const USER_DATA = path.join(os.homedir(), 'AppData', 'Roaming', 'anodex')
 const RUNS = path.join(USER_DATA, 'agent-runs', 'runs.json')
-const RESULTS = path.join('scripts', 'bench-build-results.json')
-const ARCHIVE = path.join('scripts', 'bench-build-runs')
+const RESULTS = path.join(
+  'scripts',
+  `bench-build-results${workload === 'large' ? '-large' : ''}.json`
+)
+const ARCHIVE = path.join('scripts', `bench-build-runs${workload === 'large' ? '-large' : ''}`)
 const LOG_DIR = path.join(os.tmpdir(), 'anodex-build-sweep')
 
-const RUN_TIMEOUT_MS = 85 * 60 * 1000
+const RUN_TIMEOUT_MS = (workload === 'large' ? 110 : 85) * 60 * 1000
 const POLL_MS = 5000
 
 function arg(name, fallback) {
@@ -33,7 +44,11 @@ function arg(name, fallback) {
 }
 
 const repeats = Number(arg('repeats', '2'))
-const arms = arg('arms', 'off-1job,off-3jobs,sub-1,sub-2').split(',')
+const DEFAULT_ARMS = {
+  small: 'off-1job,off-3jobs,sub-1,sub-2',
+  large: 'large-off-1job,large-off-3jobs,large-sub-1,large-sub-2'
+}
+const arms = arg('arms', DEFAULT_ARMS[workload]).split(',')
 
 const readJson = (file, fallback) => {
   try {
@@ -138,4 +153,6 @@ for (let repeat = 1; repeat <= repeats; repeat++) {
   }
 }
 console.log(`\nSweep finished. ${results.length} runs recorded in ${RESULTS}`)
-console.log('Score them with: node scripts/bench-build-report.mjs')
+console.log(
+  `Score them with: node scripts/bench-build-report.mjs${workload === 'large' ? ' --large' : ''}`
+)
