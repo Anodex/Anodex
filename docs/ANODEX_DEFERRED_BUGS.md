@@ -15,6 +15,60 @@ reasoning for skipping stays readable later.
 
 Add new findings here.
 
+### DEFERRED 2026-09-22: `MAX_SUB_AGENTS = 3` is not supported by any measurement
+
+The 18-run benchmark (2026-09-21, `scripts/bench-subagents-*.mjs`) never found
+a case where three was the right number. Same-model local: two beat three on both recall and time,
+because a third adds coordination while thinning each slice. Cloud children:
+**one** found all twelve planted bugs in the same wall-clock as delegating
+nothing, for 6,317 metered tokens, where two cost 42,175 and three cost 45,323
+for the same twelve.
+
+**Why it is deferred rather than changed.** The cap is a product decision that
+was made with this data already in hand, and lowering it unattended would
+override it. The two places it actually matters have been made honest instead:
+the settings section leads with the finding, and as of PR #303 the `delegate`
+tool's own description tells the model to prefer one, and states the run's real
+ceiling rather than the product maximum.
+
+**Where to start if it is revisited.** `MAX_SUB_AGENTS` in
+`src/shared/subAgents.ts`, plus `SUB_AGENT_NAMES`, the `identity-${index % 3}`
+classes and `NODES` in `SubAgentMark`, which all assume three.
+
+### DEFERRED 2026-09-22: a sub-agent cannot see the files its parent was given
+
+A run can be started with attachments — reference images, a spec — and they
+stay available on every one of its turns. `runSubAgents` does not pass them on,
+so a child asked to "check this against the spec" has no spec.
+
+**Why it is deferred.** Arguably correct as it stands: the contract is that each
+task is self-contained, and a child that inherits the parent's attachments also
+inherits their token cost on every turn of its own. It is listed because the
+omission is currently silent — nothing in the code says it was a decision.
+
+**Where to start.** `AgentRunService.runSubAgents`, the `agentRunStore.create`
+call, which passes no `attachments`. `agentRunAttachments.ts` imports them per
+run, so sharing would need a copy or a reference count.
+
+### DEFERRED 2026-09-22: deleting every run of a series leaves its journal on disk
+
+`userData/agent-series/<id>/JOURNAL.md` is written on finish and never removed.
+Delete all the runs of a series and the directory stays, with no run left to
+reach it. A few kilobytes per series, and the file is the auditable record, so
+the safe direction is not obviously "delete it with the last run".
+
+**Where to start.** `agentJournal.ts` writes it; `agent.handlers.ts` handles
+delete. Any cleanup has to answer what happens when the runs are deleted but
+the work is not finished.
+
+### NOTE 2026-09-22: the mobile repo's protocol copy is behind
+
+`agent:journal` was added to `protocol/anodex-protocol.json` in PR #303. The
+phone does not use it, so nothing breaks — but `Anodex Mobile/protocol/` is a
+snapshot synced by `tools/sync-design-contract.sh`, and the next mobile change
+would otherwise start from a stale contract. Re-sync after #303 and
+anodex-mobile#288 both merge.
+
 ### PARTLY FIXED 2026-09-03: 4096 is unsupported on the vision transport, and not by a tunable margin
 
 **The dead-window half is fixed; the 4K project run is not.** `boundTools` now
