@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeElapsedMs, type AgentRun, type AgentRunStatus } from '@shared/agentRun.types'
+import {
+  activeElapsedMs,
+  seriesIdOf,
+  type AgentRun,
+  type AgentRunStatus
+} from '@shared/agentRun.types'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useArrival } from '../../components/ui/useArrival'
@@ -205,6 +210,7 @@ function RunCard({
   openRun,
   handleStop,
   retryRun,
+  continueRun,
   deleteRun,
   subAgents = [],
   subAgentIndex = null,
@@ -225,6 +231,8 @@ function RunCard({
   openRun: (run: AgentRun) => void
   handleStop: (run: AgentRun) => void
   retryRun: (run: AgentRun) => void
+  /** Start the next run of this ongoing work, carrying its series. */
+  continueRun: (run: AgentRun) => void
   deleteRun: (run: AgentRun) => void
   /** The view is announcing this landing itself; don't self-announce. */
   orchestrated?: boolean
@@ -337,6 +345,22 @@ function RunCard({
               <Icon name="stop" size={14} />
             </button>
           )}
+          {/* Continue, not Retry. Retry starts the same goal over from
+              nothing; this starts the next run of an ongoing piece of work,
+              which reads what the runs before it did. Offered only once a
+              run has finished, because continuing something still in flight
+              would have two runs acting on one series at once. */}
+          {run.status !== 'running' && !run.parentRunId && (
+            <button
+              type="button"
+              className={styles.iconAction}
+              onClick={() => continueRun(run)}
+              aria-label="Continue this work in a new run"
+              title="Continue this work in a new run"
+            >
+              <Icon name="chevrons-up" size={14} />
+            </button>
+          )}
           <button
             type="button"
             className={styles.iconAction}
@@ -435,6 +459,32 @@ export function AgentView(): JSX.Element {
       requirePlan: run.requirePlan,
       enabledTools: run.enabledTools,
       attachments: run.attachments?.map(({ path, name }) => ({ path, name }))
+    })
+  }
+
+  /**
+   * Start the next run of an ongoing piece of work.
+   *
+   * Everything but the series is seeded the way Retry does it, and for the
+   * same reason: the settings are usually right and retyping them is the
+   * tax. What makes this different from Retry is the one field it adds —
+   * the new run reads what the previous ones did before it starts, so the
+   * work carries on rather than starting over.
+   */
+  const continueRun = (run: AgentRun): void => {
+    setRetrySeed({
+      goal: run.goal,
+      projectId: run.projectId,
+      provider: run.provider,
+      model: run.model,
+      maxTurns: run.maxTurns,
+      maxTokens: run.maxTokens,
+      maxDurationMinutes: run.maxDurationMinutes,
+      limitsEnabled: run.limitsEnabled,
+      requirePlan: run.requirePlan,
+      enabledTools: run.enabledTools,
+      attachments: run.attachments?.map(({ path, name }) => ({ path, name })),
+      continuesSeriesId: seriesIdOf(run)
     })
   }
 
@@ -628,6 +678,7 @@ export function AgentView(): JSX.Element {
                   openRun={(r) => setSelectedRunId(r.id)}
                   handleStop={(r) => void handleStop(r)}
                   retryRun={retryRun}
+                  continueRun={continueRun}
                   deleteRun={(r) => void handleDelete(r)}
                   orchestrated={away.orchestrated(entry.id)}
                   spotlit={away.spotlightId === entry.id}
