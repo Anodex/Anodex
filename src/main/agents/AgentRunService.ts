@@ -1,8 +1,14 @@
 import { IpcChannel } from '@shared/ipc'
+import { appendRunToJournal, readJournal } from './agentJournal'
 import { broadcastToWindows } from '../broadcast'
 import type { ChatMessage, ContextEpochHandoff, GenerationStopReason } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
-import { activeElapsedMs, type AgentRun, type CreateAgentRunRequest } from '@shared/agentRun.types'
+import {
+  activeElapsedMs,
+  type AgentRun,
+  type CreateAgentRunRequest,
+  seriesIdOf
+} from '@shared/agentRun.types'
 import type { ToolCall } from '@shared/tools.types'
 import type { PathClaimIssue } from '../tools/pathClaimVerification'
 import type { Plan } from '@shared/plan.types'
@@ -471,7 +477,11 @@ class AgentRunService {
         turnsUsed = turn
         const prompt =
           turn === startTurn
-            ? (options?.firstPrompt ?? buildKickoffPrompt(run.goal))
+            ? (options?.firstPrompt ??
+              // Read at the moment the run starts, not when it was created: a
+              // series can gain entries between the two, and the point is to
+              // act on the latest state rather than a snapshot.
+              buildKickoffPrompt(run.goal, readJournal(seriesIdOf(run))))
             : CONTINUE_PROMPT
         const {
           finished,
@@ -1088,11 +1098,19 @@ class AgentRunService {
     agentRunStore.update(runId, { status, summary, lastError })
     this.broadcastRunsChanged()
     const run = agentRunStore.get(runId)
-    // A sub-agent finishing is an internal step of its parent's run, not an
-    // event anyone asked to hear about. Three of them landing on a lock
-    // screen — followed by the parent's own — is how a useful notification
-    // becomes one people turn off.
+    // A sub-agent finishing is an internal step of its parent's run: not an
+    // event anyone asked to hear about, and not a chapter of the series
+    // either. Three of them landing on a lock screen — followed by the
+    // parent's own — is how a useful notification becomes one people turn
+    // off, and journalling each child would fill a series' history with
+    // fragments of work the parent reports again in full a moment later.
     if (run?.parentRunId) return
+
+    // Written for whoever continues this series next — including a failure,
+    // which is the entry most worth having, since the next run should not
+    // repeat it. Never allowed to fail the run: losing continuity degrades
+    // the agent, refusing to finish would lose the work.
+    if (run) appendRunToJournal(run)
     notifyUser(
       {
         title: run?.goal ? truncateTitle(run.goal) : 'Agent run',

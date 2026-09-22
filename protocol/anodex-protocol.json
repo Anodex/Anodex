@@ -9398,6 +9398,20 @@
             ]
           }
         },
+        "seriesId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
         "goal": {
           "optional": false,
           "type": {
@@ -14371,6 +14385,20 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        },
+        "continuesSeriesId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
           }
         },
         "projectId": {

@@ -88,6 +88,14 @@ export interface AgentRunEditorSeed {
   enabledTools?: string[]
   /** The retried run's own copies, re-read so the new run gets its own. */
   attachments?: AgentRunAttachmentRequest[]
+  /**
+   * The ongoing work this run continues, when it continues one.
+   *
+   * Only the series carries over. Everything else is chosen fresh, because a
+   * continuation legitimately needs a different shape from the run before
+   * it: yesterday read the market and today places an order.
+   */
+  continuesSeriesId?: string
 }
 
 interface AgentRunEditorProps {
@@ -281,7 +289,8 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
       enabledTools: [...enabledTools].filter((toolName) =>
         availableTools.some((tool) => tool.name === toolName)
       ),
-      attachments: attachments.attachments.map(({ path, name }) => ({ path, name }))
+      attachments: attachments.attachments.map(({ path, name }) => ({ path, name })),
+      ...(seed?.continuesSeriesId ? { continuesSeriesId: seed.continuesSeriesId } : {})
     })
     setSaving(false)
     // Only on success. `agentStore.create` reports its own failure and returns
