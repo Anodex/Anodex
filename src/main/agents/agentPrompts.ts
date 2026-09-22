@@ -44,10 +44,15 @@ export function journalForPrompt(
   if (!text) return null
   if (text.length <= budget) return text
 
-  // Entries are the sections `renderJournalEntry` writes. Splitting on the
-  // heading keeps each one whole: half an entry is worse than none, because
-  // its status line and its summary can end up on opposite sides of the cut.
-  const entries = text.split(/\n(?=## )/).filter((entry) => entry.trim().length > 0)
+  // Entries are the sections `renderJournalEntry` writes, and splitting on
+  // their own dated header is what keeps each one whole. Splitting on any
+  // `## ` would let a heading inside a run’s summary — models write them
+  // freely — count as the start of an entry, which is how a status line and
+  // the summary it belongs to end up on opposite sides of the cut, leaving
+  // a failed run reading as a successful one.
+  const entries = text
+    .split(/\n(?=## \d{4}-\d{2}-\d{2} )/)
+    .filter((entry) => entry.trim().length > 0)
 
   const kept: string[] = []
   let used = 0
