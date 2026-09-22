@@ -1,0 +1,25 @@
+{
+  "goal": "The project folder holds SPEC.md, a working cli.js and a samples/ directory. Read SPEC.md and build what it describes: the four command modules in commands/.\n\ncli.js is already written and must not be changed — it is the interface your modules have to meet. Each module exports an async `run(lines, options)` and returns `{ stdout, code }` or `{ stderr, code }`, exactly as the spec says.\n\nUse only the Node standard library. Check your work by running the commands against samples/app.log before you finish.\n\nWhen every command in the spec works, call finish_goal with a short account of what you built and anything you could not get working.",
+  "project": "BuildTool",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/BuildTool",
+  "enabledTools": [
+    "list_directory",
+    "read_file",
+    "read_file_range",
+    "read_multiple_files",
+    "search_files",
+    "find_files",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "run_command"
+  ],
+  "provider": "local",
+  "maxTurns": 40,
+  "maxTokens": 500000,
+  "maxDurationMinutes": 75,
+  "requirePlan": false,
+  "contextSize": 65536,
+  "parallelJobs": 1,
+  "subAgentsEnabled": false
+}
