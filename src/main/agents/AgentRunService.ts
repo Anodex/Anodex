@@ -1385,8 +1385,25 @@ class AgentRunService {
     settings: ReturnType<typeof settingsStore.get>,
     chosen: readonly string[]
   ): string[] {
-    const usable = new Set(agentRunProviderOptions(settings.provider).map((option) => option.value))
-    return chosen.filter((id) => usable.has(id as AgentRun['provider']))
+    // The short-circuit the doc comment above promises, and it matters more
+    // now than when it was only `runSubAgents` asking: `subAgentCeiling`
+    // calls this on every run's first turn, and `agentRunProviderOptions`
+    // reads a field out of each of eleven provider blocks.
+    if (chosen.length === 0) return []
+    try {
+      const usable = new Set(
+        agentRunProviderOptions(settings.provider).map((option) => option.value)
+      )
+      return chosen.filter((id) => usable.has(id as AgentRun['provider']))
+    } catch (error) {
+      // A settings file missing a provider block reaches a `.trim()` on
+      // undefined. That must not decide whether a run starts: this is read
+      // from `canDelegate`, on the first turn, and a throw there turns "no
+      // sub-agents" into "the run failed" — the exact outcome the defaulting
+      // in `subAgentCeiling` exists to avoid.
+      log.warn('Could not read provider settings for sub-agents:', String(error))
+      return []
+    }
   }
 
   private createConversation(run: AgentRun): Conversation {

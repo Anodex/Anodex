@@ -36,6 +36,14 @@ let parallelJobs = 1
 /** Where each sub-agent runs; empty means it inherits the parent's provider. */
 let subAgentProviders: string[] = []
 /**
+ * Whether the settings file still has its provider block.
+ *
+ * Real files have lost one — a partial write, a hand edit, a migration that
+ * did not finish. `isConfigured` reaches straight into it, so the absence
+ * throws rather than reading as "nothing configured".
+ */
+let providerBlockPresent = true
+/**
  * Turns a *sub-agent* starts life already having flagged.
  *
  * Set on creation rather than mid-run because the service reads
@@ -183,7 +191,7 @@ vi.mock('../../settings/SettingsStore', () => ({
       // The local ceiling is parallelJobs - 1, so this decides whether a
       // local run may delegate at all. Cloud runs ignore it.
       model: { parallelJobs },
-      provider: providerSettings(),
+      provider: providerBlockPresent ? providerSettings() : ({} as Record<string, unknown>),
       agents: { subAgentsEnabled, subAgentProviders }
     })
   }
@@ -253,6 +261,7 @@ beforeEach(() => {
   parallelJobs = 1
   subAgentProviders = []
   childStartsFlagged = 0
+  providerBlockPresent = true
   appendRunToJournal.mockReset()
   runGeneration.mockReset()
   notifyUser.mockReset()
@@ -596,6 +605,29 @@ describe('sub-agents spread across different vendors', () => {
       'gpt-5',
       'deepseek-chat'
     ])
+  })
+})
+
+describe('when the settings file is missing its provider block', () => {
+  it('runs without sub-agents rather than failing to start', async () => {
+    // `canDelegate` asks for the ceiling on the first turn, and the ceiling
+    // now consults the provider settings to see which chosen children this
+    // install can still authenticate as. A throw on that path turns "no
+    // sub-agents" into "the run failed", which is the outcome the defaulting
+    // around it was written to avoid — so the read has to fail soft.
+    subAgentsEnabled = true
+    subAgentProviders = ['deepseek']
+    providerBlockPresent = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      noteTurn(request, io)
+      return finished(io, 'Done', 100)
+    })
+
+    const started = await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    const run = runs.find((entry) => entry.id === started.id)!
+    expect(run.status).toBe('done')
+    expect(runs.filter((entry) => entry.parentRunId)).toHaveLength(0)
   })
 })
 
