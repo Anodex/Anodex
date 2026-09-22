@@ -668,3 +668,97 @@
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
+
+/* ---- sub-agents ---- */
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.subAgents {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* Mark plus name. The name is here rather than in a tooltip because holding
+   three agents apart is the whole job of this control, and a label that has to
+   be hovered for is not holding anything apart. */
+.subAgentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2) 2px 3px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.subAgentChip:hover {
+  border-color: currentcolor;
+}
+
+.subAgentChip:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* The name reads as a label, not as the loud part — the mark carries the
+   identity and the colour carries the state. */
+.subAgentName {
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Each sub-agent's own colour, worn while it is working; once it finishes the
+   status colour takes over — see the component.
+
+   Violet, blue, magenta. From `--series-*` rather than the brand's own
+   violet-to-cyan ramp because the light themes deliberately reuse the dark
+   accents, so `--accent-cyan` on a near-white surface is barely there, while
+   the series palette is defined per theme and was validated against each
+   one's surface. Series 2 and 3 are skipped: a teal and an amber sitting a
+   few pixels from `--success` and `--warn` would say "finished" and "stopped"
+   when they mean "Bravo" and "Charlie". */
+.identity-0 {
+  color: var(--series-1);
+}
+
+.identity-1 {
+  color: var(--accent);
+}
+
+.identity-2 {
+  color: var(--series-4);
+}
+
+/* Where this sub-agent came from. Quiet: it is orientation, not an action
+   anyone came here to take. */
+.parentLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 220px;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: inherit;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.parentLink:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

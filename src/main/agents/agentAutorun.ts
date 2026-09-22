@@ -68,6 +68,32 @@ interface AutorunSpec {
   maxDurationMinutes?: number
   limitsEnabled?: boolean
   requirePlan?: boolean
+  /**
+   * Set the sub-agents setting before starting, for an A/B sweep.
+   *
+   * The arms of that sweep differ only in this one flag, and toggling it by
+   * hand between runs is exactly the kind of step that silently does not
+   * happen — a whole arm then measures the other arm and looks like a result.
+   * Left out, the setting is not touched.
+   */
+  subAgentsEnabled?: boolean
+  /**
+   * Engine settings to apply before the model loads, for a sweep whose arms
+   * differ in them.
+   *
+   * `--ctx-size` is the *total* context, divided between parallel slots, so
+   * these two together decide how much window each agent actually gets:
+   * 65,536 over three jobs is about 21,845 each, and a solo run on the same
+   * setting gets the same 21,845 rather than the whole window. An arm sweep
+   * that varied sub-agents while holding these fixed would compare a
+   * handicapped baseline against itself.
+   *
+   * Applied before the model loads because the runtime is started with them.
+   */
+  contextSize?: number
+  parallelJobs?: number
+  /** Where each sub-agent runs — see `AgentSettings.subAgentProviders`. */
+  subAgentProviders?: string[]
 }
 
 const POLL_MS = 2000
@@ -83,11 +109,57 @@ async function driveRun(specPath: string): Promise<void> {
     const provider = spec.provider ?? 'local'
     log.info('Autorun armed:', provider, '-', spec.goal.slice(0, 120))
 
+    // Engine settings first: the runtime is started with them, so applying
+    // them after the model has loaded would silently measure the old ones.
+    const engine: { contextSize?: number; parallelJobs?: number } = {}
+    if (typeof spec.contextSize === 'number') engine.contextSize = spec.contextSize
+    if (typeof spec.parallelJobs === 'number') engine.parallelJobs = spec.parallelJobs
+    if (Object.keys(engine).length > 0) {
+      // The remembered per-model size wins over the global one — see
+      // `resolveModelContextSize` — so setting only the global leaves the
+      // engine on whatever this model was last loaded at. Measured: a sweep
+      // configured for 65,536 ran its first arm at 8,192, because that is
+      // what this model had remembered, and nothing said so.
+      const activeModel = settingsStore.get().lastModelPath
+      const remembered =
+        engine.contextSize !== undefined && activeModel
+          ? { modelContextSizes: { [activeModel]: engine.contextSize } }
+          : {}
+      settingsStore.update({ model: engine, ...remembered })
+      log.info(
+        'Autorun set engine:',
+        JSON.stringify(engine),
+        activeModel ? `(remembered for ${activeModel})` : '(no active model)'
+      )
+    }
+    if (typeof spec.subAgentsEnabled === 'boolean' || spec.subAgentProviders) {
+      settingsStore.update({
+        agents: {
+          ...(typeof spec.subAgentsEnabled === 'boolean'
+            ? { subAgentsEnabled: spec.subAgentsEnabled }
+            : {}),
+          ...(spec.subAgentProviders ? { subAgentProviders: spec.subAgentProviders } : {})
+        }
+      })
+      log.info(
+        'Autorun set sub-agents:',
+        spec.subAgentsEnabled,
+        spec.subAgentProviders ? `on ${spec.subAgentProviders.join(', ')}` : '(inherit)'
+      )
+    }
+
     // Only a local run has a model to wait for. Gating a cloud run on the local
     // engine made a DeepSeek autorun sit here for fifteen minutes and then fail
     // as 'model load or autorun failed' — a message describing a local problem
     // that a cloud run does not have.
-    if (provider === 'local') {
+    // The local model is needed when *anything* in this run will use it, not
+    // just the run itself. A cloud parent delegating to local sub-agents is a
+    // real configuration — the parent holds no local slot, so the children
+    // get every one of them — and it fails with "No model is loaded" if this
+    // only looks at the parent. Measured: a DeepSeek parent's first local
+    // sub-agent errored in zero seconds for exactly that reason.
+    const needsLocalModel = provider === 'local' || (spec.subAgentProviders ?? []).includes('local')
+    if (needsLocalModel) {
       // Nothing in the main process asks for a model - the renderer restores the
       // last one after it paints - so waiting for `ready` could wait forever when
       // that did not happen. Measured: two of four runs in one sweep never
@@ -107,7 +179,7 @@ async function driveRun(specPath: string): Promise<void> {
       if (loaded === 'no-model-configured' || loaded === 'model-file-missing') {
         throw new Error(`Cannot start a local run: ${loaded.replace(/-/g, ' ')}.`)
       }
-      log.info('Local model:', loaded)
+      log.info('Local model:', loaded, provider === 'local' ? '(for this run)' : '(for sub-agents)')
       await waitFor(
         () => llamaService.getState().status === 'ready',
         MODEL_READY_TIMEOUT_MS,

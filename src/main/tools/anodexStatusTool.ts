@@ -117,6 +117,12 @@ export function gatherStatusSnapshot(): AnodexStatusSnapshot {
     })),
     agents: agentRunStore.list().map((run) => ({
       goal: run.goal,
+      // Which run delegated this one, by its goal. Without it a fan-out reads
+      // as several unrelated agents working on unrelated things, and a model
+      // reading its own status would count one goal as four.
+      ...(run.parentRunId
+        ? { subAgentOf: agentRunStore.get(run.parentRunId)?.goal ?? 'a run that no longer exists' }
+        : {}),
       status: run.status,
       turnsUsed: run.turnsUsed,
       maxTurns: run.maxTurns,

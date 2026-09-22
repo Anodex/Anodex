@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useMcpStore } from '../../../../stores/mcpStore'
 import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
 import { SettingRow } from '../../SettingRow'
+import { SubAgentSettings } from './SubAgentSettings'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
 import { VisualPreviewStorage } from './VisualPreviewStorage'
 import pageStyles from '../../SettingsPage.module.css'
@@ -168,6 +169,8 @@ export function ToolsSkillsSettings(): JSX.Element {
           }
         />
       </section>
+
+      <SubAgentSettings settings={settings} update={update} />
 
       <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Assistant tools</h2>

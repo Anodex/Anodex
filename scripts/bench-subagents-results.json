@@ -1,0 +1,44 @@
+[
+  {
+    "arm": "cloud-1",
+    "repeat": 1,
+    "runId": "run_muc1qqoj_u21as",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-cloud-1-1.log",
+    "at": "2026-09-22T02:22:55.426Z"
+  },
+  {
+    "arm": "cloud-2",
+    "repeat": 1,
+    "runId": "run_muc1us1f_q1esl",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-cloud-2-1.log",
+    "at": "2026-09-22T02:30:29.399Z"
+  },
+  {
+    "arm": "cloud-3",
+    "repeat": 1,
+    "runId": "run_muc24zrb_18qx4",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-cloud-3-1.log",
+    "at": "2026-09-22T02:35:28.036Z"
+  },
+  {
+    "arm": "flip-1",
+    "repeat": 1,
+    "runId": "run_muc2lbyx_1ekc3",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-flip-1-1.log",
+    "at": "2026-09-22T02:50:32.272Z"
+  },
+  {
+    "arm": "flip-2",
+    "repeat": 1,
+    "runId": "run_muc2uanc_t69j9",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-flip-2-1.log",
+    "at": "2026-09-22T02:56:06.062Z"
+  },
+  {
+    "arm": "flip-3",
+    "repeat": 1,
+    "runId": "run_muc31g68_2w3u4",
+    "logPath": "C:\\Users\\Owner\\AppData\\Local\\Temp\\anodex-subagent-sweep\\arm-flip-3-1.log",
+    "at": "2026-09-22T03:03:25.030Z"
+  }
+]

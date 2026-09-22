@@ -41,7 +41,15 @@ let moment: AwayMoment | null = null
  * module-level announce state, which a test has no way to reset.
  */
 export function selectAwayRuns(runs: AgentRun[], isNew: (run: AgentRun) => boolean): AgentRun[] {
-  const landed = runs.filter((run) => isTerminalStatus(run.status) && isNew(run))
+  const landed = runs.filter(
+    (run) =>
+      // A sub-agent is not a separate homecoming. The user started one run;
+      // that it split itself into three is how it worked, not three more
+      // things to be told about. Counting them would announce "4 runs
+      // finished while you were away" to someone who started one, and would
+      // trip the threshold below on a single delegated goal.
+      !run.parentRunId && isTerminalStatus(run.status) && isNew(run)
+  )
   return landed.length >= MIN_AWAY_RUNS ? landed : []
 }
 

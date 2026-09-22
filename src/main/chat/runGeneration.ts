@@ -1,4 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
 import { randomUUID } from 'node:crypto'
@@ -107,6 +108,17 @@ export interface RunGenerationIo {
   confirm: (request: ToolConfirmRequest) => Promise<ToolConfirmResponse>
   /** Restricts which tools get registered; undefined/null = unrestricted (normal chat). */
   enabledTools?: Set<string> | null
+  /**
+   * Lets this run hand parts of its work to sub-agents, when its caller is
+   * willing to run them.
+   *
+   * A capability rather than a flag: the `delegate` tool registers when this
+   * is present and not otherwise, so "may this run delegate" is answered by
+   * whoever started it — `AgentRunService`, which is the only thing that
+   * knows about the setting, about whether this run is itself a sub-run, and
+   * about how to run another one. Nothing else in the chain has to care.
+   */
+  delegate?: DelegateCapability
   /** Overrides the user's configured permission mode for this run (scheduled tasks force one). */
   permissionModeOverride?: PermissionMode
   /**
@@ -508,6 +520,7 @@ export async function runGeneration(
         // `finish_goal`. See `ToolRuntimeContext.goalRun`.
         goalRun: Boolean(request.goal?.trim()) || io.enabledTools != null,
         enabledTools: io.enabledTools ?? null,
+        delegate: io.delegate,
         // Interactive chats use the persisted opt-out list. Headless runs
         // already have an explicit allowlist, so their behavior stays stable
         // even if the user later changes normal-chat preferences.

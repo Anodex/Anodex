@@ -556,6 +556,39 @@ export interface EmailSettings {
   sendRequiresApproval: true
 }
 
+export interface AgentSettings {
+  /**
+   * Whether an agent run may delegate parts of its work to sub-agents.
+   *
+   * Off by default. Delegation multiplies what one run costs and how much it
+   * does unattended, and both of those should be a decision rather than a
+   * surprise — a goal that quietly became four runs is not what someone
+   * pressing Start agreed to.
+   */
+  subAgentsEnabled: boolean
+  /**
+   * Which provider each sub-agent runs on, by position.
+   *
+   * Empty means every sub-agent inherits the run's own provider, which is
+   * the old behaviour. Otherwise the first sub-agent takes the first entry,
+   * the second the second, and a fan-out wider than the list wraps around.
+   *
+   * Two reasons this is worth configuring rather than inheriting.
+   *
+   * The dull one is that it removes the deadlock. The local engine
+   * serialises generation behind a gate the parent holds for its whole turn,
+   * so local children wait for a slot the parent cannot release. Children on
+   * a cloud provider never touch that gate, so a local run can delegate
+   * freely as long as its sub-agents are elsewhere.
+   *
+   * The interesting one is that different models have different blind spots.
+   * Same-model sub-agents divide the work; different-model sub-agents
+   * genuinely disagree, and a review is exactly the task where that is worth
+   * paying for.
+   */
+  subAgentProviders: string[]
+}
+
 export interface SpendingSettings {
   /**
    * Whether a provider's daily token cap refuses a send or only warns.
@@ -631,6 +664,7 @@ export interface AppSettings {
   email: EmailSettings
   git: GitSettings
   spending: SpendingSettings
+  agents: AgentSettings
 }
 
 /** Recursive partial used for settings patches over IPC. */

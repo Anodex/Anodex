@@ -1,0 +1,22 @@
+{
+  "goal": "The project folder is a small Python service with a number of real bugs in it. Read the code and find them.\n\nLook at every module, including the ones that turn out to be fine. For each bug, report the file, the function, and what is actually wrong with it — enough that someone could fix it without rediscovering it. Do not fix anything; this is a review, not a repair.\n\nWhen you are done, call finish_goal with the complete list of bugs you found.\n\nSplit this work across exactly one sub-agent using the delegate tool, giving each one a different set of modules to read, then collate what they report.",
+  "project": "BugHunt",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/BugHunt",
+  "enabledTools": [
+    "list_directory",
+    "read_file",
+    "read_file_range",
+    "read_multiple_files",
+    "search_files",
+    "find_files"
+  ],
+  "provider": "local",
+  "maxTurns": 24,
+  "maxTokens": 300000,
+  "maxDurationMinutes": 45,
+  "requirePlan": false,
+  "subAgentsEnabled": true,
+  "subAgentProviders": ["deepseek"],
+  "contextSize": 65536,
+  "parallelJobs": 1
+}

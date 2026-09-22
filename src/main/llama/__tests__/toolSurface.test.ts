@@ -664,3 +664,52 @@ describe('the deferred gateway names the whole catalogue', () => {
     expect(result.routed).toBe(false)
   })
 })
+
+/**
+ * `delegate` is the tool a run uses to hand work to sub-agents. It was added
+ * to the registry without being added to `DIRECT_TOOL_PRIORITY`, which ranks
+ * anything it does not list at `POSITIVE_INFINITY` — so it sorted behind
+ * every other tool and fell past the direct cut on exactly the setups the
+ * feature is for.
+ *
+ * Measured live on a 27B at 8,192: the model was told to split the work
+ * across sub-agents, and reported back "no delegate tool is visible in my
+ * current toolset ... so I did the review directly". Three arms of a
+ * benchmark measured the baseline under another name before this surfaced.
+ */
+describe('delegate on the tool surface', () => {
+  const runToolset = {
+    // What an agent run doing a read-only review actually gets.
+    list_directory: tool('list'),
+    read_file: tool('read'),
+    read_file_range: tool('read range'),
+    read_multiple_files: tool('read many'),
+    grep_files: tool('grep'),
+    find_files: tool('find'),
+    find_skill: tool('find skill'),
+    load_skill: tool('load skill'),
+    finish_goal: tool('finish'),
+    delegate: tool('delegate to sub-agents')
+  }
+
+  it('ranks delegate ahead of the direct cut on a small window', () => {
+    // 8,192 is the window this was measured failing on, and the one a local
+    // run is most likely to have.
+    const ranked = rankToolNames(runToolset)
+    expect(ranked.indexOf('delegate')).toBeLessThan(maxDirectToolsForContext(8_192))
+  })
+
+  it('does not rank delegate last, behind every other tool', () => {
+    // The symptom of being absent from DIRECT_TOOL_PRIORITY.
+    const ranked = rankToolNames(runToolset)
+    expect(ranked.at(-1)).not.toBe('delegate')
+  })
+
+  it('keeps delegate ahead of tools that cannot act on the goal', () => {
+    // Skill discovery is useful; it is not what the run was told to do. If
+    // only some tools survive the cut, the one the instruction names should.
+    const ranked = rankToolNames(runToolset)
+    expect(ranked.indexOf('delegate')).toBeLessThan(ranked.indexOf('find_skill'))
+    expect(ranked.indexOf('delegate')).toBeLessThan(ranked.indexOf('load_skill'))
+  })
+})

@@ -40,8 +40,20 @@ import {
   refusedRunReason
 } from './agentRunProgress'
 import { workspaceRootForProject } from '../projects/workspaceRoot'
+import { toolsCanChangeFiles } from '@shared/tools.types'
 import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
+import {
+  maxSubAgentsFor,
+  splitRunBudget,
+  subAgentProviderFor,
+  subAgentTools,
+  validateDelegation,
+  type SubAgentBudget,
+  type SubAgentReport,
+  type DelegateCapability
+} from '@shared/subAgents'
 import { headlessConfirm } from '../tools/headlessConfirm'
+import { agentRunProviderOptions, configuredProviderModel } from '@shared/agentRunProviders'
 import { firstPlainLine, plainSummary } from '@shared/titleText'
 
 const log = createLogger('agent-run-service')
@@ -63,12 +75,21 @@ const ALWAYS_ON_TOOLS = ['find_skill', 'load_skill', 'finish_goal']
  * plan-reviewed run is told to call a tool that was never registered.
  */
 export function buildRunEnabledTools(
-  run: Pick<AgentRun, 'enabledTools' | 'requirePlan'>
+  run: Pick<AgentRun, 'enabledTools' | 'requirePlan'>,
+  /**
+   * Whether this run may hand work to sub-agents. Added here rather than
+   * offered in the run editor's tool list because delegation is not a tool
+   * the user picks per run — it is a setting, and a run either qualifies or
+   * does not (see `canDelegate`). Registration still depends on the
+   * capability being supplied as well, so ticking this alone grants nothing.
+   */
+  canDelegate = false
 ): Set<string> {
   return new Set([
     ...run.enabledTools,
     ...ALWAYS_ON_TOOLS,
-    ...(run.requirePlan ? ['update_plan_step'] : [])
+    ...(run.requirePlan ? ['update_plan_step'] : []),
+    ...(canDelegate ? ['delegate'] : [])
   ])
 }
 
@@ -163,6 +184,16 @@ function terminalStopMessage(
 class AgentRunService {
   private runningRunId: string | null = null
   private activeController: AbortController | null = null
+  /**
+   * Abort handles for sub-runs in flight, keyed by run id.
+   *
+   * Sub-runs do not take the service lock (see `runLoop`), so without this
+   * `stop()` would refuse every one of them — and they appear in the same
+   * panel as any other run, with the same Stop button. Each is chained to
+   * its parent's signal, so stopping a parent still stops everything it
+   * delegated, while stopping one branch leaves the others working.
+   */
+  private readonly subControllers = new Map<string, AbortController>()
 
   /**
    * Create the run + its conversation, then start it in the background —
@@ -226,8 +257,13 @@ class AgentRunService {
     return this.runningRunId !== null
   }
 
-  /** Abort the currently running run, if any. */
+  /** Abort the currently running run, or one sub-run of it, if any. */
   stop(runId: string): void {
+    const sub = this.subControllers.get(runId)
+    if (sub) {
+      sub.abort()
+      return
+    }
     if (this.runningRunId !== runId) throw new Error('That run is not currently active.')
     this.activeController?.abort()
   }
@@ -235,17 +271,38 @@ class AgentRunService {
   /** Abort any run in progress — called on app quit. */
   stopAll(): void {
     this.activeController?.abort()
+    // Chained to the parent's signal, so aborting it above already reached
+    // them. Explicit anyway: quitting should not depend on that chain.
+    for (const controller of this.subControllers.values()) controller.abort()
   }
 
   private async runLoop(
     run: AgentRun,
     conversation: Conversation,
-    options?: { startTurn?: number; firstPrompt?: string }
+    options?: {
+      startTurn?: number
+      firstPrompt?: string
+      /**
+       * This run was delegated by another, and runs inside it — see
+       * `runSubAgents`.
+       */
+      sub?: { signal: AbortSignal }
+    }
   ): Promise<void> {
-    this.runningRunId = run.id
+    // A sub-run is part of its parent's run rather than a competitor for the
+    // service lock. Taking the lock here would overwrite the parent's entry
+    // and then release it in this loop's `finally`, leaving `stop()` aimed at
+    // a run that already ended and `isRunning()` false while one still is. It
+    // shares the parent's abort signal instead, which is also what makes
+    // stopping a parent stop everything it delegated.
+    const sub = options?.sub
     const controller = new AbortController()
-    this.activeController = controller
-    log.info('Starting agent run:', run.id, run.goal)
+    const signal = sub ? sub.signal : controller.signal
+    if (!sub) {
+      this.runningRunId = run.id
+      this.activeController = controller
+    }
+    log.info(sub ? 'Starting delegated agent run:' : 'Starting agent run:', run.id, run.goal)
     // Open an execution segment. The budget is measured against time actually
     // spent working, not against `now - createdAt`, so a plan that waited on a
     // human does not arrive here with its budget already spent — see
@@ -254,7 +311,22 @@ class AgentRunService {
     const workedMs = (): number => activeElapsedMs(segment)
     agentRunStore.update(run.id, { activeSinceAt: segment.activeSinceAt })
 
-    const enabledTools = buildRunEnabledTools(run)
+    const canDelegate = this.canDelegate(run)
+    const enabledTools = buildRunEnabledTools(run, canDelegate)
+    // What this run can actually reach, recorded once at the top.
+    //
+    // Worth a line of log because the failure it catches is silent from every
+    // other angle: a run that cannot delegate looks exactly like a run that
+    // chose not to, and a model asked to delegate without the tool reports
+    // back that the feature does not exist. That happened, and three arms of
+    // a benchmark measured the baseline under another name before anyone
+    // noticed.
+    log.info(
+      'Run toolset:',
+      run.id,
+      `${enabledTools.size} tools, delegation ${canDelegate ? 'available' : 'unavailable'}`,
+      [...enabledTools].sort().join(',')
+    )
     // Never touches the user's global `provider.active` setting — see
     // `RunGenerationIo.providerOverride`.
     const providerOverride = { provider: run.provider, model: run.model ?? undefined }
@@ -264,7 +336,11 @@ class AgentRunService {
     // `Conversation`, including `toolCalls`), but nothing tracked *coverage*
     // across turns before this, so a long run could still burn turns/tokens
     // re-reading the same file ranges it already saw several turns back.
-    const ledger = createTaskLedger()
+    // A run with only read tools is exempt from the gathering ceiling — see
+    // `TaskLedger.canMutate`. Derived from the run's real toolset rather than
+    // from the goal's wording, because what a run can do is what was wired up
+    // for it, and a review asked in the imperative is still a review.
+    const ledger = createTaskLedger({ canMutate: toolsCanChangeFiles([...enabledTools]) })
     const startTurn = options?.startTurn ?? 1
     let turnsUsed = run.turnsUsed
     /** One provider failure per run is retried rather than ending it. */
@@ -314,6 +390,42 @@ class AgentRunService {
     // a run summary is read as the run's, so it has to be the run's.
     const runCalls: ToolCall[] = []
     const runUnverifiedPaths: PathClaimIssue[] = []
+    /**
+     * Hand part of this run's work to sub-agents, when it is allowed any.
+     *
+     * Whatever they spend is added to this run's own `tokensUsed`, because it
+     * was paid for out of this run's budget — `splitRunBudget` hands each of
+     * them a slice of what is left. Without adding it back, the parent would
+     * keep spending as though the delegation had been free, and the split
+     * would bound the children while the run as a whole quietly went over.
+     */
+    const delegate = canDelegate
+      ? async (tasks: string[]): Promise<SubAgentReport[]> => {
+          // The authoritative ceiling. The tool advertises the product-wide
+          // maximum because it cannot see engine capacity; this can, and a
+          // fan-out wider than the spare slots would deadlock rather than
+          // queue — the parent is holding one of them.
+          const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
+          if ('error' in allowed) throw new Error(allowed.error)
+          tasks = allowed.tasks
+          const split = splitRunBudget(
+            run,
+            { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
+            tasks.length
+          )
+          // Thrown rather than returned: the tool turns this into the model's
+          // result, and a refusal that arrived as an empty report list would
+          // read as "the sub-agents found nothing".
+          if ('error' in split) throw new Error(split.error)
+          const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
+          // Added the moment they are known, rather than handed back for the
+          // turn loop to fold in: this turn can still throw after the
+          // delegation returns, and a provider failure on the way out should
+          // not erase the record of what the sub-agents already spent.
+          tokensUsed += outcome.tokens
+          return outcome.reports
+        }
+      : undefined
 
     try {
       // A plan-reviewed run's planning phase already spent turns/tokens
@@ -380,11 +492,12 @@ class AgentRunService {
           prompt,
           enabledTools,
           providerOverride,
-          controller.signal,
+          signal,
           plan,
           ledger,
           run.attachments,
-          { handoff: contextEpoch, historyFrom }
+          { handoff: contextEpoch, historyFrom },
+          delegate
         )
         tokensUsed += tokens
         if (nextPlan) plan = nextPlan
@@ -583,7 +696,7 @@ class AgentRunService {
       //
       // A deliberate stop is excluded: the user ending their own run is not a
       // failure to recover from, and should stay terminal.
-      if (run.requirePlan && run.plan && !controller.signal.aborted) {
+      if (run.requirePlan && run.plan && !signal.aborted) {
         agentRunStore.update(run.id, { status: 'needs-review', lastError: message })
         this.broadcastRunsChanged()
         // Bounced back after the user already approved it, which is the version of
@@ -597,9 +710,11 @@ class AgentRunService {
       // throws for a run that no longer exists — deleted while it was
       // generating — and a throw from in here would skip the two assignments
       // below and wedge the service against every future run.
-      this.runningRunId = null
-      this.activeController = null
-      this.bankSegment(run.id, workedMs())
+      if (!sub) {
+        this.runningRunId = null
+        this.activeController = null
+      }
+      this.bankSegment(run.id, workedMs(), { turnsUsed, tokensUsed })
     }
   }
 
@@ -789,7 +904,13 @@ class AgentRunService {
     recovery: { handoff: ContextEpochHandoff | undefined; historyFrom: number } = {
       handoff: undefined,
       historyFrom: 0
-    }
+    },
+    /**
+     * Supplied only for execution turns of a run that may delegate. Its
+     * presence is what registers the `delegate` tool, so a planning turn —
+     * which passes nothing — cannot fan out before its plan is even read.
+     */
+    delegate?: DelegateCapability
   ): Promise<{
     finished: boolean
     summary: string | null
@@ -847,6 +968,7 @@ class AgentRunService {
       {
         signal,
         enabledTools,
+        delegate,
         providerOverride,
         // Same headless approval policy as scheduled tasks — no one is present
         // to click an approval modal on a run's behalf, so `headlessConfirm`
@@ -966,6 +1088,11 @@ class AgentRunService {
     agentRunStore.update(runId, { status, summary, lastError })
     this.broadcastRunsChanged()
     const run = agentRunStore.get(runId)
+    // A sub-agent finishing is an internal step of its parent's run, not an
+    // event anyone asked to hear about. Three of them landing on a lock
+    // screen — followed by the parent's own — is how a useful notification
+    // becomes one people turn off.
+    if (run?.parentRunId) return
     notifyUser(
       {
         title: run?.goal ? truncateTitle(run.goal) : 'Agent run',
@@ -1021,12 +1148,212 @@ class AgentRunService {
     const snippet = latest
       ? truncate(latest.content.replace(/\s+/g, ' ').trim(), 140)
       : 'Still working.'
+    // Same reason as `finish`: the parent's check-ins speak for the run.
+    if (run.parentRunId) return
     const turnLabel = run.limitsEnabled ? `${turnsUsed}/${run.maxTurns}` : String(turnsUsed)
     notifyUser({
       title: `${truncateTitle(run.goal)} — checking in`,
       body: `Turn ${turnLabel} · ${tokensUsed.toLocaleString()} tokens\n${snippet}`,
       conversationId: conversation.id
     })
+  }
+
+  /**
+   * Whether this run is allowed to hand work to sub-agents.
+   *
+   * Two conditions, and both are structural rather than instructional. The
+   * setting is off by default because delegation multiplies what one run
+   * costs and does unattended. And a run that already has a parent may never
+   * delegate again: `subAgentTools` strips the tool from a child's set, and
+   * this refuses the capability even if something else were to put it back.
+   * One level of fan-out is a feature; recursion is a fork bomb with an API
+   * bill attached.
+   */
+  private canDelegate(run: AgentRun): boolean {
+    if (run.parentRunId) return false
+    if (!settingsStore.get().agents.subAgentsEnabled) return false
+    // Zero on a local engine with a single generation slot, because the
+    // parent occupies it for the whole of its turn — see `maxSubAgentsFor`.
+    return this.subAgentCeiling(run) > 0
+  }
+
+  /**
+   * How many sub-agents this run may actually start.
+   *
+   * Read from the engine's real capacity rather than from a constant: on the
+   * local engine the parent holds one of `parallelJobs` slots for its whole
+   * turn, so the children share what is left, and asking for as many as
+   * there are slots deadlocks.
+   */
+  private subAgentCeiling(run: AgentRun): number {
+    // Defaulted rather than assumed present: this is read on every run's
+    // first turn, and a settings shape missing the group would otherwise
+    // throw there — turning "no sub-agents" into "the run failed".
+    const settings = settingsStore.get()
+    return maxSubAgentsFor(
+      run.provider,
+      settings.model?.parallelJobs ?? 1,
+      settings.agents?.subAgentProviders ?? []
+    )
+  }
+
+  /**
+   * Run a parent's delegated tasks as real, concurrent sub-runs and collect
+   * what each one reported.
+   *
+   * Each sub-agent is an ordinary `AgentRun` with its own record, its own
+   * conversation and its own transcript — which is the entire reason it can
+   * be supervised. A delegated agent that existed only inside its parent's
+   * tool result would be exactly the thing nobody can watch, stop or read
+   * afterwards; as a run, it appears in the same panel as everything else,
+   * marked with the parent it belongs to.
+   *
+   * They start together and are awaited together. On a cloud provider that is
+   * genuine parallelism; on the local engine `LlamaService.generate()` holds
+   * the model lock for a whole turn, so they interleave a turn at a time
+   * rather than failing — which is why nothing here has to know which engine
+   * is underneath.
+   *
+   * Nothing rejects: a sub-agent that throws is reported as an error against
+   * its task. One failed branch of an investigation is a result the parent
+   * should see and work around, not a reason to lose the two that succeeded.
+   */
+  private async runSubAgents(
+    parent: AgentRun,
+    tasks: readonly string[],
+    budget: SubAgentBudget,
+    signal: AbortSignal
+  ): Promise<{ reports: SubAgentReport[]; tokens: number }> {
+    const tools = subAgentTools(parent.enabledTools)
+    // Only providers this install can still authenticate as. A provider
+    // chosen here and later stripped of its API key would otherwise start a
+    // sub-agent that cannot generate — a run that exists, costs a slot and
+    // fails, where falling back to the parent just works.
+    const settings = settingsStore.get()
+    const configured = settings.agents?.subAgentProviders ?? []
+    const childProviders = configured.length === 0 ? [] : this.usableProviders(settings, configured)
+    if (childProviders.length < configured.length) {
+      log.warn(
+        'Ignoring sub-agent providers that are no longer configured:',
+        configured.filter((id) => !childProviders.includes(id)).join(', ')
+      )
+    }
+    log.info(
+      'Agent run delegating to',
+      tasks.length,
+      'sub-agent(s):',
+      parent.id,
+      childProviders.length > 0 ? `on ${childProviders.join(', ')}` : '(inheriting provider)'
+    )
+
+    const started = tasks.map((task, index) => {
+      // Each sub-agent may run somewhere else entirely — see
+      // `AgentSettings.subAgentProviders`. A model id only means anything to
+      // the provider it belongs to, so it is carried over only when the child
+      // stays where its parent is.
+      const provider = subAgentProviderFor(
+        index,
+        childProviders,
+        parent.provider
+      ) as AgentRun['provider']
+      const child = agentRunStore.create(
+        {
+          goal: task,
+          projectId: parent.projectId,
+          enabledTools: tools,
+          provider,
+          // A model id means nothing to a different vendor, so a child that
+          // moves provider takes that provider's own configured model rather
+          // than its parent's. Resolved rather than left undefined: a run
+          // with neither a model nor provenance has no record of what
+          // produced its findings, and `describeRunProvenance` returns null
+          // for every cloud provider by design.
+          model:
+            provider === parent.provider
+              ? parent.model
+              : provider === 'local'
+                ? null
+                : configuredProviderModel(settings.provider, provider),
+          maxTurns: budget.maxTurns,
+          maxTokens: budget.maxTokens,
+          maxDurationMinutes: budget.maxDurationMinutes,
+          limitsEnabled: budget.limitsEnabled,
+          // Never: there is no one to review a sub-agent's plan. The parent
+          // is blocked waiting for it, and a child parked in `needs-review`
+          // would hold the whole delegation open until someone noticed.
+          requirePlan: false
+        },
+        { parentRunId: parent.id, delegatedTask: task }
+      )
+      const conversation = this.createConversation(child)
+      agentRunStore.update(child.id, { conversationId: conversation.id })
+      return { task, child: { ...child, conversationId: conversation.id }, conversation }
+    })
+    // Once, after all of them exist, so the panel shows the whole fan-out
+    // appearing at the same moment rather than one row at a time.
+    this.broadcastRunsChanged()
+
+    await Promise.all(
+      started.map(async ({ child, conversation }) => {
+        // Chained rather than shared, so this one can be stopped by itself
+        // while its siblings carry on — and still stops with its parent.
+        const controller = new AbortController()
+        const cascade = (): void => controller.abort()
+        if (signal.aborted) controller.abort()
+        else signal.addEventListener('abort', cascade, { once: true })
+        this.subControllers.set(child.id, controller)
+        try {
+          await this.runLoop(child, conversation, { sub: { signal: controller.signal } })
+        } catch (error) {
+          // `runLoop` handles its own failures and records them on the run,
+          // so reaching here means something outside a turn went wrong.
+          log.error('Delegated agent run failed outside its loop:', child.id, error)
+          try {
+            agentRunStore.update(child.id, {
+              status: 'error',
+              lastError: error instanceof Error ? error.message : 'Sub-agent failed.'
+            })
+          } catch {
+            // The run was deleted mid-flight. Nothing left to record against.
+          }
+        } finally {
+          signal.removeEventListener('abort', cascade)
+          this.subControllers.delete(child.id)
+        }
+      })
+    )
+    this.broadcastRunsChanged()
+
+    let tokens = 0
+    const reports = started.map(({ task, child }) => {
+      const finished = agentRunStore.get(child.id)
+      tokens += finished?.tokensUsed ?? 0
+      return {
+        task,
+        runId: child.id,
+        // A run deleted while it was working still owes the parent an answer.
+        status: finished?.status ?? 'error',
+        report: finished?.summary ?? finished?.lastError ?? ''
+      } satisfies SubAgentReport
+    })
+    return { reports, tokens }
+  }
+
+  /**
+   * The chosen sub-agent providers this install can still authenticate as.
+   *
+   * A provider picked here and later stripped of its API key would otherwise
+   * start a sub-agent that cannot generate — a run that exists, occupies a
+   * slot and fails, where falling back to the parent just works. Consulted
+   * only when something was chosen, so the ordinary case never needs the
+   * provider settings at all.
+   */
+  private usableProviders(
+    settings: ReturnType<typeof settingsStore.get>,
+    chosen: readonly string[]
+  ): string[] {
+    const usable = new Set(agentRunProviderOptions(settings.provider).map((option) => option.value))
+    return chosen.filter((id) => usable.has(id as AgentRun['provider']))
   }
 
   private createConversation(run: AgentRun): Conversation {
@@ -1054,9 +1381,25 @@ class AgentRunService {
    * against. Losing a duration figure for a run that no longer exists is not
    * worth taking down the service that has already released its lock.
    */
-  private bankSegment(runId: string, workedMs: number): void {
+  private bankSegment(
+    runId: string,
+    workedMs: number,
+    /**
+     * What the run had counted when it ended, for the paths that never get
+     * to the in-loop write — a turn that throws is the main one.
+     *
+     * This used to be lost. The loop persists its counters *after* a turn
+     * returns, so a turn that failed took its own accounting with it and the
+     * run's card reported fewer tokens than it had really spent. Sub-agents
+     * made that concrete rather than theoretical: their tokens are known and
+     * billed before the parent's turn is anywhere near finished, so a
+     * provider dropping on the way out would erase a figure nobody could
+     * recover.
+     */
+    counted?: { turnsUsed: number; tokensUsed: number }
+  ): void {
     try {
-      agentRunStore.update(runId, { activeMs: workedMs, activeSinceAt: null })
+      agentRunStore.update(runId, { activeMs: workedMs, activeSinceAt: null, ...counted })
       this.broadcastRunsChanged()
     } catch (error) {
       log.warn('Could not record worked time for agent run:', runId, error)

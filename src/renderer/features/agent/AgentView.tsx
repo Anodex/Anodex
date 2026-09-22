@@ -20,6 +20,9 @@ import {
   providerLabel
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
+import { describeSubAgents, groupRunsByParent } from './runTree'
+import { SubAgentMark } from './SubAgentMark'
+import { subAgentNames } from '@shared/subAgents'
 import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
@@ -203,11 +206,20 @@ function RunCard({
   handleStop,
   retryRun,
   deleteRun,
+  subAgents = [],
+  subAgentIndex = null,
+  subAgentLabel = null,
   orchestrated = false,
   spotlit = false,
   cardRef
 }: {
   run: AgentRun
+  /** Sub-agents this run delegated, rendered as their own cards beneath it. */
+  subAgents?: AgentRun[]
+  /** Where this run sits among its parent's sub-agents — decides its mark. */
+  subAgentIndex?: number | null
+  /** What its parent calls it, resolved across the whole delegation. */
+  subAgentLabel?: string | null
   stoppingId: string | null
   projectName: (projectId: string | null) => string | null
   openRun: (run: AgentRun) => void
@@ -239,6 +251,20 @@ function RunCard({
       <div className={styles.runRow}>
         <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
           <div className={styles.runTitleRow}>
+            {run.parentRunId && subAgentIndex !== null && (
+              // The same mark and name this run carries beside its parent's
+              // title and at the head of its section in the report — one
+              // identity in three places rather than three coincidences.
+              <span className={styles.subRunTag} title="Delegated by another run">
+                <SubAgentMark
+                  index={subAgentIndex}
+                  size={13}
+                  working={run.status === 'running'}
+                  className={styles[`identity-${subAgentIndex % 3}`]}
+                />
+                {subAgentLabel}
+              </span>
+            )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon name={STATUS_ICON[run.status]} size={12} />
               {STATUS_LABEL[run.status]}
@@ -264,6 +290,12 @@ function RunCard({
               >
                 <Icon name="alert" size={12} />
                 Unlimited spend
+              </span>
+            )}
+            {describeSubAgents(subAgents) && (
+              <span className={styles.subAgentCount}>
+                <Icon name="bot" size={12} />
+                {describeSubAgents(subAgents)}
               </span>
             )}
             {run.flaggedTurns > 0 && (
@@ -480,6 +512,9 @@ export function AgentView(): JSX.Element {
       <div className={styles.view}>
         <AgentRunConversation
           run={selectedRun}
+          subAgents={runs.filter((run) => run.parentRunId === selectedRun.id)}
+          parentRun={runs.find((run) => run.id === selectedRun.parentRunId) ?? null}
+          onOpenRun={setSelectedRunId}
           projectName={projectName(selectedRun.projectId)}
           stopping={stoppingId === selectedRun.id}
           deciding={decidingId === selectedRun.id}
@@ -571,24 +606,49 @@ export function AgentView(): JSX.Element {
                 aria-hidden="true"
               />
             )}
-            {visibleRuns.map((run) => (
-              <RunCard
-                key={run.id}
-                run={run}
-                stoppingId={stoppingId}
-                projectName={projectName}
-                openRun={(r) => setSelectedRunId(r.id)}
-                handleStop={(r) => void handleStop(r)}
-                retryRun={retryRun}
-                deleteRun={(r) => void handleDelete(r)}
-                orchestrated={away.orchestrated(run.id)}
-                spotlit={away.spotlightId === run.id}
-                cardRef={(element) => {
-                  if (element) cardEls.current.set(run.id, element)
-                  else cardEls.current.delete(run.id)
-                }}
-              />
-            ))}
+            {groupRunsByParent(visibleRuns).map(({ run, children }) => {
+              // Resolved once for the whole fan-out, because whether a label
+              // is usable depends on the other tasks — see `subAgentNames`.
+              const names = subAgentNames(
+                children.map((child) => child.delegatedTask ?? child.goal)
+              )
+              const card = (
+                entry: AgentRun,
+                subAgents: AgentRun[] = [],
+                subAgentIndex: number | null = null
+              ): JSX.Element => (
+                <RunCard
+                  key={entry.id}
+                  run={entry}
+                  subAgents={subAgents}
+                  subAgentIndex={subAgentIndex}
+                  subAgentLabel={subAgentIndex === null ? null : names[subAgentIndex]}
+                  stoppingId={stoppingId}
+                  projectName={projectName}
+                  openRun={(r) => setSelectedRunId(r.id)}
+                  handleStop={(r) => void handleStop(r)}
+                  retryRun={retryRun}
+                  deleteRun={(r) => void handleDelete(r)}
+                  orchestrated={away.orchestrated(entry.id)}
+                  spotlit={away.spotlightId === entry.id}
+                  cardRef={(element) => {
+                    if (element) cardEls.current.set(entry.id, element)
+                    else cardEls.current.delete(entry.id)
+                  }}
+                />
+              )
+              if (children.length === 0) return card(run)
+              return (
+                <div key={run.id} className={styles.runGroup}>
+                  {card(run, children)}
+                  {/* Indented under the run that sent them out, so the shape of
+                      a fan-out is legible without opening anything. */}
+                  <div className={styles.subRuns}>
+                    {children.map((child, index) => card(child, [], index))}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
