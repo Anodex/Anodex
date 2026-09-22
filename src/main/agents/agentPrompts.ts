@@ -7,13 +7,33 @@
  */
 
 /** Turn 1's prompt: the goal, prefixed with autonomous-mode framing. */
-export function buildKickoffPrompt(goal: string): string {
-  return (
+export function buildKickoffPrompt(goal: string, journal?: string | null): string {
+  const base =
     "You're operating autonomously toward a goal — no one is available to answer " +
     'follow-up questions, so make reasonable judgment calls yourself. Use find_skill ' +
     "to check for relevant instructions if you're unsure how to approach something. " +
     'When the goal is complete, or you cannot make further progress, call finish_goal ' +
-    `with a short summary of the outcome.\n\nGoal: ${goal}`
+    'with a short summary of the outcome.'
+
+  if (!journal?.trim()) return `${base}\n\nGoal: ${goal}`
+
+  // A continuing run is a different situation from a first one and has to be
+  // told so plainly. Without this it reads the goal as new work and starts
+  // over, which for an ongoing goal — grow this portfolio, keep this thing
+  // up to date — undoes the entire point of running it again.
+  //
+  // The journal is what the run *said* it did. The files are what exists.
+  // Those come apart, and when they do the files are right, so the framing
+  // says which to trust rather than leaving the model to guess.
+  return (
+    `${base}\n\n` +
+    'You have worked on this goal before. Below is the journal of your previous runs, ' +
+    'oldest first. Continue from where it leaves off rather than starting again, and ' +
+    'check the files you kept in the project folder before assuming anything about ' +
+    'their contents — the journal says what you reported doing, the files are what ' +
+    'actually exists.\n\n' +
+    `--- JOURNAL ---\n${journal.trim()}\n--- END JOURNAL ---\n\n` +
+    `Goal: ${goal}`
   )
 }
 

@@ -730,3 +730,73 @@ test('a delegated run shows its sub-agents nested underneath it', async () => {
     await rm(userDataDir, { recursive: true, force: true })
   }
 })
+
+/**
+ * Continuing an ongoing piece of work.
+ *
+ * The button is the whole difference between an agent that pursues a goal
+ * and one that restates it: Retry starts the same goal over from nothing,
+ * Continue starts the next run of a series that can read what came before.
+ * Worth an end-to-end check because the wiring crosses four files and the
+ * failure is silent — a Continue that quietly dropped the series id would
+ * look exactly like Retry.
+ */
+test('a finished run offers to continue the work', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-continue-e2e-'))
+  const now = Date.now()
+  const finished = {
+    id: 'series-first',
+    seriesId: 'series-first',
+    goal: 'Grow a paper portfolio and track the picks',
+    status: 'done',
+    projectId: null,
+    enabledTools: ['read_file'],
+    provider: 'local' as const,
+    model: null,
+    maxTurns: 8,
+    turnsUsed: 3,
+    flaggedTurns: 0,
+    maxTokens: 50_000,
+    tokensUsed: 900,
+    maxDurationMinutes: 30,
+    activeMs: 45_000,
+    activeSinceAt: null,
+    limitsEnabled: true,
+    conversationId: null,
+    summary: 'Bought two shares.',
+    lastError: null,
+    requirePlan: false,
+    plan: null,
+    createdAt: now,
+    updatedAt: now
+  }
+  await mkdir(join(userDataDir, 'agent-runs'), { recursive: true })
+  await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+
+    // A lone run says nothing about a series: "run 1 of 1" on every card
+    // would be true and useless.
+    await expect(window.getByText(/run \d+ of \d+/)).toHaveCount(0)
+
+    const carryOn = window.getByRole('button', { name: 'Continue this work in a new run' })
+    await expect(carryOn).toBeVisible()
+    await carryOn.click()
+
+    // It opens the same editor Retry does, seeded with the finished run's
+    // goal — the series travels invisibly alongside it.
+    await expect(window.locator('textarea').first()).toHaveValue(
+      'Grow a paper portfolio and track the picks'
+    )
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})

@@ -63,3 +63,46 @@ export function describeSubAgents(children: readonly AgentRun[]): string | null 
   if (failed > 0) return `${label} · ${failed} did not finish`
   return `${label} · all finished`
 }
+
+/** Where a run sits in the ongoing work it belongs to. */
+export interface SeriesPlace {
+  /** 1-based, oldest first. */
+  position: number
+  total: number
+}
+
+/**
+ * Which runs continue earlier work, and where each one sits.
+ *
+ * Only series with more than one run are described. A lone run *is* a series
+ * of one, so saying "run 1 of 1" on every card would be true and useless —
+ * the label exists to mark the runs where something carried over, and a mark
+ * that appears on everything marks nothing.
+ *
+ * Counted across every run in the store rather than the filtered view: a
+ * series' length is a fact about the work, not about what the list happens
+ * to be showing, and "run 2 of 2" flicking to "run 2 of 5" when a filter
+ * changes would describe the filter rather than the work.
+ */
+export function seriesPlaces(runs: readonly AgentRun[]): Map<string, SeriesPlace> {
+  const bySeries = new Map<string, AgentRun[]>()
+  for (const run of runs) {
+    // A sub-agent belongs to its parent's run, not to the series: it is a
+    // step inside one chapter rather than a chapter of its own.
+    if (run.parentRunId) continue
+    const series = run.seriesId ?? run.id
+    const existing = bySeries.get(series)
+    if (existing) existing.push(run)
+    else bySeries.set(series, [run])
+  }
+
+  const places = new Map<string, SeriesPlace>()
+  for (const members of bySeries.values()) {
+    if (members.length < 2) continue
+    const oldestFirst = [...members].sort((a, b) => a.createdAt - b.createdAt)
+    oldestFirst.forEach((run, index) => {
+      places.set(run.id, { position: index + 1, total: oldestFirst.length })
+    })
+  }
+  return places
+}
