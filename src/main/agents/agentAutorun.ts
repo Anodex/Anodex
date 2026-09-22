@@ -152,7 +152,14 @@ async function driveRun(specPath: string): Promise<void> {
     // engine made a DeepSeek autorun sit here for fifteen minutes and then fail
     // as 'model load or autorun failed' — a message describing a local problem
     // that a cloud run does not have.
-    if (provider === 'local') {
+    // The local model is needed when *anything* in this run will use it, not
+    // just the run itself. A cloud parent delegating to local sub-agents is a
+    // real configuration — the parent holds no local slot, so the children
+    // get every one of them — and it fails with "No model is loaded" if this
+    // only looks at the parent. Measured: a DeepSeek parent's first local
+    // sub-agent errored in zero seconds for exactly that reason.
+    const needsLocalModel = provider === 'local' || (spec.subAgentProviders ?? []).includes('local')
+    if (needsLocalModel) {
       // Nothing in the main process asks for a model - the renderer restores the
       // last one after it paints - so waiting for `ready` could wait forever when
       // that did not happen. Measured: two of four runs in one sweep never
@@ -172,7 +179,7 @@ async function driveRun(specPath: string): Promise<void> {
       if (loaded === 'no-model-configured' || loaded === 'model-file-missing') {
         throw new Error(`Cannot start a local run: ${loaded.replace(/-/g, ' ')}.`)
       }
-      log.info('Local model:', loaded)
+      log.info('Local model:', loaded, provider === 'local' ? '(for this run)' : '(for sub-agents)')
       await waitFor(
         () => llamaService.getState().status === 'ready',
         MODEL_READY_TIMEOUT_MS,
