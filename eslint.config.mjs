@@ -17,7 +17,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
  * - Both projects reference their respective tsconfig files for typed rules.
  */
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', '.claude/**', 'dev.cmd', 'docs/**'] },
+  {
+    ignores: [
+      'out/**',
+      'dist/**',
+      'node_modules/**',
+      '.claude/**',
+      'dev.cmd',
+      'docs/**',
+      // Workspaces the build benchmark archives after each run. They are code
+      // a model wrote, kept as evidence and graded by their own acceptance
+      // suite — not this project's source, and not ours to hold to its rules.
+      'scripts/bench-build-runs/**',
+      'scripts/bench-build-runs-large/**'
+    ]
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
