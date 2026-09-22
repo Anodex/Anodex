@@ -406,31 +406,37 @@ class AgentRunService {
      * would bound the children while the run as a whole quietly went over.
      */
     const delegate = canDelegate
-      ? async (tasks: string[]): Promise<SubAgentReport[]> => {
-          // The authoritative ceiling. The tool advertises the product-wide
-          // maximum because it cannot see engine capacity; this can, and a
-          // fan-out wider than the spare slots would deadlock rather than
-          // queue — the parent is holding one of them.
-          const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
-          if ('error' in allowed) throw new Error(allowed.error)
-          tasks = allowed.tasks
-          const split = splitRunBudget(
-            run,
-            { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
-            tasks.length
-          )
-          // Thrown rather than returned: the tool turns this into the model's
-          // result, and a refusal that arrived as an empty report list would
-          // read as "the sub-agents found nothing".
-          if ('error' in split) throw new Error(split.error)
-          const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
-          // Added the moment they are known, rather than handed back for the
-          // turn loop to fold in: this turn can still throw after the
-          // delegation returns, and a provider failure on the way out should
-          // not erase the record of what the sub-agents already spent.
-          tokensUsed += outcome.tokens
-          return outcome.reports
-        }
+      ? Object.assign(
+          async (tasks: string[]): Promise<SubAgentReport[]> => {
+            // Re-read rather than reusing the advertised ceiling below: the
+            // settings can change while a long run is in flight, and this is
+            // the check a deadlock would get past. The advertised number only
+            // has to be right when the tool describes itself.
+            const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
+            if ('error' in allowed) throw new Error(allowed.error)
+            tasks = allowed.tasks
+            const split = splitRunBudget(
+              run,
+              { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
+              tasks.length
+            )
+            // Thrown rather than returned: the tool turns this into the model's
+            // result, and a refusal that arrived as an empty report list would
+            // read as "the sub-agents found nothing".
+            if ('error' in split) throw new Error(split.error)
+            const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
+            // Added the moment they are known, rather than handed back for the
+            // turn loop to fold in: this turn can still throw after the
+            // delegation returns, and a provider failure on the way out should
+            // not erase the record of what the sub-agents already spent.
+            tokensUsed += outcome.tokens
+            return outcome.reports
+          },
+          // What the tool tells the model it may ask for. Without it the
+          // tool advertises the product-wide maximum to a run that can
+          // start one, and the run spends a turn finding that out.
+          { ceiling: this.subAgentCeiling(run) }
+        )
       : undefined
 
     try {

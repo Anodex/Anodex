@@ -45,6 +45,11 @@ describe('the delegate capability reaches every transport', () => {
   it.each(TRANSPORTS)('%s forwards delegate into buildTools', (relative) => {
     const text = source(relative)
     expect(text).toContain('buildTools(')
+    // Passed straight through, not wrapped. The ceiling the tool advertises
+    // is a property on the capability rather than a seventh field in the
+    // context, precisely so these five files need not remember it — and
+    // `delegate: (tasks) => params.tools.delegate?.(tasks)` would drop it
+    // while still looking correct. This assertion refuses that spelling.
     expect(text).toContain('delegate: params.tools.delegate')
   })
 
