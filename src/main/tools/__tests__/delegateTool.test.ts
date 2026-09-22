@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { delegateTool } from '../delegateTool'
 import { buildTools } from '../registry'
 import type { ToolRuntimeContext } from '../types'
-import type { SubAgentReport } from '@shared/subAgents'
+import { MAX_SUB_AGENTS, type SubAgentReport } from '@shared/subAgents'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 /**
@@ -18,8 +18,21 @@ import { createMockContext, createMockDefine } from './test-helpers'
 
 type DelegateHandler = (args: { tasks: string[] }) => Promise<string>
 
-function contextWith(delegate?: ToolRuntimeContext['delegate']): ToolRuntimeContext {
-  return { ...createMockContext('/tmp/workspace'), delegate }
+/**
+ * A context holding the delegate capability, with the ceiling attached.
+ *
+ * The ceiling travels on the capability rather than beside it, because the
+ * tool context is rebuilt by hand in six transports and a separate field
+ * would be a seventh chance for one of them to drop it.
+ */
+function contextWith(
+  delegate?: (tasks: string[]) => Promise<SubAgentReport[]>,
+  ceiling = MAX_SUB_AGENTS
+): ToolRuntimeContext {
+  return {
+    ...createMockContext('/tmp/workspace'),
+    delegate: delegate ? Object.assign(delegate, { ceiling }) : undefined
+  }
 }
 
 function handlerFor(ctx: ToolRuntimeContext): DelegateHandler {
@@ -61,6 +74,45 @@ describe('registering delegate', () => {
   it('respects the user disabling it like any other tool', () => {
     const ctx = { ...contextWith(() => Promise.resolve([])), disabledTools: new Set(['delegate']) }
     expect(buildTools(createMockDefine(), ctx)).not.toHaveProperty('delegate')
+  })
+})
+
+describe('what the tool tells the model it may ask for', () => {
+  function describedBy(ceiling: number): string {
+    const tool = delegateTool(
+      createMockDefine(),
+      contextWith(() => Promise.resolve([]), ceiling)
+    )
+    return (tool as unknown as { description: string }).description
+  }
+
+  it('advertises this run’s real ceiling, not the product maximum', () => {
+    // A local parent holds a generation slot for the whole of its turn, so
+    // on a two-slot machine the honest answer is one. Told three, a model
+    // asks for three and spends a turn of an unattended run being refused.
+    expect(describedBy(1)).toContain('up to 1 sub-agent ')
+    expect(describedBy(1)).not.toContain('up to 3')
+  })
+
+  it('steers toward one where more than one is possible', () => {
+    // Measured rather than assumed: one sub-agent found all twelve planted
+    // bugs in the same wall-clock as delegating nothing; two and three found
+    // no more and cost four to seven times the tokens.
+    expect(describedBy(3)).toMatch(/prefer one sub-agent/i)
+  })
+
+  it('does not say "prefer one" to a run that can only have one', () => {
+    // Advice that cannot be acted on reads as a reproach for a choice the
+    // run was never offered.
+    expect(describedBy(1)).not.toMatch(/prefer one/i)
+  })
+
+  it('refuses at the tool boundary using that same ceiling', async () => {
+    const delegate = vi.fn(() => Promise.resolve([]))
+    const result = await handlerFor(contextWith(delegate, 1))({ tasks: ['a', 'b'] })
+
+    expect(result).toMatch(/1 is the most/)
+    expect(delegate).not.toHaveBeenCalled()
   })
 })
 

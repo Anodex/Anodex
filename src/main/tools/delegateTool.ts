@@ -21,15 +21,31 @@ import { MAX_SUB_AGENTS, renderReports, validateDelegation } from '@shared/subAg
  * sub-agents do is bounded by their own tool sets, which can never exceed
  * the parent's — see `subAgentTools`.
  */
-export const delegateTool: ToolFactory = (define, ctx) =>
-  define({
+export const delegateTool: ToolFactory = (define, ctx) => {
+  // What this run can actually start, not the product-wide maximum. On a
+  // local engine the parent holds a generation slot for the whole of its
+  // turn, so the honest answer is often one — and a model told three asks
+  // for three, is refused, and spends a turn of an unattended run learning
+  // something that was knowable before it started.
+  const ceiling = ctx.delegate?.ceiling ?? MAX_SUB_AGENTS
+  return define({
     description:
-      `Split this run's work across up to ${MAX_SUB_AGENTS} sub-agents that run at the same ` +
-      'time and report back. Use it when a goal divides into parts that can be investigated ' +
-      'independently — for example, searching different areas of a codebase for the same kind ' +
-      'of problem. Each task should be self-contained: a sub-agent cannot see this ' +
-      'conversation, only the task you give it. Waits for every sub-agent and returns what ' +
-      'each one found.',
+      `Split this run's work across up to ${ceiling} sub-agent${ceiling === 1 ? '' : 's'} ` +
+      'that run at the same time and report back. Use it when a goal divides into parts that ' +
+      'can be investigated independently — for example, searching different areas of a ' +
+      'codebase for the same kind of problem. Each task should be self-contained: a sub-agent ' +
+      'cannot see this conversation, only the task you give it. Waits for every sub-agent and ' +
+      'returns what each one found.' +
+      (ceiling > 1
+        ? // Measured, not a guess: on a 12-bug hunt one sub-agent found every
+          // defect in the same wall-clock as delegating nothing, while two and
+          // three found no more and cost four to seven times the tokens,
+          // because each one re-reads the workspace from nothing. The model is
+          // the one choosing how many, so it is the one that needs this.
+          ' Prefer one sub-agent unless the parts genuinely do not overlap: each extra one ' +
+          're-reads the workspace from scratch, which on measurement cost several times as ' +
+          'much for the same findings.'
+        : ''),
     params: {
       type: 'object',
       properties: {
@@ -56,7 +72,7 @@ export const delegateTool: ToolFactory = (define, ctx) =>
           // run with nothing useful to say.
           if (!delegate) throw new Error('This run cannot use sub-agents.')
 
-          const validated = validateDelegation(args.tasks)
+          const validated = validateDelegation(args.tasks, ceiling)
           if ('error' in validated) throw new Error(validated.error)
 
           const reports = await delegate(validated.tasks)
@@ -70,3 +86,4 @@ export const delegateTool: ToolFactory = (define, ctx) =>
         }
       })
   })
+}

@@ -264,7 +264,25 @@ export function subAgentNames(tasks: readonly string[]): string[] {
  * separately in each, one of them simply omitted it and nothing complained —
  * see `ToolRuntimeContext.delegate`.
  */
-export type DelegateCapability = (tasks: string[]) => Promise<SubAgentReport[]>
+export interface DelegateCapability {
+  (tasks: string[]): Promise<SubAgentReport[]>
+  /**
+   * The most sub-agents this run may actually start — see
+   * {@link maxSubAgentsFor}.
+   *
+   * Carried on the capability rather than added beside it in the tool
+   * context, because the context is rebuilt by hand in six places and a
+   * seventh field is a seventh chance for one of them to omit it. This
+   * travels wherever the function already travels.
+   *
+   * The tool needs it to describe itself honestly. Advertising the
+   * product-wide maximum to a run that can only start one costs that run a
+   * whole turn: it asks for three, is refused, and tries again — which on a
+   * local engine is a minute or two of an unattended run spent learning
+   * something that was knowable before it started.
+   */
+  readonly ceiling: number
+}
 
 /** What came back from one sub-agent. */
 export interface SubAgentReport {
