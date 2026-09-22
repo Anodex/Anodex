@@ -806,3 +806,83 @@ test('a finished run offers to continue the work', async () => {
     await rm(userDataDir, { recursive: true, force: true })
   }
 })
+
+test('a continuing run shows the journal of the work it belongs to', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-journal-e2e-'))
+  const now = Date.now()
+  const run = (id: string, goal: string, summary: string, at: number) => ({
+    id,
+    seriesId: 'series-journal',
+    goal,
+    status: 'done',
+    projectId: null,
+    enabledTools: ['read_file'],
+    provider: 'local' as const,
+    model: null,
+    maxTurns: 8,
+    turnsUsed: 3,
+    flaggedTurns: 0,
+    maxTokens: 50_000,
+    tokensUsed: 900,
+    maxDurationMinutes: 30,
+    activeMs: 45_000,
+    activeSinceAt: null,
+    limitsEnabled: true,
+    conversationId: null,
+    summary,
+    lastError: null,
+    requirePlan: false,
+    plan: null,
+    createdAt: at,
+    updatedAt: at
+  })
+
+  await mkdir(join(userDataDir, 'agent-runs'), { recursive: true })
+  await writeFile(
+    join(userDataDir, 'agent-runs', 'runs.json'),
+    JSON.stringify([
+      run('series-journal', 'Track the portfolio', 'Bought two shares.', now - 60_000),
+      run('journal-second', 'Track the portfolio', 'Sold one share.', now)
+    ]),
+    'utf-8'
+  )
+  // Written where `journalPathFor` looks, under the series id rather than
+  // either run's — which is the distinction the channel exists to make.
+  await mkdir(join(userDataDir, 'agent-series', 'series-journal'), { recursive: true })
+  await writeFile(
+    join(userDataDir, 'agent-series', 'series-journal', 'JOURNAL.md'),
+    '## 2026-09-20 10:00 — done\n\n- Goal: Track the portfolio\n\nBought two shares of NOVA.\n',
+    'utf-8'
+  )
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+
+    // Two runs in one series, so the cards say where each sits.
+    await expect(window.getByText('run 2 of 2')).toBeVisible()
+
+    // The *second* run specifically. Its id is not the series id — a first
+    // run's series is its own id — so opening it is what proves the channel
+    // reads the series' journal rather than the run's. Opening run 1 passes
+    // either way, which was checked.
+    await window.getByRole('button').filter({ hasText: 'run 2 of 2' }).first().click()
+
+    // Collapsed until asked for: on the fifth run of a series this is the
+    // longest thing on the page, and what you open a run's log for is the run.
+    const toggle = window.getByRole('button', { name: /What this work has done so far/i })
+    await expect(toggle).toBeVisible()
+    await expect(window.getByText(/Bought two shares of NOVA/)).toHaveCount(0)
+
+    await toggle.click()
+    await expect(window.getByText(/Bought two shares of NOVA/)).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
