@@ -17,6 +17,8 @@ import { schedulerStore } from './SchedulerStore'
 import { agentRunService } from '../agents/AgentRunService'
 import { agentRunStore } from '../agents/AgentRunStore'
 import { continuationRequestFor, seriesIsBusy } from '@shared/agentContinuation'
+import { localEngineReady } from '../llama/localEngineReady'
+import { settingsStore } from '../settings/SettingsStore'
 
 const log = createLogger('scheduler-service')
 
@@ -194,6 +196,25 @@ class SchedulerService {
       log.warn('Continuation has nothing to continue, disabling:', task.id, request.error)
       schedulerStore.update(task.id, { enabled: false })
       this.recordContinuation(task, startedAt, 'error', request.error)
+      return
+    }
+
+    // The failure this was built without, and found by running it: the
+    // scheduler's first tick lands about five seconds after launch, while a
+    // local model is still minutes from ready. The run started and died
+    // immediately with "No model is loaded", burning the occurrence — and on
+    // a daily schedule, the day.
+    const engine = await localEngineReady(request.provider, {
+      childProviders: settingsStore.get().agents?.subAgentProviders ?? [],
+      // Shorter than the autorun's quarter hour. This holds the scheduler's
+      // single-task lock while it waits, so every other schedule on the
+      // machine is stalled behind it; six minutes covers a cold load without
+      // wedging the rest of the day behind a model that is never coming.
+      timeoutMs: 6 * 60 * 1000
+    })
+    if (engine) {
+      log.info('Continuation waiting on the local engine:', task.id, engine)
+      this.recordContinuation(task, startedAt, 'stopped', engine)
       return
     }
 

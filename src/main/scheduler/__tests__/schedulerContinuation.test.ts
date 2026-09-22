@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   runs: [] as AgentRun[],
   /** Thrown by the next `agentRunService.start`, standing in for a busy app. */
   startError: null as Error | null,
+  /** What `localEngineReady` reports: null when the engine is ready. */
+  engineProblem: null as string | null,
   seriesId: undefined as string | undefined
 }))
 
@@ -41,6 +43,14 @@ vi.mock('../SchedulerStore', () => ({
 
 vi.mock('../../agents/AgentRunStore', () => ({
   agentRunStore: { list: () => mocks.runs }
+}))
+
+vi.mock('../../llama/localEngineReady', () => ({
+  localEngineReady: () => Promise.resolve(mocks.engineProblem)
+}))
+
+vi.mock('../../settings/SettingsStore', () => ({
+  settingsStore: { get: () => ({ agents: { subAgentProviders: [] } }) }
 }))
 
 vi.mock('../../agents/AgentRunService', () => ({
@@ -139,6 +149,7 @@ beforeEach(() => {
   mocks.started.length = 0
   mocks.runs = [run()]
   mocks.startError = null
+  mocks.engineProblem = null
   mocks.seriesId = 'series-1'
   generate.mockReset()
   schedulerService.init()
@@ -221,6 +232,20 @@ describe('a schedule that continues an agent series', () => {
 
     expect(lastRecord()?.status).toBe('stopped')
     expect(lastRecord()?.summary).toMatch(/currently in progress/i)
+  })
+
+  it('waits for the local engine rather than starting a run that cannot generate', async () => {
+    // Found by running it. The scheduler's first tick lands about five
+    // seconds after launch, while a local model is still minutes from ready —
+    // so the run started, died with "No model is loaded", and burned the
+    // occurrence. On a daily schedule that is the whole day.
+    mocks.engineProblem = 'The local model was still loading, so this was left for the next time.'
+
+    await schedulerService.runNow('task-1')
+
+    expect(mocks.started).toHaveLength(0)
+    expect(lastRecord()?.status).toBe('stopped')
+    expect(lastRecord()?.summary).toMatch(/still loading/i)
   })
 
   it('still runs a chat turn for an ordinary task', async () => {

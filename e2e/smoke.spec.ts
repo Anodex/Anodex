@@ -900,8 +900,13 @@ test('a scheduled continuation starts the next run of the same work', async () =
     status: 'done',
     projectId: null,
     enabledTools: ['read_file'],
-    provider: 'local' as const,
-    model: null,
+    // A cloud provider deliberately. A continuation now waits for the local
+    // engine before it starts anything — which is the point of the fix it
+    // caught — and this app has no model, so a local run would correctly be
+    // deferred and there would be nothing to assert about. What is under test
+    // here is that the schedule starts a run in the same series at all.
+    provider: 'anthropic' as const,
+    model: 'claude-sonnet-5',
     maxTurns: 8,
     turnsUsed: 3,
     flaggedTurns: 0,
