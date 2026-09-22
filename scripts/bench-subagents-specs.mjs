@@ -95,7 +95,33 @@ const ARMS = [
   { name: '1', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(1) },
   { name: '2', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(2) },
   { name: '3', subAgentsEnabled: true, parallelJobs: 3, goal: BASE + splitInstruction(3) },
-  { name: 'off-brief', subAgentsEnabled: false, parallelJobs: 1, goal: BASE + TAXONOMY }
+  { name: 'off-brief', subAgentsEnabled: false, parallelJobs: 1, goal: BASE + TAXONOMY },
+  // Children on a cloud provider, parent local. The gate only serialises
+  // local generation, so these are the first arms where the sub-agents
+  // genuinely run at the same time rather than queueing behind the parent.
+  // parallelJobs stays at 1: nothing here needs a second local slot, and
+  // raising it would divide the parent's window for no reason.
+  {
+    name: 'cloud-1',
+    subAgentsEnabled: true,
+    parallelJobs: 1,
+    childProviders: ['deepseek'],
+    goal: BASE + splitInstruction(1)
+  },
+  {
+    name: 'cloud-2',
+    subAgentsEnabled: true,
+    parallelJobs: 1,
+    childProviders: ['deepseek', 'deepseek'],
+    goal: BASE + splitInstruction(2)
+  },
+  {
+    name: 'cloud-3',
+    subAgentsEnabled: true,
+    parallelJobs: 1,
+    childProviders: ['deepseek', 'deepseek', 'deepseek'],
+    goal: BASE + splitInstruction(3)
+  }
 ]
 
 for (const arm of ARMS) {
@@ -119,6 +145,7 @@ for (const arm of ARMS) {
     // that has nothing to do with what is being measured.
     requirePlan: false,
     subAgentsEnabled: arm.subAgentsEnabled,
+    ...(arm.childProviders ? { subAgentProviders: arm.childProviders } : {}),
     contextSize: 65536,
     parallelJobs: arm.parallelJobs
   }

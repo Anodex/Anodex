@@ -92,6 +92,8 @@ interface AutorunSpec {
    */
   contextSize?: number
   parallelJobs?: number
+  /** Where each sub-agent runs — see `AgentSettings.subAgentProviders`. */
+  subAgentProviders?: string[]
 }
 
 const POLL_MS = 2000
@@ -130,9 +132,20 @@ async function driveRun(specPath: string): Promise<void> {
         activeModel ? `(remembered for ${activeModel})` : '(no active model)'
       )
     }
-    if (typeof spec.subAgentsEnabled === 'boolean') {
-      settingsStore.update({ agents: { subAgentsEnabled: spec.subAgentsEnabled } })
-      log.info('Autorun set sub-agents:', spec.subAgentsEnabled)
+    if (typeof spec.subAgentsEnabled === 'boolean' || spec.subAgentProviders) {
+      settingsStore.update({
+        agents: {
+          ...(typeof spec.subAgentsEnabled === 'boolean'
+            ? { subAgentsEnabled: spec.subAgentsEnabled }
+            : {}),
+          ...(spec.subAgentProviders ? { subAgentProviders: spec.subAgentProviders } : {})
+        }
+      })
+      log.info(
+        'Autorun set sub-agents:',
+        spec.subAgentsEnabled,
+        spec.subAgentProviders ? `on ${spec.subAgentProviders.join(', ')}` : '(inherit)'
+      )
     }
 
     // Only a local run has a model to wait for. Gating a cloud run on the local
