@@ -4,7 +4,7 @@ import { MAX_SUB_AGENTS, maxSubAgentsFor, subAgentProviderFor } from '@shared/su
 import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, ToggleControl } from '../../controls'
-import pageStyles from '../settingsPage.module.css'
+import pageStyles from '../../SettingsPage.module.css'
 
 /**
  * Sub-agents, as their own section.
