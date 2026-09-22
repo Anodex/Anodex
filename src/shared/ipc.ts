@@ -593,6 +593,15 @@ export const IpcChannel = {
     rejectPlan: 'agent:reject-plan',
     /** One run's turns, compact, for a phone following it. See `runTurnsForRemote`. */
     turns: 'agent:turns',
+    /**
+     * The journal of the ongoing work a run belongs to, as Markdown.
+     *
+     * The journal is the agent's own memory of what it has done, and the
+     * whole argument for keeping it in plain Markdown is that the person
+     * whose agent it is can read it. A memory you have to go and find on
+     * disk is not really readable, so the app shows it too.
+     */
+    journal: 'agent:journal',
     /** main → renderer broadcast whenever a run changes (create/turn/finish/delete). */
     runsChanged: 'agent:runs-changed'
   },
@@ -1183,6 +1192,8 @@ export interface AnodexApi {
     rejectPlan(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
     turns(runId: string): Promise<RemoteRunTurn[]>
+    /** The series journal as Markdown, or null if the run is gone or has none. */
+    journal(runId: string): Promise<string | null>
   }
   criticalThinking: {
     list(): Promise<CriticalThinkingRun[]>

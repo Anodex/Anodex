@@ -762,3 +762,49 @@
   color: var(--text);
   text-decoration: underline;
 }
+
+/* The series journal — what the runs before this one did. Collapsed by
+   default, so it reads as a quiet line until asked for. */
+.journal {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.journalToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.journalToggle:hover {
+  color: var(--text);
+}
+
+.journalBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.journalNote {
+  margin: 0;
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
