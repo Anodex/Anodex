@@ -1211,7 +1211,15 @@ class AgentRunService {
     return maxSubAgentsFor(
       run.provider,
       settings.model?.parallelJobs ?? 1,
-      settings.agents?.subAgentProviders ?? []
+      // The same filtered list `runSubAgents` will assign from, not the
+      // configured one. A provider chosen and later stripped of its key
+      // falls back to the parent's, so counting the configured list answers
+      // a question about children that will not exist: a local parent with
+      // one cloud child chosen is allowed three, and then all three fall
+      // back to local and go looking for the one slot the parent is not
+      // already holding. That is the deadlock this ceiling exists to
+      // prevent, reached through the fallback that prevents a different one.
+      this.usableProviders(settings, settings.agents?.subAgentProviders ?? [])
     )
   }
 

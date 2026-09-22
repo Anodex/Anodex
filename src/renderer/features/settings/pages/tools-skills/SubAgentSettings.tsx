@@ -29,9 +29,16 @@ export function SubAgentSettings({
   const childProviders = settings.agents.subAgentProviders
   const parallelJobs = settings.model.parallelJobs ?? 1
 
+  // Only the chosen providers this install can still authenticate as. A
+  // provider picked while it had a key and later stripped of one falls back
+  // to the parent's at run time, so counting it here would describe children
+  // that will not exist — and on a local parent that is the difference
+  // between "up to 3" and the one slot there actually is.
+  const usable = childProviders.filter((id) => configured.some((option) => option.value === id))
+
   // What a *local* run could start right now. The cloud answer is always the
   // product maximum, so the local one is the number worth surfacing.
-  const localCeiling = maxSubAgentsFor('local', parallelJobs, childProviders)
+  const localCeiling = maxSubAgentsFor('local', parallelJobs, usable)
 
   const inherit = { value: '', label: 'Same as the run' }
   const options = [inherit, ...configured]
@@ -95,21 +102,30 @@ export function SubAgentSettings({
           </p>
           {Array.from({ length: MAX_SUB_AGENTS }, (_, index) => {
             const chosen = childProviders[index] ?? ''
-            const effective = subAgentProviderFor(index, childProviders, 'the run')
+            const label = configured.find((option) => option.value === chosen)?.label
+            // Described from `usable`, because that is the list the run will
+            // assign from. A stale entry is not merely unlabelled — it moves
+            // every later slot's wrap-around too.
+            const effective = subAgentProviderFor(index, usable, 'the run')
             return (
               <SettingRow
                 key={index}
                 label={`Sub-agent ${index + 1}`}
                 description={
-                  chosen
-                    ? `Runs on ${configured.find((option) => option.value === chosen)?.label ?? chosen}.`
-                    : childProviders.length > 0
-                      ? `Not set, so it wraps around to ${effective}.`
-                      : 'Runs wherever the parent run does.'
+                  chosen && label
+                    ? `Runs on ${label}.`
+                    : chosen
+                      ? // Chosen while it had a key, which has since been
+                        // cleared. Saying where it will actually run beats
+                        // naming a provider that cannot answer.
+                        `${chosen} has no API key any more, so this one runs on ${effective}.`
+                      : usable.length > 0
+                        ? `Not set, so it wraps around to ${effective}.`
+                        : 'Runs wherever the parent run does.'
                 }
                 control={
                   <SelectControl
-                    value={chosen}
+                    value={label ? chosen : ''}
                     options={options}
                     onChange={(value) => setSlot(index, value)}
                   />
