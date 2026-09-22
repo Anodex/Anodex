@@ -31,6 +31,12 @@ const REACHABLE_FROM_A_PHONE = [
   'agent:approve-plan',
   'agent:create',
   'agent:delete',
+  // Deliberate: read-only, and the phone already reaches `agent:turns`, which
+  // carries the full transcript this only narrates. Following an unattended
+  // run from a phone is the case the away features exist for, and "what has
+  // this work done so far" is the question you ask when you are not at the
+  // desk where the file lives.
+  'agent:journal',
   'agent:list',
   'agent:reject-plan',
   'agent:runs-changed',

@@ -273,7 +273,27 @@ describe('renderReports', () => {
     runId: 'run-1',
     status: 'done',
     report: 'Found an unchecked null on line 40.',
+    flaggedTurns: 0,
     ...overrides
+  })
+
+  it('warns above a report from a sub-agent that claimed what did not happen', () => {
+    // The parent is a model and will build on this the way it would on a file
+    // it had read. The journal already flags the same count beside a summary
+    // for exactly this reason; a delegated report is that case with a second
+    // model downstream of it.
+    const rendered = renderReports([report({ flaggedTurns: 2 })])
+
+    expect(rendered).toMatch(/treat this report with suspicion/i)
+    expect(rendered).toContain('2 turns')
+    // Above the findings, not after them: a caution that arrives once they
+    // have been read is one the parent has to go back and re-weigh.
+    expect(rendered.indexOf('suspicion')).toBeLessThan(rendered.indexOf('unchecked null'))
+  })
+
+  it('says nothing about fabrication when there was none', () => {
+    // A caution on every report is a caution on none of them.
+    expect(renderReports([report()])).not.toMatch(/suspicion/i)
   })
 
   it('labels each report with the task it answers', () => {

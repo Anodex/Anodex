@@ -406,31 +406,37 @@ class AgentRunService {
      * would bound the children while the run as a whole quietly went over.
      */
     const delegate = canDelegate
-      ? async (tasks: string[]): Promise<SubAgentReport[]> => {
-          // The authoritative ceiling. The tool advertises the product-wide
-          // maximum because it cannot see engine capacity; this can, and a
-          // fan-out wider than the spare slots would deadlock rather than
-          // queue — the parent is holding one of them.
-          const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
-          if ('error' in allowed) throw new Error(allowed.error)
-          tasks = allowed.tasks
-          const split = splitRunBudget(
-            run,
-            { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
-            tasks.length
-          )
-          // Thrown rather than returned: the tool turns this into the model's
-          // result, and a refusal that arrived as an empty report list would
-          // read as "the sub-agents found nothing".
-          if ('error' in split) throw new Error(split.error)
-          const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
-          // Added the moment they are known, rather than handed back for the
-          // turn loop to fold in: this turn can still throw after the
-          // delegation returns, and a provider failure on the way out should
-          // not erase the record of what the sub-agents already spent.
-          tokensUsed += outcome.tokens
-          return outcome.reports
-        }
+      ? Object.assign(
+          async (tasks: string[]): Promise<SubAgentReport[]> => {
+            // Re-read rather than reusing the advertised ceiling below: the
+            // settings can change while a long run is in flight, and this is
+            // the check a deadlock would get past. The advertised number only
+            // has to be right when the tool describes itself.
+            const allowed = validateDelegation(tasks, this.subAgentCeiling(run))
+            if ('error' in allowed) throw new Error(allowed.error)
+            tasks = allowed.tasks
+            const split = splitRunBudget(
+              run,
+              { turns: turnsUsed, tokens: tokensUsed, minutes: workedMs() / 60_000 },
+              tasks.length
+            )
+            // Thrown rather than returned: the tool turns this into the model's
+            // result, and a refusal that arrived as an empty report list would
+            // read as "the sub-agents found nothing".
+            if ('error' in split) throw new Error(split.error)
+            const outcome = await this.runSubAgents(run, tasks, split.budget, signal)
+            // Added the moment they are known, rather than handed back for the
+            // turn loop to fold in: this turn can still throw after the
+            // delegation returns, and a provider failure on the way out should
+            // not erase the record of what the sub-agents already spent.
+            tokensUsed += outcome.tokens
+            return outcome.reports
+          },
+          // What the tool tells the model it may ask for. Without it the
+          // tool advertises the product-wide maximum to a run that can
+          // start one, and the run spends a turn finding that out.
+          { ceiling: this.subAgentCeiling(run) }
+        )
       : undefined
 
     try {
@@ -1211,7 +1217,15 @@ class AgentRunService {
     return maxSubAgentsFor(
       run.provider,
       settings.model?.parallelJobs ?? 1,
-      settings.agents?.subAgentProviders ?? []
+      // The same filtered list `runSubAgents` will assign from, not the
+      // configured one. A provider chosen and later stripped of its key
+      // falls back to the parent's, so counting the configured list answers
+      // a question about children that will not exist: a local parent with
+      // one cloud child chosen is allowed three, and then all three fall
+      // back to local and go looking for the one slot the parent is not
+      // already holding. That is the deadlock this ceiling exists to
+      // prevent, reached through the fallback that prevents a different one.
+      this.usableProviders(settings, settings.agents?.subAgentProviders ?? [])
     )
   }
 
@@ -1351,7 +1365,8 @@ class AgentRunService {
         runId: child.id,
         // A run deleted while it was working still owes the parent an answer.
         status: finished?.status ?? 'error',
-        report: finished?.summary ?? finished?.lastError ?? ''
+        report: finished?.summary ?? finished?.lastError ?? '',
+        flaggedTurns: finished?.flaggedTurns ?? 0
       } satisfies SubAgentReport
     })
     return { reports, tokens }
@@ -1370,8 +1385,25 @@ class AgentRunService {
     settings: ReturnType<typeof settingsStore.get>,
     chosen: readonly string[]
   ): string[] {
-    const usable = new Set(agentRunProviderOptions(settings.provider).map((option) => option.value))
-    return chosen.filter((id) => usable.has(id as AgentRun['provider']))
+    // The short-circuit the doc comment above promises, and it matters more
+    // now than when it was only `runSubAgents` asking: `subAgentCeiling`
+    // calls this on every run's first turn, and `agentRunProviderOptions`
+    // reads a field out of each of eleven provider blocks.
+    if (chosen.length === 0) return []
+    try {
+      const usable = new Set(
+        agentRunProviderOptions(settings.provider).map((option) => option.value)
+      )
+      return chosen.filter((id) => usable.has(id as AgentRun['provider']))
+    } catch (error) {
+      // A settings file missing a provider block reaches a `.trim()` on
+      // undefined. That must not decide whether a run starts: this is read
+      // from `canDelegate`, on the first turn, and a throw there turns "no
+      // sub-agents" into "the run failed" — the exact outcome the defaulting
+      // in `subAgentCeiling` exists to avoid.
+      log.warn('Could not read provider settings for sub-agents:', String(error))
+      return []
+    }
   }
 
   private createConversation(run: AgentRun): Conversation {
