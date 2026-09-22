@@ -608,6 +608,43 @@ describe('sub-agents spread across different vendors', () => {
   })
 })
 
+describe('a run that delegates more than once', () => {
+  it('may fan out again, against what is left of its budget', async () => {
+    // Nothing forbids a second delegation and nothing should: a parent that
+    // has read three reports and found a fourth question worth asking is the
+    // feature working. What bounds it is the budget — `splitRunBudget`
+    // divides what is *left*, so the second round is smaller than the first,
+    // and eventually there is not enough to start one at all.
+    subAgentsEnabled = true
+    const rounds: number[] = []
+    let round = 0
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (round < 2 && io.delegate) {
+        round++
+        const reports = (await io.delegate([`round ${round}`])) as SubAgentReport[]
+        rounds.push(reports.length)
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(rounds).toEqual([1, 1])
+    const children = runs.filter((entry) => entry.parentRunId)
+    expect(children.map((child) => child.goal)).toEqual(['round 1', 'round 2'])
+    // The second child is given less than the first, because the first has
+    // already spent part of the run's allowance.
+    expect(children[1].maxTokens).toBeLessThan(children[0].maxTokens)
+    // And every token either of them spent is charged to the parent.
+    const parent = runs.find((entry) => !entry.parentRunId)!
+    expect(parent.tokensUsed).toBeGreaterThanOrEqual(1000)
+  })
+})
+
 describe('when the settings file is missing its provider block', () => {
   it('runs without sub-agents rather than failing to start', async () => {
     // `canDelegate` asks for the ceiling on the first turn, and the ceiling
