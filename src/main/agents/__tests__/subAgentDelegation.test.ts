@@ -471,6 +471,52 @@ describe('where each sub-agent runs', () => {
       expect(child?.provider).toBe('deepseek')
     })
   })
+
+  it('counts the slots that fallback will actually need, not the ones asked for', async () => {
+    // The dangerous shape of the case above. A local parent with a cloud
+    // child was allowed the full three, because no child was local — and
+    // then the key was cleared, every child fell back to the parent, and
+    // three local children went looking for the one free slot the parent was
+    // not already holding. That is the deadlock `maxSubAgentsFor` exists to
+    // prevent, arrived at through the fallback that prevents a different one.
+    //
+    // Refused rather than trimmed to fit, which is `validateDelegation`'s
+    // rule throughout: the model is told the real ceiling and can re-plan,
+    // where quietly dropping the third task loses work without saying so.
+    subAgentsEnabled = true
+    subAgentProviders = ['anthropic'] // chosen, then its key was cleared
+    parallelJobs = 2 // the parent holds one; exactly one is free
+    let refusal: string | null = null
+    let accepted = 0
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (refusal === null && io.delegate) {
+        try {
+          await io.delegate(['check auth', 'check parsing', 'check config'])
+        } catch (error) {
+          refusal = error instanceof Error ? error.message : String(error)
+        }
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      if (accepted === 0 && io.delegate) {
+        accepted = ((await io.delegate(['check auth'])) as unknown[]).length
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'local' })
+
+    expect(refusal).toMatch(/1 is the most/)
+    // And the one it is allowed does start, so the ceiling narrowed the
+    // fan-out rather than switching delegation off.
+    expect(accepted).toBe(1)
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children).toHaveLength(1)
+    expect(children[0].provider).toBe('local')
+  })
 })
 
 describe('on the local engine', () => {
