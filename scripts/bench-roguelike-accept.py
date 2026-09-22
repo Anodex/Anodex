@@ -469,15 +469,34 @@ def f15_pickup(engine):
 
 
 def f16_capacity(engine):
+    """The inventory is capped — and there is an inventory to cap.
+
+    The first version asked only whether the carried count stayed at or below
+    twenty-six, which an engine with no inventory system at all satisfies
+    perfectly. It passed on run one, against ninety-seven lines that had never
+    heard of items. A check that a missing feature passes is not a check.
+    """
     game = new_game(engine)
+    picked = 0
     for _ in range(30):
-        for item in list(game.state().get('items', [])):
+        items = game.state().get('items', [])
+        if not items:
+            break
+        moved = False
+        for item in list(items):
             if walk_to(game, item['x'], item['y']):
+                before = len(game.state().get('inventory', []))
                 game.act('pickup')
+                if len(game.state().get('inventory', [])) > before:
+                    picked += 1
+                moved = True
+                break
+        if not moved or game.state().get('game_over'):
+            break
         if len(game.state().get('inventory', [])) >= 26:
             break
-        if not game.state().get('items'):
-            break
+    if picked == 0:
+        return False
     return len(game.state().get('inventory', [])) <= 26
 
 
