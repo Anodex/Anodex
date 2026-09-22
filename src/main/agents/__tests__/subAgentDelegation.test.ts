@@ -58,7 +58,14 @@ function providerSettings(): Record<string, unknown> {
   const block: Record<string, unknown> = { active: 'local' }
   for (const id of ids) {
     block[id] =
-      id === 'deepseek' ? { apiKey: 'sk-test', model: 'deepseek-chat' } : { apiKey: '', model: '' }
+      id === 'deepseek'
+        ? { apiKey: 'sk-test', model: 'deepseek-chat' }
+        : id === 'openai'
+          ? // A second configured provider, so the wrap-around across
+            // *different* vendors can be exercised end to end. Anthropic
+            // stays unconfigured — the stale-provider tests rely on it.
+            { apiKey: 'sk-openai', model: 'gpt-5' }
+          : { apiKey: '', model: '' }
   }
   return block
 }
@@ -516,6 +523,131 @@ describe('where each sub-agent runs', () => {
     const children = runs.filter((run) => run.parentRunId)
     expect(children).toHaveLength(1)
     expect(children[0].provider).toBe('local')
+  })
+})
+
+describe('sub-agents spread across different vendors', () => {
+  it('wraps the provider list and gives each child that vendor’s own model', async () => {
+    // Two providers, three sub-agents: the third wraps back to the first.
+    // Worth an end-to-end case because two things have to agree — which
+    // vendor a slot lands on, and which model id means anything to it. A
+    // model name carried across vendors is a run that cannot start.
+    subAgentsEnabled = true
+    subAgentProviders = ['deepseek', 'openai']
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing', 'check config'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'local' })
+
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children.map((child) => child.provider)).toEqual(['deepseek', 'openai', 'deepseek'])
+    expect(children.map((child) => child.model)).toEqual([
+      'deepseek-chat',
+      'gpt-5',
+      'deepseek-chat'
+    ])
+  })
+})
+
+describe('stopping a delegation', () => {
+  /**
+   * Set up a parent that delegates two tasks, and hand back the signals each
+   * sub-agent is running under. The callback fires inside the first child's
+   * first turn, which is the only moment a delegation is genuinely in flight.
+   */
+  function delegatingRun(whileInFlight: (parentId: string) => void) {
+    const signals = new Map<string, AbortSignal>()
+    let parentId = ''
+    let delegated = false
+    let acted = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) {
+        signals.set(runId, io.signal)
+        if (!acted) {
+          acted = true
+          whileInFlight(parentId)
+        }
+        // A real transport returns from an aborted generation without having
+        // produced anything; the loop reads that as a terminal stop.
+        if (io.signal?.aborted) {
+          return { content: '', stats: { tokens: 0 }, stopped: true, stopReason: 'user' }
+        }
+        return finished(io, 'Checked it', 500)
+      }
+      parentId = runId
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      if (io.signal?.aborted) {
+        return { content: '', stats: { tokens: 0 }, stopped: true, stopReason: 'user' }
+      }
+      return finished(io, 'Done', 100)
+    })
+    return { signals, parentId: () => parentId }
+  }
+
+  it('stops every sub-agent when the parent is stopped', async () => {
+    // The scariest failure an unattended feature can have is work that
+    // carries on after you told it to stop. A parent blocked inside
+    // `delegate` is not the one doing the work — its children are — so
+    // stopping it has to reach them or Stop means nothing here.
+    const { signals } = delegatingRun((parentId) => agentRunService.stop(parentId))
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(signals.size).toBe(2)
+    for (const signal of signals.values()) expect(signal.aborted).toBe(true)
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children.every((child) => child.status === 'stopped')).toBe(true)
+  })
+
+  it('stops one sub-agent without touching its siblings', async () => {
+    // Each child gets its own controller chained to the parent's rather than
+    // sharing it, which is what makes this possible: one branch of an
+    // investigation can be abandoned while the other two carry on.
+    const stopped: string[] = []
+    const { signals } = delegatingRun(() => {
+      const first = runs.find((run) => run.parentRunId)
+      if (!first) return
+      stopped.push(first.id)
+      agentRunService.stop(first.id)
+    })
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(stopped).toHaveLength(1)
+    expect(signals.get(stopped[0])!.aborted).toBe(true)
+    const sibling = runs.find((run) => run.parentRunId && run.id !== stopped[0])!
+    expect(signals.get(sibling.id)!.aborted).toBe(false)
+    expect(sibling.status).toBe('done')
+    // And the parent still finishes: one abandoned branch is a result to
+    // work around, not a reason to lose the run.
+    const parent = runs.find((run) => !run.parentRunId)!
+    expect(parent.status).toBe('done')
+  })
+
+  it('stops every sub-agent on quit', async () => {
+    // `stopAll` aborts the parent, which cascades, and then aborts every
+    // child itself as well. This asserts the outcome rather than which of
+    // the two paths delivered it — either alone would satisfy it, and the
+    // point of the second is that quitting should not depend on the first.
+    const { signals } = delegatingRun(() => agentRunService.stopAll())
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(signals.size).toBe(2)
+    for (const signal of signals.values()) expect(signal.aborted).toBe(true)
   })
 })
 
