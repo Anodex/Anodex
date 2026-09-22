@@ -157,6 +157,17 @@ export const MAX_MAX_DURATION_MINUTES = 240
  */
 export interface AgentRun {
   id: string
+  /**
+   * The run that delegated this one, or absent for a run a person started.
+   *
+   * Sub-runs are ordinary runs in every other respect — their own
+   * conversation, budget and transcript — which is what makes them visible.
+   * A delegated run that only existed inside its parent's tool result would
+   * be exactly the thing nobody can supervise.
+   */
+  parentRunId?: string
+  /** The task this run was delegated, when it has a parent. */
+  delegatedTask?: string
   goal: string
   status: AgentRunStatus
   /** The project this run's tools are scoped to, or null for a plain chat. */

@@ -260,7 +260,16 @@ const RUN_BOOKKEEPING_TOOLS = new Set([
   'load_skill',
   'finish_goal',
   'write_plan',
-  'update_plan_step'
+  'update_plan_step',
+  // How a run organises itself, not something it does to the workspace.
+  //
+  // Without this a read-only review that may delegate stops counting as
+  // look-only, because `delegate` is a `plan` tool rather than a `read` one.
+  // The run is then held to having made a durable change, which it has no
+  // tool to make, so `finish_goal` is refused on the turn it collates its
+  // sub-agents' reports. Measured over 9 delegating runs: 32 refused
+  // `finish_goal` calls against 0 in the solo arms, each one costing a turn.
+  'delegate'
 ])
 
 /**

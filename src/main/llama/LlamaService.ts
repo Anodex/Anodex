@@ -1,3 +1,4 @@
+import type { DelegateCapability } from '@shared/subAgents'
 import type { PromptReadingProgress } from '@shared/chat.types'
 import { contextPerJob, jobsThatFit } from '@shared/contextShare'
 import { app } from 'electron'
@@ -257,6 +258,12 @@ export interface GenerateParams {
     goalRun: boolean
     /** Restricts which tools get registered at all; null = unrestricted (normal chat). */
     enabledTools?: Set<string> | null
+    /**
+     * Lets this run hand parts of its work to sub-agents. Forwarded to
+     * `buildTools`, where its presence is what registers the `delegate`
+     * tool — see `ToolRuntimeContext.delegate`.
+     */
+    delegate?: DelegateCapability
     /** Built-in tools disabled in normal interactive chats. */
     disabledTools: Set<string>
     /** Tools discovered from currently-connected MCP servers (see `ToolRuntimeContext.mcpTools`). */
@@ -2490,6 +2497,7 @@ class LlamaService extends EventEmitter {
       memory: params.tools.memory,
       goalRun: params.tools.goalRun,
       enabledTools: params.tools.enabledTools ?? null,
+      delegate: params.tools.delegate,
       disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,

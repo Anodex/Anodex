@@ -32,7 +32,44 @@ function run(id: string, status: AgentRunStatus): AgentRun {
 
 const anyRunIsNew = (): boolean => true
 
+/** A sub-agent run, as `delegate` creates it. */
+function subRun(id: string, parentRunId: string, status: AgentRunStatus): AgentRun {
+  return { ...run(id, status), parentRunId, delegatedTask: 'check the parser' }
+}
+
 describe('selectAwayRuns', () => {
+  it('does not count a run’s own sub-agents as separate landings', () => {
+    // The user started one run. That it split itself into three is how it
+    // worked, not three more things to be told about — announcing "4 runs
+    // finished while you were away" to someone who started one is wrong
+    // about the only fact the banner states.
+    const landed = selectAwayRuns(
+      [
+        run('parent', 'done'),
+        subRun('child-a', 'parent', 'done'),
+        subRun('child-b', 'parent', 'done'),
+        subRun('child-c', 'parent', 'error')
+      ],
+      anyRunIsNew
+    )
+
+    expect(landed).toEqual([])
+  })
+
+  it('still announces two real runs that each happened to delegate', () => {
+    const landed = selectAwayRuns(
+      [
+        run('one', 'done'),
+        subRun('one-a', 'one', 'done'),
+        run('two', 'done'),
+        subRun('two-a', 'two', 'done')
+      ],
+      anyRunIsNew
+    )
+
+    expect(landed.map((entry) => entry.id)).toEqual(['one', 'two'])
+  })
+
   it('announces nothing for a single landing — that is just a run finishing', () => {
     expect(selectAwayRuns([run('a', 'done')], anyRunIsNew)).toEqual([])
   })

@@ -42,6 +42,25 @@ export class TaskLedger {
   readonly evidence: TurnEvidenceStore = createTurnEvidenceStore()
   private readonly loopGuard: LoopGuardState = createLoopGuardState()
   /** Settled gathering calls since the last durable change — see `GATHERING_*`. */
+  /**
+   * Whether this run has any tool that could make a durable change.
+   *
+   * False for a review, an audit, an investigation — anything given only
+   * read tools. The gathering rungs below are meaningless for such a run and
+   * actively harmful: `gatheringStreak` only resets on a durable change, so
+   * a run that cannot make one can never reset it, and every read counts
+   * toward a ceiling it will certainly hit. Measured on a read-only bug hunt:
+   * three runs in a row made exactly 34 gathering calls, had every further
+   * call refused, and were killed by the refusal guard while still working.
+   * The advice they were given — "make the edit, run the command" — named
+   * actions they had no tool to take.
+   */
+  private readonly canMutate: boolean
+
+  constructor(options: { canMutate?: boolean } = {}) {
+    this.canMutate = options.canMutate ?? true
+  }
+
   private gatheringStreak = 0
   /** Whether the last reviewed call was safe to repeat - see `noteContextEpoch`. */
   private lastCallWasRereadable = false
@@ -129,6 +148,11 @@ export class TaskLedger {
    */
   private reviewGathering(kind: ToolKind): LedgerVerdict | null {
     if (!GATHERING_KINDS.has(kind)) return null
+    // A run that cannot change anything is not stalling by only looking —
+    // looking is the whole job, and the answer is the concrete action. The
+    // loop guard still covers the real failure here, which is re-reading the
+    // same thing forever; that one does not need a write to reset.
+    if (!this.canMutate) return null
     // An edit just failed because the file does not say what the model thought,
     // so this read is the repair, not more of the same. Spent immediately so a
     // failing edit buys one look and not an amnesty.
@@ -295,6 +319,6 @@ export type LedgerVerdict =
   /** A loop that survived being refused: end the generation. */
   | { action: 'abort'; message: string; detail: string }
 
-export function createTaskLedger(): TaskLedger {
-  return new TaskLedger()
+export function createTaskLedger(options: { canMutate?: boolean } = {}): TaskLedger {
+  return new TaskLedger(options)
 }

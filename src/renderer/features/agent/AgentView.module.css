@@ -623,3 +623,71 @@
 .runCard:focus-within .runId {
   opacity: 1;
 }
+
+/* A run and the sub-agents it delegated, as one block in the list. The group
+   itself carries no border — the indent and the rail do the work, and a
+   second box around cards that already have one reads as a nested panel. */
+.runGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* The rail is what says "these belong to the run above" without a line of
+   text saying so. It sits in the gutter the indent opens up, so it reads as a
+   branch rather than as a border on the cards.
+
+   Deliberately no background change on the cards themselves: the one token
+   that would have quietened them, --bg-surface-2, is a step *up* in elevation
+   in both the dark and light themes, so it would have made a sub-agent louder
+   than the run that sent it. Structure separates them instead, which behaves
+   the same under every theme. */
+.subRuns {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-left: var(--space-5);
+}
+
+.subRuns::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-3) * -1);
+  width: 1px;
+  background: var(--border);
+  content: '';
+}
+
+.subRunTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.subAgentCount {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}
+
+/* Each sub-agent's own colour — see the same block in
+   AgentRunConversation.module.css for why these three. */
+.identity-0 {
+  color: var(--series-1);
+}
+
+.identity-1 {
+  color: var(--accent);
+}
+
+.identity-2 {
+  color: var(--series-4);
+}

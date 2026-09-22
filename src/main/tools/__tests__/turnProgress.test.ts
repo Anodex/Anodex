@@ -138,3 +138,38 @@ describe('canOnlyLook', () => {
     expect(canOnlyLook(new Set(['finish_goal']), kindOf)).toBe(false)
   })
 })
+
+/**
+ * A read-only run that may delegate is still a read-only run.
+ *
+ * `delegate` is a `plan` tool, so without an exemption its presence flips
+ * `canOnlyLook` to false and the run is held to having made a durable change
+ * — which it has no tool to make. The visible symptom is `finish_goal` being
+ * refused on the very turn the parent collates its sub-agents' reports:
+ * measured over nine delegating runs, 32 refusals against zero in the solo
+ * arms, each costing a turn and a round of tokens.
+ */
+describe('canOnlyLook with delegation', () => {
+  const KINDS: Record<string, ToolKind> = {
+    read_file: 'read',
+    search_files: 'read',
+    write_file: 'write',
+    delegate: 'plan'
+  }
+  const kindOf = (name: string): ToolKind | undefined => KINDS[name]
+
+  it('stays look-only when the only extra tool is delegate', () => {
+    const tools = new Set(['read_file', 'search_files', 'finish_goal', 'delegate'])
+    expect(canOnlyLook(tools, kindOf)).toBe(true)
+  })
+
+  it('is unchanged for a run that really can write', () => {
+    const tools = new Set(['read_file', 'write_file', 'delegate'])
+    expect(canOnlyLook(tools, kindOf)).toBe(false)
+  })
+
+  it('still requires at least one real tool', () => {
+    // Bookkeeping alone is not a run that can look at anything.
+    expect(canOnlyLook(new Set(['finish_goal', 'delegate']), kindOf)).toBe(false)
+  })
+})

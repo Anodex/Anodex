@@ -441,12 +441,44 @@ Key capabilities:
 - Track tokens, turns, provider, last result, and errors.
 - Flag suspected fabrication.
 - Show periodic check-in notifications during longer runs.
+- Optionally let a run split its goal across sub-agents that work at the same
+  time and report back (off by default, in Settings to Tools to Sub-agents).
+  Each sub-agent can be pointed at its own provider, so a local run can send
+  its work to a cloud model — or the reverse.
+- The ceiling follows the engine's real capacity. Local sub-agents need a
+  generation slot, and a local parent holds one for the whole of its turn, so
+  at the default of one parallel job a local run can start no local
+  sub-agents. Sub-agents on a cloud provider need no slot at all, which is
+  what makes delegation work on a single-GPU machine. Each sub-agent is a real run with its own transcript, nested under the
+  run that sent it, and can be stopped on its own. Each one is named after what
+  it was sent to do (falling back to Alpha, Bravo, Charlie when that would not
+  be useful) and carries a mark of its own — a hub wired to three, four or five
+  nodes — beside the run's title, on its card, and at the head of its section in
+  the report. The nodes light in turn while that sub-agent is working and stop
+  when it stops.
 
 Why it is good:
 
 - Some tasks require more than one chat turn. Agent runs give Anodex a controlled
   way to continue working toward a goal while keeping budgets, tools, and plan
   approval visible.
+- Measured rather than assumed. On a bug-hunt benchmark of twelve planted
+  defects, one sub-agent on a cloud provider found all twelve in the same
+  wall-clock as using none, for a few thousand metered tokens. Two and three
+  found no more and cost four to seven times as much, because each re-reads
+  the whole workspace. Sub-agents entirely on the local engine were three to
+  four times slower with no gain, because roughly three-quarters of a
+  delegating run is the parent writing briefs and merging reports, which is
+  serial however many agents there are.
+- Some goals are one question asked of several places at once, like "find the
+  bugs in this code". A single run walks the whole codebase in one sequence and
+  spends its entire context on the walk; three sub-agents each read a slice with
+  a fresh context. The work divides, and so does the context pressure, which is
+  what actually limits a local run.
+- Delegation cannot quietly cost more: sub-agents divide what is left of the
+  parent's turn and token budget rather than each receiving a fresh one, their
+  spending is charged back to it, and none of them can use a tool the parent did
+  not have or delegate any further itself.
 
 ## Scheduled Tasks
 

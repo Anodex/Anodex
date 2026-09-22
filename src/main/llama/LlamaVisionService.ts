@@ -1370,6 +1370,9 @@ export class LlamaVisionService {
       memory: params.tools.memory,
       goalRun: params.tools.goalRun,
       enabledTools: params.tools.enabledTools ?? null,
+      // Its presence is what registers the `delegate` tool, so a transport
+      // that drops it silently turns sub-agents off for that provider.
+      delegate: params.tools.delegate,
       disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,

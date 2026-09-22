@@ -50,6 +50,7 @@ import {
   listChangesTool
 } from './changeTools'
 import { finishGoalTool } from './agentTools'
+import { delegateTool } from './delegateTool'
 import { buildMcpToolFunction } from './mcpTools'
 import { deleteScheduledTaskTool, scheduleTaskTool } from './schedulerTools'
 import { anodexStatusTool } from './anodexStatusTool'
@@ -308,6 +309,15 @@ export function buildTools(
   // would mean listing every tool by name and quietly dropping new ones.
   if ((ctx.goalRun || ctx.enabledTools !== null) && isEnabled('finish_goal')) {
     tools.finish_goal = finishGoalTool(define, ctx)
+  }
+
+  // delegate exists only where someone is prepared to run sub-agents on this
+  // run's behalf. `AgentRunService` supplies `ctx.delegate` exactly when the
+  // setting is on and this run is not itself a sub-run, so the capability
+  // being present *is* the permission — a chat turn and a delegated run both
+  // simply never see the tool, and one level of fan-out cannot recurse.
+  if (ctx.delegate && isEnabled('delegate')) {
+    tools.delegate = delegateTool(define, ctx)
   }
 
   // MCP tools are workspace-independent, like web tools — a connected server

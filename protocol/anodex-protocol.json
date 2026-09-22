@@ -9370,6 +9370,34 @@
             "kind": "string"
           }
         },
+        "parentRunId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "delegatedTask": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
         "goal": {
           "optional": false,
           "type": {
@@ -9696,6 +9724,26 @@
           "optional": false,
           "type": {
             "kind": "string"
+          }
+        }
+      }
+    },
+    "AgentSettings": {
+      "kind": "object",
+      "properties": {
+        "subAgentsEnabled": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "subAgentProviders": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "kind": "string"
+            }
           }
         }
       }
@@ -10192,6 +10240,12 @@
           "optional": false,
           "type": {
             "$ref": "SpendingSettings"
+          }
+        },
+        "agents": {
+          "optional": false,
+          "type": {
+            "$ref": "AgentSettings"
           }
         }
       }

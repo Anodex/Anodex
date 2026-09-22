@@ -566,3 +566,54 @@ describe('a stale view buys back one read', () => {
     expect(look(ledger, 'repair.js').action).toBe('run')
   })
 })
+
+/**
+ * A run that cannot change anything cannot satisfy the gathering guard.
+ *
+ * `gatheringStreak` only resets on a durable change, so a review, an audit or
+ * an investigation — anything given read tools alone — can only ever climb
+ * toward the ceiling. Measured on a read-only bug hunt: three runs in a row
+ * made exactly 34 gathering calls, had every further call refused, and were
+ * killed by the refusal guard mid-review. The advice they were handed told
+ * them to make an edit or run a command, with no tool to do either.
+ */
+describe('a read-only run and the gathering ceiling', () => {
+  function readCall(
+    ledger: ReturnType<typeof createTaskLedger>,
+    index: number
+  ): ReturnType<ReturnType<typeof createTaskLedger>['reviewCall']> {
+    const verdict = ledger.reviewCall({ name: 'read_file', kind: 'read', key: `file-${index}` })
+    ledger.recordOutcome({ kind: 'read', madeProgress: true })
+    return verdict
+  }
+
+  it('never blocks a run with no way to make a durable change', () => {
+    const ledger = createTaskLedger({ canMutate: false })
+    // Well past the hard limit, each call reading something different.
+    for (let index = 0; index < GATHERING_HARD_LIMIT * 2; index++) {
+      expect(readCall(ledger, index).action).toBe('run')
+    }
+    expect(ledger.blockedGathering).toBe(0)
+  })
+
+  it('still blocks a run that could have acted and did not', () => {
+    // The guard's whole purpose, unchanged: this run had the tools.
+    const ledger = createTaskLedger({ canMutate: true })
+    let blocked = 0
+    for (let index = 0; index < GATHERING_HARD_LIMIT * 2; index++) {
+      if (readCall(ledger, index).action === 'block') blocked++
+    }
+    expect(blocked).toBeGreaterThan(0)
+  })
+
+  it('treats a run as able to act unless told otherwise', () => {
+    // Every existing caller passes nothing, and chat can always act.
+    expect(createTaskLedger()).toBeDefined()
+    const ledger = createTaskLedger()
+    let blocked = 0
+    for (let index = 0; index < GATHERING_HARD_LIMIT * 2; index++) {
+      if (readCall(ledger, index).action === 'block') blocked++
+    }
+    expect(blocked).toBeGreaterThan(0)
+  })
+})

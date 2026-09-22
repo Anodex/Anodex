@@ -57,7 +57,8 @@ vi.mock('../../settings/SettingsStore', () => ({
   settingsStore: {
     get: () => ({
       general: { permissionMode: 'ask' },
-      generation: { turnTimeLimitMinutes: 0 }
+      generation: { turnTimeLimitMinutes: 0 },
+      agents: { subAgentsEnabled: false }
     })
   }
 }))
