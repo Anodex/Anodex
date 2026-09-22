@@ -618,9 +618,6 @@ export function AgentView(): JSX.Element {
         {keepGoingRun && (
           <KeepGoingDialog run={keepGoingRun} onClose={() => setKeepGoingId(null)} />
         )}
-        {keepGoingRun && (
-          <KeepGoingDialog run={keepGoingRun} onClose={() => setKeepGoingId(null)} />
-        )}
       </div>
     )
   }
@@ -751,6 +748,7 @@ export function AgentView(): JSX.Element {
       </div>
 
       {editor}
+      {keepGoingRun && <KeepGoingDialog run={keepGoingRun} onClose={() => setKeepGoingId(null)} />}
     </div>
   )
 }
