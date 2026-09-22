@@ -54,9 +54,40 @@ export const MAX_SUB_AGENTS = 3
  * A cloud provider has no such gate: its calls are HTTP and genuinely
  * concurrent, so the only ceiling there is {@link MAX_SUB_AGENTS}.
  */
-export function maxSubAgentsFor(provider: string, parallelJobs: number): number {
-  if (provider !== 'local') return MAX_SUB_AGENTS
+export function maxSubAgentsFor(
+  provider: string,
+  parallelJobs: number,
+  /**
+   * Where the sub-agents themselves will run. Empty means they inherit the
+   * parent's provider — see {@link subAgentProviderFor}.
+   */
+  childProviders: readonly string[] = []
+): number {
+  // Children elsewhere never touch the local gate, so a local parent can
+  // delegate as widely as the product allows. This is the configuration that
+  // makes the feature usable on a single-GPU machine at all: the parent holds
+  // the one local slot, its sub-agents are HTTP calls, and nothing contends.
+  const anyChildIsLocal =
+    childProviders.length === 0 ? provider === 'local' : childProviders.includes('local')
+  if (!anyChildIsLocal) return MAX_SUB_AGENTS
+  // At least one child needs the same gate the parent is holding.
   return Math.max(0, Math.min(MAX_SUB_AGENTS, Math.floor(parallelJobs) - 1))
+}
+
+/**
+ * Which provider the sub-agent at this position runs on.
+ *
+ * Wraps rather than running out: a two-entry list and a three-way fan-out
+ * gives the third agent the first provider again, which is a better answer
+ * than refusing the delegation or silently dropping a task.
+ */
+export function subAgentProviderFor(
+  index: number,
+  childProviders: readonly string[],
+  parentProvider: string
+): string {
+  if (childProviders.length === 0) return parentProvider
+  return childProviders[index % childProviders.length]
 }
 
 /** Longest a single delegated task description may be, in characters. */

@@ -218,7 +218,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       stopAtDailyCap: false
     },
     agents: {
-      subAgentsEnabled: false
+      subAgentsEnabled: false,
+      // Empty: inherit the run's own provider, as before.
+      subAgentProviders: []
     }
   }
 }

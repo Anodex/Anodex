@@ -3,6 +3,7 @@ import {
   MAX_SUB_AGENTS,
   MAX_TASK_LENGTH,
   maxSubAgentsFor,
+  subAgentProviderFor,
   renderReports,
   splitRunBudget,
   subAgentName,
@@ -83,6 +84,46 @@ describe('maxSubAgentsFor', () => {
     expect(maxSubAgentsFor('local', 0)).toBe(0)
     expect(maxSubAgentsFor('local', -3)).toBe(0)
     expect(maxSubAgentsFor('local', 2.9)).toBe(1)
+  })
+})
+
+describe('sub-agents on other providers', () => {
+  it('lifts the local ceiling when the children run elsewhere', () => {
+    // The gate only serialises local generation. A local parent holding the
+    // one slot while its sub-agents talk to a cloud provider over HTTP has
+    // nothing to contend with — which is the configuration that makes this
+    // usable on a single-GPU machine at all.
+    expect(maxSubAgentsFor('local', 1, ['deepseek'])).toBe(MAX_SUB_AGENTS)
+    expect(maxSubAgentsFor('local', 1, ['deepseek', 'anthropic', 'openai'])).toBe(MAX_SUB_AGENTS)
+  })
+
+  it('still applies the gate when any child is local', () => {
+    // One local child is enough to need a slot the parent is holding.
+    expect(maxSubAgentsFor('local', 1, ['deepseek', 'local'])).toBe(0)
+    expect(maxSubAgentsFor('local', 3, ['local', 'deepseek'])).toBe(2)
+  })
+
+  it('falls back to the parent when no providers are configured', () => {
+    expect(maxSubAgentsFor('local', 1, [])).toBe(0)
+    expect(maxSubAgentsFor('deepseek', 1, [])).toBe(MAX_SUB_AGENTS)
+  })
+})
+
+describe('subAgentProviderFor', () => {
+  it('inherits the parent when nothing is configured', () => {
+    expect(subAgentProviderFor(0, [], 'local')).toBe('local')
+    expect(subAgentProviderFor(2, [], 'deepseek')).toBe('deepseek')
+  })
+
+  it('gives each sub-agent its own provider, in order', () => {
+    const providers = ['deepseek', 'anthropic', 'openai']
+    expect([0, 1, 2].map((i) => subAgentProviderFor(i, providers, 'local'))).toEqual(providers)
+  })
+
+  it('wraps rather than running out', () => {
+    // A two-entry list and a three-way fan-out is a better answer than
+    // refusing the delegation or silently dropping a task.
+    expect(subAgentProviderFor(2, ['deepseek', 'anthropic'], 'local')).toBe('deepseek')
   })
 })
 

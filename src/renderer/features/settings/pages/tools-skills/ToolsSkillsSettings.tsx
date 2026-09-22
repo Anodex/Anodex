@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../../../stores/settingsStore'
 import { useMcpStore } from '../../../../stores/mcpStore'
 import { StatusDot, type StatusTone } from '../../../../components/ui/StatusDot'
 import { SettingRow } from '../../SettingRow'
+import { SubAgentSettings } from './SubAgentSettings'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
 import { VisualPreviewStorage } from './VisualPreviewStorage'
 import pageStyles from '../../SettingsPage.module.css'
@@ -169,27 +170,7 @@ export function ToolsSkillsSettings(): JSX.Element {
         />
       </section>
 
-      <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Agent runs</h2>
-        <p className={pageStyles.sectionDesc}>
-          How a goal-directed run in the Agent workbench is allowed to organise its own work.
-        </p>
-        <SettingRow
-          label="Let a run use sub-agents"
-          description={
-            settings.agents.subAgentsEnabled
-              ? 'A run can split a goal across smaller agents that work at the same time and report back — useful when a goal divides into independent parts, like searching different areas of a codebase. They appear under the run that sent them, share its budget rather than adding to it, and can never use a tool it did not have. A cloud run may start up to three. A local run may start one fewer than its Parallel jobs setting, because the run itself occupies one of them — at the default of 1 that means none.'
-              : 'A run does all of its own work in one sequence. Turn this on to let it split a goal across smaller agents that work at the same time and report back. A local run needs Parallel jobs above 1 for this to do anything, because the run itself occupies one slot.'
-          }
-          control={
-            <ToggleControl
-              checked={settings.agents.subAgentsEnabled}
-              ariaLabel="Let an agent run delegate work to sub-agents"
-              onChange={(value) => void update({ agents: { subAgentsEnabled: value } })}
-            />
-          }
-        />
-      </section>
+      <SubAgentSettings settings={settings} update={update} />
 
       <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Assistant tools</h2>

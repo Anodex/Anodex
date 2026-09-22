@@ -45,6 +45,7 @@ import { createTaskLedger, type TaskLedger } from '../tools/taskLedger'
 import {
   maxSubAgentsFor,
   splitRunBudget,
+  subAgentProviderFor,
   subAgentTools,
   validateDelegation,
   type SubAgentBudget,
@@ -1187,7 +1188,12 @@ class AgentRunService {
     // Defaulted rather than assumed present: this is read on every run's
     // first turn, and a settings shape missing the group would otherwise
     // throw there — turning "no sub-agents" into "the run failed".
-    return maxSubAgentsFor(run.provider, settingsStore.get().model?.parallelJobs ?? 1)
+    const settings = settingsStore.get()
+    return maxSubAgentsFor(
+      run.provider,
+      settings.model?.parallelJobs ?? 1,
+      settings.agents?.subAgentProviders ?? []
+    )
   }
 
   /**
@@ -1218,16 +1224,32 @@ class AgentRunService {
     signal: AbortSignal
   ): Promise<{ reports: SubAgentReport[]; tokens: number }> {
     const tools = subAgentTools(parent.enabledTools)
-    log.info('Agent run delegating to', tasks.length, 'sub-agent(s):', parent.id)
+    const childProviders = settingsStore.get().agents?.subAgentProviders ?? []
+    log.info(
+      'Agent run delegating to',
+      tasks.length,
+      'sub-agent(s):',
+      parent.id,
+      childProviders.length > 0 ? `on ${childProviders.join(', ')}` : '(inheriting provider)'
+    )
 
-    const started = tasks.map((task) => {
+    const started = tasks.map((task, index) => {
+      // Each sub-agent may run somewhere else entirely — see
+      // `AgentSettings.subAgentProviders`. A model id only means anything to
+      // the provider it belongs to, so it is carried over only when the child
+      // stays where its parent is.
+      const provider = subAgentProviderFor(
+        index,
+        childProviders,
+        parent.provider
+      ) as AgentRun['provider']
       const child = agentRunStore.create(
         {
           goal: task,
           projectId: parent.projectId,
           enabledTools: tools,
-          provider: parent.provider,
-          model: parent.model,
+          provider,
+          model: provider === parent.provider ? parent.model : undefined,
           maxTurns: budget.maxTurns,
           maxTokens: budget.maxTokens,
           maxDurationMinutes: budget.maxDurationMinutes,
