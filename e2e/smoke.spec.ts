@@ -862,7 +862,7 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    await window.getByRole('button', { name: /^Agent/ }).click()
 
     // Two runs in one series, so the cards say where each sits.
     await expect(window.getByText('run 2 of 2')).toBeVisible()
@@ -881,6 +881,167 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
 
     await toggle.click()
     await expect(window.getByText(/Bought two shares of NOVA/)).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('a scheduled continuation starts the next run of the same work', async () => {
+  // Startup plus a scheduler round trip does not fit the default budget.
+  test.setTimeout(90_000)
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-continuation-e2e-'))
+  const now = Date.now()
+
+  const finished = {
+    id: 'series-root',
+    seriesId: 'series-root',
+    goal: 'Keep the changelog up to date',
+    status: 'done',
+    projectId: null,
+    enabledTools: ['read_file'],
+    provider: 'local' as const,
+    model: null,
+    maxTurns: 8,
+    turnsUsed: 3,
+    flaggedTurns: 0,
+    maxTokens: 50_000,
+    tokensUsed: 900,
+    maxDurationMinutes: 30,
+    activeMs: 45_000,
+    activeSinceAt: null,
+    limitsEnabled: true,
+    conversationId: null,
+    summary: 'Added the first entry.',
+    lastError: null,
+    requirePlan: false,
+    plan: null,
+    createdAt: now - 60_000,
+    updatedAt: now - 60_000
+  }
+  await mkdir(join(userDataDir, 'agent-runs'), { recursive: true })
+  await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
+
+  // A schedule that continues that work. Written to disk rather than created
+  // through the dialog, so this tests the half the dialog hands over to —
+  // whether `continuesSeriesId` survives a round trip through the store.
+  const task = {
+    id: 'task-continue',
+    name: 'Keep the changelog up to date',
+    prompt: '',
+    projectId: null,
+    recurrence: { type: 'daily', hour: 9, minute: 0 },
+    enabledTools: [],
+    enabled: true,
+    conversationId: null,
+    createdAt: now,
+    updatedAt: now,
+    nextRunAt: now + 86_400_000,
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastRunSummary: null,
+    runs: [],
+    runCount: 0,
+    continuesSeriesId: 'series-root'
+  }
+  await mkdir(join(userDataDir, 'scheduled-tasks'), { recursive: true })
+  await writeFile(
+    join(userDataDir, 'scheduled-tasks', 'tasks.json'),
+    JSON.stringify([task]),
+    'utf-8'
+  )
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+
+    // Fire it now rather than waiting for the tick — the schedule's timing is
+    // the Scheduler's own, long-tested behaviour; what is new is what happens
+    // when a continuation task runs.
+    await window.getByRole('button', { name: 'Scheduler', exact: true }).click()
+    await window.getByRole('button', { name: 'Run now' }).first().click()
+
+    // Not an exact match: the sidebar item's accessible name gains a count
+    // once a run is going (`Agent, 1 notification`), and a run going is
+    // exactly what this test just caused.
+    await window.getByRole('button', { name: /^Agent/ }).click()
+
+    // Two runs of one series: the seeded one, and the one the schedule just
+    // started. The mark only appears on series with more than one run, so its
+    // presence is the assertion.
+    await expect(window.getByText('run 2 of 2')).toBeVisible({ timeout: 20_000 })
+
+    // And the new run carries the goal forward rather than inventing one.
+    await expect(window.getByText('Keep the changelog up to date').first()).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('a finished run can be put on a schedule from the run list', async () => {
+  test.setTimeout(90_000)
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-keepgoing-e2e-'))
+  const now = Date.now()
+
+  const finished = {
+    id: 'keep-going-root',
+    seriesId: 'keep-going-root',
+    goal: 'Keep the changelog up to date',
+    status: 'done',
+    projectId: null,
+    enabledTools: ['read_file'],
+    provider: 'local' as const,
+    model: null,
+    maxTurns: 8,
+    turnsUsed: 3,
+    flaggedTurns: 0,
+    maxTokens: 50_000,
+    tokensUsed: 900,
+    maxDurationMinutes: 30,
+    activeMs: 45_000,
+    activeSinceAt: null,
+    limitsEnabled: true,
+    conversationId: null,
+    summary: 'Added the first entry.',
+    lastError: null,
+    requirePlan: false,
+    plan: null,
+    createdAt: now,
+    updatedAt: now
+  }
+  await mkdir(join(userDataDir, 'agent-runs'), { recursive: true })
+  await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+    await window.getByRole('button', { name: /^Agent/ }).click()
+
+    await window.getByRole('button', { name: 'Keep this work going on a schedule' }).click()
+
+    // The dialog names the work being committed to — an unattended schedule
+    // is the last place to leave someone guessing which goal they just signed
+    // up for.
+    const dialog = window.getByRole('dialog', { name: 'Keep this work going' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Keep the changelog up to date')).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Schedule it' }).click()
+    await expect(dialog).toBeHidden()
+
+    // It lands in the Scheduler, which is the whole point of reusing it:
+    // one place to look for what this machine will do on its own.
+    await window.getByRole('button', { name: /^Scheduler/ }).click()
+    await expect(window.getByText('Keep the changelog up to date').first()).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
