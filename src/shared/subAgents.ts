@@ -63,25 +63,24 @@ export function maxSubAgentsFor(
    */
   childProviders: readonly string[] = []
 ): number {
-  // Children elsewhere never touch the local gate, so a local parent can
-  // delegate as widely as the product allows. This is the configuration that
-  // makes the feature usable on a single-GPU machine at all: the parent holds
-  // the one local slot, its sub-agents are HTTP calls, and nothing contends.
-  const anyChildIsLocal =
-    childProviders.length === 0 ? provider === 'local' : childProviders.includes('local')
-  if (!anyChildIsLocal) return MAX_SUB_AGENTS
+  // Only a parent that is itself local withholds a slot. The deadlock was
+  // never about being local — it was about the parent holding the very slot
+  // its children need while it waits for them.
+  const free = Math.floor(parallelJobs) - (provider === 'local' ? 1 : 0)
 
-  // A slot is only withheld by a parent that is itself local. The deadlock
-  // was never about being local — it was about the parent holding the very
-  // slot its children need while it waits for them. A parent on a cloud
-  // provider holds nothing, so local children may use every slot there is.
-  //
-  // Getting this wrong in the safe-looking direction still costs something
-  // real: subtracting unconditionally refuses a DeepSeek parent with a local
-  // sub-agent on a single-slot machine, which is a configuration that works
-  // perfectly well.
-  const heldByParent = provider === 'local' ? 1 : 0
-  return Math.max(0, Math.min(MAX_SUB_AGENTS, Math.floor(parallelJobs) - heldByParent))
+  // Count the children that actually need a local slot, rather than assuming
+  // every child does the moment one of them might. Enumerating the whole
+  // provider matrix, the assumption refused nine valid configurations — a
+  // local parent with one cloud child and one local child on two slots among
+  // them — while preventing no deadlock that this does not also prevent.
+  for (let count = MAX_SUB_AGENTS; count >= 1; count--) {
+    let localChildren = 0
+    for (let index = 0; index < count; index++) {
+      if (subAgentProviderFor(index, childProviders, provider) === 'local') localChildren++
+    }
+    if (localChildren <= free) return count
+  }
+  return 0
 }
 
 /**

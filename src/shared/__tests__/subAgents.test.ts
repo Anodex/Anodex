@@ -97,10 +97,22 @@ describe('sub-agents on other providers', () => {
     expect(maxSubAgentsFor('local', 1, ['deepseek', 'anthropic', 'openai'])).toBe(MAX_SUB_AGENTS)
   })
 
-  it('still applies the gate when any child is local', () => {
-    // One local child is enough to need a slot the parent is holding.
-    expect(maxSubAgentsFor('local', 1, ['deepseek', 'local'])).toBe(0)
-    expect(maxSubAgentsFor('local', 3, ['local', 'deepseek'])).toBe(2)
+  it('counts the children that really need a slot, not the ones that might', () => {
+    // A local parent on one slot has none free, but a single DeepSeek child
+    // does not want one — so the fan-out of one is fine. Assuming every
+    // child is local the moment any of them is refused nine valid
+    // configurations across the whole provider matrix.
+    expect(maxSubAgentsFor('local', 1, ['deepseek', 'local'])).toBe(1)
+    // Three slots, parent holds one, two free; the wrap gives local, cloud,
+    // local — two local children, which is exactly what is free.
+    expect(maxSubAgentsFor('local', 3, ['local', 'deepseek'])).toBe(3)
+  })
+
+  it('still refuses when a child would want the slot the parent holds', () => {
+    expect(maxSubAgentsFor('local', 1, ['local'])).toBe(0)
+    expect(maxSubAgentsFor('local', 1, [])).toBe(0)
+    // Two slots, parent holds one, and every child is local: only one fits.
+    expect(maxSubAgentsFor('local', 2, ['local'])).toBe(1)
   })
 
   it('withholds a slot only for a parent that is itself local', () => {

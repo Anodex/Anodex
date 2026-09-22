@@ -62,6 +62,7 @@ if (parents.length === 0) {
 const armById = recordedArms()
 const scored = parents.map((run) => {
   const children = all.filter((other) => other.parentRunId === run.id)
+  const childTokens = children.reduce((sum, child) => sum + (child.tokensUsed ?? 0), 0)
   const hits = scoreReport([run, ...children].map(runText).join('\n'))
   return {
     arm: armById.get(run.id) ?? armOf(run),
@@ -92,6 +93,17 @@ const scored = parents.map((run) => {
       { reads: 0, refused: 0 }
     ),
     seconds: Math.round((run.activeMs ?? 0) / 1000),
+    // Tokens someone is billed for, as distinct from free local ones. A
+    // run's total hides which kind it spent, and that is the difference
+    // between configurations: a cloud parent with a local child and a
+    // local parent with a cloud child both score 12/12 and differ by
+    // 3.7x in what they cost.
+    metered:
+      (run.provider === 'local' ? 0 : (run.tokensUsed ?? 0) - childTokens) +
+      children.reduce(
+        (sum, child) => sum + (child.provider === 'local' ? 0 : (child.tokensUsed ?? 0)),
+        0
+      ),
     // Why it ended, condensed — an arm that keeps hitting one guard is a
     // finding about the guard, not about sub-agents.
     ended: /every tool call was refused/i.test(run.lastError ?? '')
@@ -116,7 +128,8 @@ const ARMS = [
   'cloud-3',
   'flip-1',
   'flip-2',
-  'flip-3'
+  'flip-3',
+  'both-cloud-1'
 ]
 const groups = ARMS.map((arm) => ({ arm, runs: scored.filter((run) => run.arm === arm) })).filter(
   (group) => group.runs.length > 0
@@ -135,6 +148,7 @@ const header = [
   'reads',
   'refused',
   'tokens',
+  'metered',
   'sec',
   'subAgents'
 ]
@@ -153,6 +167,7 @@ for (const { arm, runs } of groups) {
       round(mean(runs.map((run) => run.reads))),
       round(mean(runs.map((run) => run.refused))),
       Math.round(mean(runs.map((run) => run.tokens))),
+      Math.round(mean(runs.map((run) => run.metered))),
       Math.round(mean(runs.map((run) => run.seconds))),
       round(mean(runs.map((run) => run.subAgents)))
     ])

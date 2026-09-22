@@ -32,6 +32,36 @@ const broadcastToWindows = vi.fn<(...args: unknown[]) => void>()
 let subAgentsEnabled = true
 /** Generation slots the local engine has; the parent occupies one. */
 let parallelJobs = 1
+/** Where each sub-agent runs; empty means it inherits the parent's provider. */
+let subAgentProviders: string[] = []
+
+/**
+ * A complete provider block, because `agentRunProviderOptions` asks every
+ * provider whether it is configured and a missing group throws. Only
+ * DeepSeek has a key, so it is the only cloud provider a sub-agent can
+ * actually be sent to — which is what the stale-provider test relies on.
+ */
+function providerSettings(): Record<string, unknown> {
+  const ids = [
+    'anthropic',
+    'openai',
+    'google',
+    'xai',
+    'deepseek',
+    'mistral',
+    'groq',
+    'openrouter',
+    'azure',
+    'kimi',
+    'qwen'
+  ]
+  const block: Record<string, unknown> = { active: 'local' }
+  for (const id of ids) {
+    block[id] =
+      id === 'deepseek' ? { apiKey: 'sk-test', model: 'deepseek-chat' } : { apiKey: '', model: '' }
+  }
+  return block
+}
 
 /** Every run the service created, in creation order. */
 let runs: AgentRun[] = []
@@ -136,7 +166,8 @@ vi.mock('../../settings/SettingsStore', () => ({
       // The local ceiling is parallelJobs - 1, so this decides whether a
       // local run may delegate at all. Cloud runs ignore it.
       model: { parallelJobs },
-      agents: { subAgentsEnabled }
+      provider: providerSettings(),
+      agents: { subAgentsEnabled, subAgentProviders }
     })
   }
 }))
@@ -198,6 +229,7 @@ beforeEach(() => {
   runOfConversation.clear()
   subAgentsEnabled = true
   parallelJobs = 1
+  subAgentProviders = []
   runGeneration.mockReset()
   notifyUser.mockReset()
   broadcastToWindows.mockReset()
@@ -381,6 +413,57 @@ describe('a run that delegates', () => {
     // "the sub-agents found nothing".
     expect(refusal).toMatch(/not enough turns/i)
     expect(runs.filter((run) => run.parentRunId)).toHaveLength(0)
+  })
+})
+
+describe('where each sub-agent runs', () => {
+  it('starts each child on its configured provider', () => {
+    subAgentsEnabled = true
+    subAgentProviders = ['deepseek']
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+    return startAndSettle({ provider: 'local' }).then(() => {
+      const child = runs.find((run) => run.parentRunId)
+      expect(child?.provider).toBe('deepseek')
+      // The provider's own configured model, not the parent's and not null:
+      // a run with neither a model nor provenance has no record of what
+      // produced its findings.
+      expect(child?.model).toBe('deepseek-chat')
+    })
+  })
+
+  it('ignores a provider whose key has since been removed', () => {
+    // Chosen while configured, then the key was cleared. Starting a child
+    // there would create a run that occupies a slot and cannot generate.
+    subAgentsEnabled = true
+    subAgentProviders = ['anthropic']
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+    return startAndSettle({ provider: 'deepseek' }).then(() => {
+      const child = runs.find((run) => run.parentRunId)
+      // Falls back to the parent rather than failing.
+      expect(child?.provider).toBe('deepseek')
+    })
   })
 })
 

@@ -53,6 +53,7 @@ import {
   type DelegateCapability
 } from '@shared/subAgents'
 import { headlessConfirm } from '../tools/headlessConfirm'
+import { agentRunProviderOptions, configuredProviderModel } from '@shared/agentRunProviders'
 import { firstPlainLine, plainSummary } from '@shared/titleText'
 
 const log = createLogger('agent-run-service')
@@ -1224,7 +1225,19 @@ class AgentRunService {
     signal: AbortSignal
   ): Promise<{ reports: SubAgentReport[]; tokens: number }> {
     const tools = subAgentTools(parent.enabledTools)
-    const childProviders = settingsStore.get().agents?.subAgentProviders ?? []
+    // Only providers this install can still authenticate as. A provider
+    // chosen here and later stripped of its API key would otherwise start a
+    // sub-agent that cannot generate — a run that exists, costs a slot and
+    // fails, where falling back to the parent just works.
+    const settings = settingsStore.get()
+    const configured = settings.agents?.subAgentProviders ?? []
+    const childProviders = configured.length === 0 ? [] : this.usableProviders(settings, configured)
+    if (childProviders.length < configured.length) {
+      log.warn(
+        'Ignoring sub-agent providers that are no longer configured:',
+        configured.filter((id) => !childProviders.includes(id)).join(', ')
+      )
+    }
     log.info(
       'Agent run delegating to',
       tasks.length,
@@ -1249,7 +1262,18 @@ class AgentRunService {
           projectId: parent.projectId,
           enabledTools: tools,
           provider,
-          model: provider === parent.provider ? parent.model : undefined,
+          // A model id means nothing to a different vendor, so a child that
+          // moves provider takes that provider's own configured model rather
+          // than its parent's. Resolved rather than left undefined: a run
+          // with neither a model nor provenance has no record of what
+          // produced its findings, and `describeRunProvenance` returns null
+          // for every cloud provider by design.
+          model:
+            provider === parent.provider
+              ? parent.model
+              : provider === 'local'
+                ? null
+                : configuredProviderModel(settings.provider, provider),
           maxTurns: budget.maxTurns,
           maxTokens: budget.maxTokens,
           maxDurationMinutes: budget.maxDurationMinutes,
@@ -1313,6 +1337,23 @@ class AgentRunService {
       } satisfies SubAgentReport
     })
     return { reports, tokens }
+  }
+
+  /**
+   * The chosen sub-agent providers this install can still authenticate as.
+   *
+   * A provider picked here and later stripped of its API key would otherwise
+   * start a sub-agent that cannot generate — a run that exists, occupies a
+   * slot and fails, where falling back to the parent just works. Consulted
+   * only when something was chosen, so the ordinary case never needs the
+   * provider settings at all.
+   */
+  private usableProviders(
+    settings: ReturnType<typeof settingsStore.get>,
+    chosen: readonly string[]
+  ): string[] {
+    const usable = new Set(agentRunProviderOptions(settings.provider).map((option) => option.value))
+    return chosen.filter((id) => usable.has(id as AgentRun['provider']))
   }
 
   private createConversation(run: AgentRun): Conversation {

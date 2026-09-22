@@ -148,6 +148,17 @@ const ARMS = [
     childProviders: ['local', 'local'],
     goal: BASE + splitInstruction(2)
   },
+  // The fourth quadrant: everything hosted. Completes the 2x2 of where the
+  // parent runs against where the children run, so the comparison is a
+  // matrix rather than three points and a gap.
+  {
+    name: 'both-cloud-1',
+    provider: 'deepseek',
+    subAgentsEnabled: true,
+    parallelJobs: 1,
+    childProviders: ['deepseek'],
+    goal: BASE + splitInstruction(1)
+  },
   {
     name: 'flip-3',
     provider: 'deepseek',
