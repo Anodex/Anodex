@@ -171,6 +171,11 @@ vi.mock('../../settings/SettingsStore', () => ({
     })
   }
 }))
+const appendRunToJournal = vi.fn<(run: AgentRun) => void>()
+vi.mock('../agentJournal', () => ({
+  appendRunToJournal: (run: AgentRun) => appendRunToJournal(run),
+  readJournal: () => null
+}))
 vi.mock('../../utils/logger', () => ({
   createLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() })
 }))
@@ -230,6 +235,7 @@ beforeEach(() => {
   subAgentsEnabled = true
   parallelJobs = 1
   subAgentProviders = []
+  appendRunToJournal.mockReset()
   runGeneration.mockReset()
   notifyUser.mockReset()
   broadcastToWindows.mockReset()
@@ -494,6 +500,35 @@ describe('on the local engine', () => {
     return startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' }).then(() => {
       expect(turns[0].hasDelegate).toBe(true)
       expect(turns[0].enabledTools.has('delegate')).toBe(true)
+    })
+  })
+})
+
+describe('a delegating run that belongs to a series', () => {
+  it('journals once, for the parent, and never for a sub-agent', () => {
+    // The two features landed the same night and meet here. A sub-agent is a
+    // step inside its parent's run, and the parent reports the same work in
+    // full a moment later — journalling each child would fill a series'
+    // history with fragments of something already recorded whole.
+    subAgentsEnabled = true
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, `Checked ${run.goal}`, 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Collated.', 100)
+    })
+
+    return startAndSettle().then(() => {
+      expect(runs.filter((run) => run.parentRunId)).toHaveLength(2)
+      const journalled = appendRunToJournal.mock.calls.map(([run]) => run)
+      expect(journalled).toHaveLength(1)
+      expect(journalled[0].parentRunId).toBeUndefined()
     })
   })
 })

@@ -725,6 +725,12 @@ test('a delegated run shows its sub-agents nested underneath it', async () => {
     // The parent says how many it sent out, so a fan-out is legible without
     // opening anything.
     await expect(window.getByText(/2 sub-agents/)).toBeVisible()
+
+    // Exactly one Continue, on the parent. Continuing a sub-agent would fork
+    // a series from the middle of somebody else's run.
+    await expect(
+      window.getByRole('button', { name: 'Continue this work in a new run' })
+    ).toHaveCount(1)
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
