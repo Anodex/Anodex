@@ -63,3 +63,5 @@ Thumbs.db
 # by the sweep and not worth carrying in the repo.
 /scripts/bench-build-runs/
 /scripts/bench-build-results.json
+/scripts/bench-build-runs-large/
+/scripts/bench-build-results-large.json

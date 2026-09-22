@@ -9,10 +9,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { writeWorkspace } from './bench-build-fixture.mjs'
-import { score, ACCEPTANCE } from './bench-build-accept.mjs'
+const workload = process.argv.includes('--large') ? 'large' : 'small'
+const accept =
+  workload === 'large'
+    ? await import('./bench-build-large-accept.mjs')
+    : await import('./bench-build-accept.mjs')
+const { score, ACCEPTANCE } = accept
 
-const RESULTS = path.join('scripts', 'bench-build-results.json')
+const RESULTS = path.join(
+  'scripts',
+  `bench-build-results${workload === 'large' ? '-large' : ''}.json`
+)
 const verbose = process.argv.includes('--verbose')
 
 if (!fs.existsSync(RESULTS)) {
@@ -21,11 +28,18 @@ if (!fs.existsSync(RESULTS)) {
 }
 const runs = JSON.parse(fs.readFileSync(RESULTS, 'utf8'))
 
-// The pristine dispatcher, to tell "did not touch cli.js" from "rewrote it".
-const reference = path.join(os.tmpdir(), `logtool-reference-${Date.now()}`)
-writeWorkspace(reference)
-const originalCli = fs.readFileSync(path.join(reference, 'cli.js'), 'utf8')
-fs.rmSync(reference, { recursive: true, force: true })
+// Pristine copies of everything a run was told not to change, so "left it
+// alone" can be told from "rewrote it to suit the new command".
+let originals
+if (workload === 'large') {
+  originals = await accept.originalFiles()
+} else {
+  const { writeWorkspace } = await import('./bench-build-fixture.mjs')
+  const reference = path.join(os.tmpdir(), `logtool-reference-${Date.now()}`)
+  writeWorkspace(reference)
+  originals = fs.readFileSync(path.join(reference, 'cli.js'), 'utf8')
+  fs.rmSync(reference, { recursive: true, force: true })
+}
 
 const graded = runs.map((run) => {
   if (!run.workspace || !fs.existsSync(run.workspace)) {
@@ -33,7 +47,7 @@ const graded = runs.map((run) => {
     // harness that reports a broken run as a failed one has lied before.
     return { ...run, passed: null, total: ACCEPTANCE.length, missing: true }
   }
-  const results = score(run.workspace, originalCli)
+  const results = score(run.workspace, originals)
   return {
     ...run,
     passed: results.filter((r) => r.passed).length,
@@ -58,7 +72,11 @@ const LABEL = {
   'off-1job': 'solo, full window',
   'off-3jobs': 'solo, split window',
   'sub-1': '1 sub-agent',
-  'sub-2': '2 sub-agents'
+  'sub-2': '2 sub-agents',
+  'large-off-1job': 'solo, full window',
+  'large-off-3jobs': 'solo, split window',
+  'large-sub-1': '1 sub-agent',
+  'large-sub-2': '2 sub-agents'
 }
 
 console.log(`\n| arm | runs | acceptance (median) | best | turns | minutes | tokens | children |`)
