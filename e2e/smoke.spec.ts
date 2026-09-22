@@ -597,3 +597,55 @@ test('the app shell cannot be navigated away', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/**
+ * The sub-agent settings, which decide whether delegation does anything.
+ *
+ * Worth an end-to-end check rather than a unit test because the section's
+ * whole job is to state the *consequence* of a configuration, and that
+ * depends on settings it does not own — the engine's parallel-job count and
+ * where the sub-agents run. A user who enables this on a default single-slot
+ * machine gets no sub-agents at all, and the one thing the section must never
+ * do is stay quiet about that.
+ */
+test('sub-agent settings explain why a default local machine gets none', async () => {
+  // Its own profile, because this test changes a setting. Run against the
+  // real one it both depends on and leaves behind state: the first run
+  // enabled sub-agents, and the second then failed looking for the text
+  // shown when they are off.
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-subagents-e2e-'))
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+    await window.getByRole('button', { name: 'Settings', exact: true }).click()
+    await window.getByRole('button', { name: 'Tools' }).click()
+
+    await expect(window.getByRole('heading', { name: 'Sub-agents', exact: true })).toBeVisible()
+
+    const toggle = window.getByLabel('Let an agent run delegate work to sub-agents')
+    await expect(toggle).toBeVisible()
+
+    // Off by default: a goal that quietly became four runs is not what
+    // someone pressing Start agreed to.
+    await expect(
+      window.getByText('Off. Every run does all of its own work in one sequence.')
+    ).toBeVisible()
+
+    await toggle.click()
+
+    // On a single-slot machine with no cloud children configured the answer
+    // is "none", and it has to say so rather than appearing to work.
+    await expect(window.getByText(/cannot start any/)).toBeVisible()
+    await expect(window.getByText(/Parallel jobs/)).toBeVisible()
+
+    // The per-agent provider rows only exist once it is on.
+    await expect(window.getByText('Sub-agent 1', { exact: true })).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})

@@ -81,6 +81,12 @@ export function SubAgentSettings({
       {settings.agents.subAgentsEnabled && (
         <>
           <p className={pageStyles.sectionDesc}>
+            <strong>One sub-agent on a cloud provider measured best.</strong> On a bug-hunt
+            benchmark it found every planted defect in the same wall-clock as using no sub-agents at
+            all, for a few thousand metered tokens. Two and three found no more and cost four to
+            seven times as much, because each one re-reads the whole workspace. Start with one.
+          </p>
+          <p className={pageStyles.sectionDesc}>
             Where each sub-agent runs. Leaving these as “same as the run” keeps them on whatever the
             run itself uses. Putting them on cloud providers is what lets a local run delegate at
             all — those calls do not queue behind the local model — and giving them{' '}

@@ -442,12 +442,14 @@ Key capabilities:
 - Flag suspected fabrication.
 - Show periodic check-in notifications during longer runs.
 - Optionally let a run split its goal across sub-agents that work at the same
-  time and report back (off by default, in Settings to Tools to Agent runs). A
-  cloud run may start up to three. A local run may start one fewer than its
-  Parallel jobs setting, because the run itself occupies one of the engine's
-  generation slots for the whole of its turn — at the default of one job, that
-  means none, and asking for as many sub-agents as there are slots would hang
-  the run rather than queue it. Each sub-agent is a real run with its own transcript, nested under the
+  time and report back (off by default, in Settings to Tools to Sub-agents).
+  Each sub-agent can be pointed at its own provider, so a local run can send
+  its work to a cloud model — or the reverse.
+- The ceiling follows the engine's real capacity. Local sub-agents need a
+  generation slot, and a local parent holds one for the whole of its turn, so
+  at the default of one parallel job a local run can start no local
+  sub-agents. Sub-agents on a cloud provider need no slot at all, which is
+  what makes delegation work on a single-GPU machine. Each sub-agent is a real run with its own transcript, nested under the
   run that sent it, and can be stopped on its own. Each one is named after what
   it was sent to do (falling back to Alpha, Bravo, Charlie when that would not
   be useful) and carries a mark of its own — a hub wired to three, four or five
@@ -460,6 +462,14 @@ Why it is good:
 - Some tasks require more than one chat turn. Agent runs give Anodex a controlled
   way to continue working toward a goal while keeping budgets, tools, and plan
   approval visible.
+- Measured rather than assumed. On a bug-hunt benchmark of twelve planted
+  defects, one sub-agent on a cloud provider found all twelve in the same
+  wall-clock as using none, for a few thousand metered tokens. Two and three
+  found no more and cost four to seven times as much, because each re-reads
+  the whole workspace. Sub-agents entirely on the local engine were three to
+  four times slower with no gain, because roughly three-quarters of a
+  delegating run is the parent writing briefs and merging reports, which is
+  serial however many agents there are.
 - Some goals are one question asked of several places at once, like "find the
   bugs in this code". A single run walks the whole codebase in one sequence and
   spends its entire context on the walk; three sub-agents each read a slice with
