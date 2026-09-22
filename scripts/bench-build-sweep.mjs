@@ -114,7 +114,14 @@ async function runArm(arm, repeat) {
   // Archived whether or not the run finished cleanly: a timed-out arm that
   // wrote three of four modules is a result, and deleting it would make the
   // sweep look tidier than it was.
-  const saved = path.join(ARCHIVE, `${arm}-${repeat}`)
+  //
+  // Keyed by the run's own id rather than by `<arm>-<repeat>`. A second pass
+  // is normally added by running the sweep again with `--repeats 1`, which
+  // repeats the repeat number — so the old key overwrote the first pass's
+  // workspace while leaving its row in the results file, and the report then
+  // graded one run twice and reported it as two. A run id cannot collide.
+  const stamp = result?.id ?? `timeout-${Date.now()}`
+  const saved = path.join(ARCHIVE, `${arm}-${stamp}`)
   fs.rmSync(saved, { recursive: true, force: true })
   fs.mkdirSync(path.dirname(saved), { recursive: true })
   fs.cpSync(WORKSPACE, saved, { recursive: true })
