@@ -649,3 +649,84 @@ test('sub-agent settings explain why a default local machine gets none', async (
     await rm(userDataDir, { recursive: true, force: true })
   }
 })
+
+/**
+ * Sub-agents as the run list draws them.
+ *
+ * The only part of this feature a test could not reach until now: the marks,
+ * the names and the nesting exist purely in the renderer, and every test of
+ * them so far has constructed the components directly. This seeds the run
+ * store on disk instead and lets the real app read it, which is the one way
+ * to find out whether a delegated run actually looks like anything.
+ */
+test('a delegated run shows its sub-agents nested underneath it', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-subagent-list-e2e-'))
+  const now = Date.now()
+  const base = {
+    projectId: null,
+    enabledTools: ['read_file'],
+    provider: 'local' as const,
+    model: null,
+    maxTurns: 8,
+    turnsUsed: 2,
+    flaggedTurns: 0,
+    maxTokens: 50_000,
+    tokensUsed: 1200,
+    maxDurationMinutes: 30,
+    activeMs: 60_000,
+    activeSinceAt: null,
+    limitsEnabled: true,
+    conversationId: null,
+    summary: 'Done.',
+    lastError: null,
+    requirePlan: false,
+    plan: null,
+    createdAt: now,
+    updatedAt: now
+  }
+  // Newest first, the order the store keeps.
+  const runs = [
+    {
+      ...base,
+      id: 'child-b',
+      parentRunId: 'parent-run',
+      delegatedTask: 'check unicode handling',
+      goal: 'check unicode handling',
+      status: 'done'
+    },
+    {
+      ...base,
+      id: 'child-a',
+      parentRunId: 'parent-run',
+      delegatedTask: 'check the tokenizer',
+      goal: 'check the tokenizer',
+      status: 'done'
+    },
+    { ...base, id: 'parent-run', goal: 'Find the bugs in the parser', status: 'done' }
+  ]
+  await mkdir(join(userDataDir, 'agent-runs'), { recursive: true })
+  await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify(runs), 'utf-8')
+
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await waitForStartup(window)
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+
+    await expect(window.getByText('Find the bugs in the parser')).toBeVisible()
+
+    // Named after the work rather than by position — see `subAgentNames`.
+    await expect(window.getByText('Tokenizer', { exact: true })).toBeVisible()
+    await expect(window.getByText('Unicode handling', { exact: true })).toBeVisible()
+
+    // The parent says how many it sent out, so a fan-out is legible without
+    // opening anything.
+    await expect(window.getByText(/2 sub-agents/)).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
