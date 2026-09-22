@@ -65,3 +65,5 @@ Thumbs.db
 /scripts/bench-build-results.json
 /scripts/bench-build-runs-large/
 /scripts/bench-build-results-large.json
+/scripts/bench-roguelike-snapshots/
+/scripts/bench-roguelike-results.json
