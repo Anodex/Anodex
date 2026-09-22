@@ -55,6 +55,31 @@
       }
     },
     {
+      "channel": "agent:journal",
+      "kind": "invoke",
+      "api": "agent.journal",
+      "args": [
+        {
+          "name": "runId",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "kind": "string"
+          }
+        ]
+      }
+    },
+    {
       "channel": "agent:list",
       "kind": "invoke",
       "api": "agent.list",

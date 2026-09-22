@@ -2,6 +2,8 @@ import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { CreateAgentRunRequest } from '@shared/agentRun.types'
 import { buildRunToolNames } from '@shared/tools.types'
+import { readJournal } from '../agents/agentJournal'
+import { seriesIdOf } from '@shared/agentRun.types'
 import { agentRunStore } from '../agents/AgentRunStore'
 import { agentRunService } from '../agents/AgentRunService'
 import { runTurnsForRemote } from '../agents/runTurnsForRemote'
@@ -69,6 +71,14 @@ export function registerAgentHandlers(): void {
     const run = agentRunStore.get(runId)
     const conversation = run?.conversationId ? conversationStore.get(run.conversationId) : undefined
     return runTurnsForRemote(conversation?.messages ?? [])
+  })
+
+  // The series journal, as Markdown, for the run log to show. Same rule as
+  // `turns`: an unknown run has no journal rather than an error, because a
+  // panel asking about a run that was just deleted is a race, not a fault.
+  ipcMain.handle(IpcChannel.Agent.journal, (_event, runId: string) => {
+    const run = agentRunStore.get(runId)
+    return run ? readJournal(seriesIdOf(run)) : null
   })
 
   ipcMain.handle(IpcChannel.Agent.create, async (event, request: CreateAgentRunRequest) => {

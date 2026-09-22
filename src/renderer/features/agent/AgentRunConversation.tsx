@@ -26,6 +26,8 @@ import styles from './AgentRunConversation.module.css'
 import { CopyableId } from '../../components/CopyableId'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
+import { anodex } from '../../lib/anodex'
+import type { SeriesPlace } from './runTree'
 
 interface AgentRunConversationProps {
   run: AgentRun
@@ -44,6 +46,14 @@ interface AgentRunConversationProps {
   onApprove: () => void
   onReject: () => void
   onContinueInChat: () => void
+  /**
+   * Where this run sits in ongoing work, or null when it stands alone.
+   *
+   * Doubles as the switch for the journal block below: `seriesPlaces` only
+   * describes series with more than one run, which is exactly when the
+   * journal holds something this run's own transcript does not.
+   */
+  seriesPlace: SeriesPlace | null
 }
 
 /** Which coloured dot a turn's header carries — the run's own health, one turn deep. */
@@ -418,6 +428,68 @@ ${child.delegatedTask ?? child.goal}`}
   )
 }
 
+/**
+ * What the runs before this one did, read from the series journal on disk.
+ *
+ * The journal is the agent's memory and the argument for keeping it in plain
+ * Markdown was always that the person whose agent it is can read it — but a
+ * file under `userData` that you have to go and find is not really readable.
+ * So the app shows it, next to the run it shaped.
+ *
+ * Collapsed by default. On the fifth run of a series this is the longest
+ * thing on the page, and what you open a run's log for is the run.
+ */
+export function JournalBlock({ run }: { run: AgentRun }): JSX.Element | null {
+  const [journal, setJournal] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    // Re-read when the run finishes, not only when it changes: finishing is
+    // what appends this run's own entry, and a panel still showing the
+    // journal as it was at kickoff would be quietly out of date.
+    void anodex.agent
+      .journal(run.id)
+      .then((text) => {
+        if (live) setJournal(text)
+      })
+      .catch(() => {
+        // A journal that cannot be read is not worth an error in the log
+        // view; the block simply does not appear.
+        if (live) setJournal(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [run.id, run.status])
+
+  if (!journal) return null
+
+  return (
+    <div className={styles.journal}>
+      <button
+        type="button"
+        className={styles.journalToggle}
+        onClick={() => setOpen((shown) => !shown)}
+        aria-expanded={open}
+      >
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+        <Icon name="clock" size={12} />
+        What this work has done so far
+      </button>
+      {open && (
+        <div className={styles.journalBody}>
+          <MessageContent content={journal} />
+          <p className={styles.journalNote}>
+            Written by Anodex when each run finishes. The project&rsquo;s files are the record of
+            what actually changed — this is the narrative beside them.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AgentRunConversation({
   run,
   subAgents,
@@ -432,7 +504,8 @@ export function AgentRunConversation({
   onDelete,
   onApprove,
   onReject,
-  onContinueInChat
+  onContinueInChat,
+  seriesPlace
 }: AgentRunConversationProps): JSX.Element {
   const conversation = useLoadedConversation(run.conversationId)
 
@@ -484,6 +557,12 @@ export function AgentRunConversation({
               <Icon name={providerIcon(run)} size={12} />
               {providerLabel(run)}
             </span>
+            {seriesPlace && (
+              <span className={styles.subMeta} title="Part of one ongoing piece of work">
+                <Icon name="chevrons-up" size={12} />
+                run {seriesPlace.position} of {seriesPlace.total}
+              </span>
+            )}
             {projectName && <span className={styles.subMeta}>{projectName}</span>}
             <span>updated {formatRelativeTime(run.updatedAt)} ago</span>
             <CopyableId id={run.id} label="agent run" />
@@ -541,6 +620,8 @@ export function AgentRunConversation({
         )}
 
         <GoalBlock run={run} />
+
+        {seriesPlace && <JournalBlock run={run} />}
 
         {(run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
           run.lastError && (
