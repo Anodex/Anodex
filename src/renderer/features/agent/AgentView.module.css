@@ -691,3 +691,12 @@
 .identity-2 {
   color: var(--series-4);
 }
+
+/* Part of one ongoing piece of work. Quiet: it is orientation on a card
+   that already carries a status, a project and a provider. */
+.seriesMark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+}

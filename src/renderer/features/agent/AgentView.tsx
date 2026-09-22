@@ -25,7 +25,7 @@ import {
   providerLabel
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
-import { describeSubAgents, groupRunsByParent } from './runTree'
+import { describeSubAgents, groupRunsByParent, seriesPlaces, type SeriesPlace } from './runTree'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
 import styles from './AgentView.module.css'
@@ -215,6 +215,7 @@ function RunCard({
   subAgents = [],
   subAgentIndex = null,
   subAgentLabel = null,
+  seriesPlace = null,
   orchestrated = false,
   spotlit = false,
   cardRef
@@ -226,6 +227,8 @@ function RunCard({
   subAgentIndex?: number | null
   /** What its parent calls it, resolved across the whole delegation. */
   subAgentLabel?: string | null
+  /** Where this run sits in ongoing work, when it continues any. */
+  seriesPlace?: SeriesPlace | null
   stoppingId: string | null
   projectName: (projectId: string | null) => string | null
   openRun: (run: AgentRun) => void
@@ -298,6 +301,16 @@ function RunCard({
               >
                 <Icon name="alert" size={12} />
                 Unlimited spend
+              </span>
+            )}
+            {seriesPlace && (
+              // Only on work that actually carried over — see `seriesPlaces`.
+              // Without it a continuation is indistinguishable from a run
+              // that happens to repeat the same goal, which is the whole
+              // difference between pursuing something and restating it.
+              <span className={styles.seriesMark} title="Part of one ongoing piece of work">
+                <Icon name="chevrons-up" size={12} />
+                run {seriesPlace.position} of {seriesPlace.total}
               </span>
             )}
             {describeSubAgents(subAgents) && (
@@ -433,6 +446,9 @@ export function AgentView(): JSX.Element {
   // Read the drilled-into run from `runs` (not held in state) so a run finishing
   // or taking a turn while its log is open updates in place, never a stale copy.
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null
+  // Across every run, not the filtered view: a series' length is a fact
+  // about the work, not about what the list happens to be showing.
+  const places = seriesPlaces(runs)
 
   const awayIds = new Set(away.runs.map((run) => run.id))
   const visibleRuns = awayOnly
@@ -673,6 +689,7 @@ export function AgentView(): JSX.Element {
                   subAgents={subAgents}
                   subAgentIndex={subAgentIndex}
                   subAgentLabel={subAgentIndex === null ? null : names[subAgentIndex]}
+                  seriesPlace={places.get(entry.id) ?? null}
                   stoppingId={stoppingId}
                   projectName={projectName}
                   openRun={(r) => setSelectedRunId(r.id)}

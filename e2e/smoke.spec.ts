@@ -782,6 +782,10 @@ test('a finished run offers to continue the work', async () => {
     await waitForStartup(window)
     await window.getByRole('button', { name: 'Agent', exact: true }).click()
 
+    // A lone run says nothing about a series: "run 1 of 1" on every card
+    // would be true and useless.
+    await expect(window.getByText(/run \d+ of \d+/)).toHaveCount(0)
+
     const carryOn = window.getByRole('button', { name: 'Continue this work in a new run' })
     await expect(carryOn).toBeVisible()
     await carryOn.click()
