@@ -73,6 +73,26 @@ describe('the journal a continuing run is shown', () => {
     expect(digest.length).toBeLessThan(JOURNAL_PROMPT_BUDGET * 1.2)
   })
 
+  it('is not fooled by a Markdown heading inside a run’s own summary', () => {
+    // Models write headings in summaries freely. Split on any `## ` and one
+    // entry becomes two, so the cut can fall between a run's status line and
+    // the summary it belongs to — leaving a failed run reading as a
+    // successful one, which is the single worst thing this can produce.
+    const withHeadings = [
+      '## 2026-09-01 10:00 — stopped\n\n- Goal: keep it up to date\n\n' +
+        `## Findings\n\nRan out of turns. ${'x'.repeat(300)}\n`,
+      '## 2026-09-02 10:00 — done\n\n- Goal: keep it up to date\n\nRun 2 finished.\n'
+    ].join('\n')
+
+    const digest = journalForPrompt(withHeadings, 400)!
+
+    // The kept entry is whole: its header, its status and its body together.
+    expect(digest).toContain('## 2026-09-02 10:00 — done')
+    expect(digest).toContain('Run 2 finished.')
+    // And the dropped one was counted as a single entry, not as two.
+    expect(digest).toMatch(/1 earlier run of this work is not shown/)
+  })
+
   it('is null for a series that has written nothing', () => {
     expect(journalForPrompt(null)).toBeNull()
     expect(journalForPrompt('   \n  ')).toBeNull()
