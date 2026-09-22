@@ -70,8 +70,18 @@ export function maxSubAgentsFor(
   const anyChildIsLocal =
     childProviders.length === 0 ? provider === 'local' : childProviders.includes('local')
   if (!anyChildIsLocal) return MAX_SUB_AGENTS
-  // At least one child needs the same gate the parent is holding.
-  return Math.max(0, Math.min(MAX_SUB_AGENTS, Math.floor(parallelJobs) - 1))
+
+  // A slot is only withheld by a parent that is itself local. The deadlock
+  // was never about being local — it was about the parent holding the very
+  // slot its children need while it waits for them. A parent on a cloud
+  // provider holds nothing, so local children may use every slot there is.
+  //
+  // Getting this wrong in the safe-looking direction still costs something
+  // real: subtracting unconditionally refuses a DeepSeek parent with a local
+  // sub-agent on a single-slot machine, which is a configuration that works
+  // perfectly well.
+  const heldByParent = provider === 'local' ? 1 : 0
+  return Math.max(0, Math.min(MAX_SUB_AGENTS, Math.floor(parallelJobs) - heldByParent))
 }
 
 /**

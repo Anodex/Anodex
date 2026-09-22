@@ -121,6 +121,40 @@ const ARMS = [
     parallelJobs: 1,
     childProviders: ['deepseek', 'deepseek', 'deepseek'],
     goal: BASE + splitInstruction(3)
+  },
+  // The mirror image: a cloud parent directing local children.
+  //
+  // Interesting because the two halves have opposite economics. The parent
+  // coordinates, which the decomposition says is 73-85% of the wall clock
+  // and is pure latency — cheap and fast on a hosted model. The children
+  // read a lot of code, which is where tokens are spent, and doing that on
+  // hardware you already own costs nothing per token.
+  //
+  // parallelJobs is 3 because a cloud parent holds no local slot, so three
+  // local children genuinely run at once rather than queueing.
+  {
+    name: 'flip-1',
+    provider: 'deepseek',
+    subAgentsEnabled: true,
+    parallelJobs: 3,
+    childProviders: ['local'],
+    goal: BASE + splitInstruction(1)
+  },
+  {
+    name: 'flip-2',
+    provider: 'deepseek',
+    subAgentsEnabled: true,
+    parallelJobs: 3,
+    childProviders: ['local', 'local'],
+    goal: BASE + splitInstruction(2)
+  },
+  {
+    name: 'flip-3',
+    provider: 'deepseek',
+    subAgentsEnabled: true,
+    parallelJobs: 3,
+    childProviders: ['local', 'local', 'local'],
+    goal: BASE + splitInstruction(3)
   }
 ]
 
@@ -137,7 +171,7 @@ for (const arm of ARMS) {
       'search_files',
       'find_files'
     ],
-    provider: 'local',
+    provider: arm.provider ?? 'local',
     maxTurns: 24,
     maxTokens: 300000,
     maxDurationMinutes: 45,

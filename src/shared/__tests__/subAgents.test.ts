@@ -103,6 +103,17 @@ describe('sub-agents on other providers', () => {
     expect(maxSubAgentsFor('local', 3, ['local', 'deepseek'])).toBe(2)
   })
 
+  it('withholds a slot only for a parent that is itself local', () => {
+    // The deadlock is the parent holding the slot its children need. A cloud
+    // parent holds none, so local children may use every slot there is —
+    // subtracting anyway refused a DeepSeek parent with one local sub-agent
+    // on a single-slot machine, which works perfectly well.
+    expect(maxSubAgentsFor('deepseek', 1, ['local'])).toBe(1)
+    expect(maxSubAgentsFor('deepseek', 3, ['local', 'local', 'local'])).toBe(3)
+    // A local parent still gives one up.
+    expect(maxSubAgentsFor('local', 3, ['local'])).toBe(2)
+  })
+
   it('falls back to the parent when no providers are configured', () => {
     expect(maxSubAgentsFor('local', 1, [])).toBe(0)
     expect(maxSubAgentsFor('deepseek', 1, [])).toBe(MAX_SUB_AGENTS)

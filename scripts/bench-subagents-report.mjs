@@ -104,7 +104,20 @@ const scored = parents.map((run) => {
   }
 })
 
-const ARMS = ['off', 'off-split', 'off-brief', '1', '2', '3', 'cloud-1', 'cloud-2', 'cloud-3']
+const ARMS = [
+  'off',
+  'off-split',
+  'off-brief',
+  '1',
+  '2',
+  '3',
+  'cloud-1',
+  'cloud-2',
+  'cloud-3',
+  'flip-1',
+  'flip-2',
+  'flip-3'
+]
 const groups = ARMS.map((arm) => ({ arm, runs: scored.filter((run) => run.arm === arm) })).filter(
   (group) => group.runs.length > 0
 )
