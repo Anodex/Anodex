@@ -76,7 +76,12 @@ async function runArm(arm, repeat) {
   const spec = path.join('scripts', `bench-build-${arm}.json`)
   if (!fs.existsSync(spec)) throw new Error(`No spec for arm "${arm}" at ${spec}`)
   fs.mkdirSync(LOG_DIR, { recursive: true })
-  const logPath = path.join(LOG_DIR, `arm-${arm}-${repeat}.log`)
+  // Stamped, for the same reason the archive is keyed by run id: a second
+  // pass run with `--repeats 1` reuses the repeat number, and the log of
+  // the run being replaced is exactly what you want when asking why two
+  // passes of one arm disagreed.
+  const started = new Date().toISOString().replace(/[:.]/g, '-')
+  const logPath = path.join(LOG_DIR, `arm-${arm}-${repeat}-${started}.log`)
 
   // Every arm starts from the same empty workspace. Nothing here is clever,
   // and that is the point: a reset that can be skipped is a reset that
