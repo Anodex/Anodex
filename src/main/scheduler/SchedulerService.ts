@@ -14,6 +14,9 @@ import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
 import { headlessConfirm } from '../tools/headlessConfirm'
 import { createLogger } from '../utils/logger'
 import { schedulerStore } from './SchedulerStore'
+import { agentRunService } from '../agents/AgentRunService'
+import { agentRunStore } from '../agents/AgentRunStore'
+import { continuationRequestFor, seriesIsBusy } from '@shared/agentContinuation'
 
 const log = createLogger('scheduler-service')
 
@@ -139,7 +142,8 @@ class SchedulerService {
     log.info('Running scheduled task:', task.id, task.name)
 
     try {
-      await this.executeRun(task, controller.signal, startedAt)
+      if (task.continuesSeriesId) await this.continueSeries(task, startedAt)
+      else await this.executeRun(task, controller.signal, startedAt)
     } catch (error) {
       // `executeRun` reports a failed *generation* itself, so anything landing
       // here failed before the run had a conversation to record against. It is
@@ -159,6 +163,72 @@ class SchedulerService {
       this.activeController = null
       this.notifyTasksChanged()
     }
+  }
+
+  /**
+   * Start the next run of an agent series, and record that it started.
+   *
+   * Deliberately does not wait for the run to finish. An agent run is minutes
+   * to hours and holds its own record, its own budgets and its own Stop
+   * button; holding the scheduler's single-task lock open for all of it would
+   * stall every other schedule on the machine for no benefit. The task's job
+   * is to start the work — the run reports on itself from there.
+   */
+  private async continueSeries(task: ScheduledTask, startedAt: number): Promise<void> {
+    const seriesId = task.continuesSeriesId!
+    const runs = agentRunStore.list()
+
+    // Skipped rather than queued. The work recurs, so the next occurrence is a
+    // better time than the moment this one finishes, and a backlog of overdue
+    // continuations is how an unattended feature runs away.
+    if (seriesIsBusy(runs, seriesId)) {
+      log.info('Skipping continuation, the series is already working:', task.id, seriesId)
+      this.recordContinuation(task, startedAt, 'stopped', 'Skipped — this work is already running.')
+      return
+    }
+
+    const request = continuationRequestFor(runs, seriesId)
+    if ('error' in request) {
+      // Disabled rather than left to fail every occurrence forever. A schedule
+      // whose work has been deleted has nothing to do and should stop asking.
+      log.warn('Continuation has nothing to continue, disabling:', task.id, request.error)
+      schedulerStore.update(task.id, { enabled: false })
+      this.recordContinuation(task, startedAt, 'error', request.error)
+      return
+    }
+
+    try {
+      const run = await agentRunService.start(request)
+      log.info('Continuation started agent run:', task.id, run.id)
+      this.recordContinuation(task, startedAt, 'success', `Started run ${run.id} of this work.`)
+    } catch (error) {
+      // The likeliest cause is another agent run already holding the service
+      // lock, which is ordinary rather than broken: the schedule simply misses
+      // this occurrence.
+      const message = error instanceof Error ? error.message : 'Could not start the run.'
+      log.warn('Continuation could not start a run:', task.id, message)
+      this.recordContinuation(task, startedAt, 'stopped', message)
+    }
+  }
+
+  /** A continuation's outcome, in the shape the task's run history takes. */
+  private recordContinuation(
+    task: ScheduledTask,
+    startedAt: number,
+    status: 'success' | 'error' | 'stopped',
+    summary: string
+  ): void {
+    schedulerStore.recordRun(task.id, {
+      status,
+      summary,
+      // A continuation writes into the agent run's own conversation, not the
+      // task's. Keeping the task's existing link rather than inventing one
+      // means the drill-in log still opens whatever history it already had.
+      conversationId: task.conversationId,
+      messageId: null,
+      userMessageId: null,
+      startedAt
+    })
   }
 
   /** One run, start to finish: generate, persist the turn, record the outcome, announce it. */

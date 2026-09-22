@@ -123,6 +123,17 @@ export interface ScheduledTask {
   enabled: boolean
   /** The conversation this task's runs append to, created lazily on first run. */
   conversationId: string | null
+  /**
+   * When set, this task starts the next run of that agent series instead of
+   * running a chat turn.
+   *
+   * Only the series id is stored. Everything about the shape of the run — the
+   * provider, the tools, the budgets, whether a plan is reviewed — is read off
+   * the series' most recent run each time this fires, so the last run is the
+   * single source of truth and a schedule cannot drift from the work it
+   * continues. See `continuationRequestFor`.
+   */
+  continuesSeriesId?: string
   createdAt: number
   updatedAt: number
   /** When this task will next fire, or null once a `'once'` task has run or while disabled. */
@@ -146,6 +157,8 @@ export interface CreateScheduledTaskRequest {
   projectId: string | null
   recurrence: TaskRecurrence
   enabledTools: string[]
+  /** Advance this agent series rather than run a chat turn — see `ScheduledTask`. */
+  continuesSeriesId?: string
 }
 
 export type UpdateScheduledTaskRequest = Partial<CreateScheduledTaskRequest> & {
