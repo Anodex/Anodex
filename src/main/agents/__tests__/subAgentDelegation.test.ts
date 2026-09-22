@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { Conversation } from '@shared/conversation.types'
+import type { SubAgentReport } from '@shared/subAgents'
 
 /**
  * A parent agent run fanning work out to sub-agents, driven through the real
@@ -34,6 +35,15 @@ let subAgentsEnabled = true
 let parallelJobs = 1
 /** Where each sub-agent runs; empty means it inherits the parent's provider. */
 let subAgentProviders: string[] = []
+/**
+ * Turns a *sub-agent* starts life already having flagged.
+ *
+ * Set on creation rather than mid-run because the service reads
+ * `run.flaggedTurns` once when its loop starts and is authoritative from
+ * then on — mutating the record mid-turn is simply overwritten, which is
+ * correct and makes creation the only honest seam for a test.
+ */
+let childStartsFlagged = 0
 
 /**
  * A complete provider block, because `agentRunProviderOptions` asks every
@@ -100,7 +110,7 @@ vi.mock('../AgentRunStore', () => ({
         model: request.model ?? null,
         maxTurns: request.maxTurns ?? 8,
         turnsUsed: 0,
-        flaggedTurns: 0,
+        flaggedTurns: prepared.parentRunId ? childStartsFlagged : 0,
         maxTokens: request.maxTokens ?? 50_000,
         tokensUsed: 0,
         maxDurationMinutes: request.maxDurationMinutes ?? 30,
@@ -242,6 +252,7 @@ beforeEach(() => {
   subAgentsEnabled = true
   parallelJobs = 1
   subAgentProviders = []
+  childStartsFlagged = 0
   appendRunToJournal.mockReset()
   runGeneration.mockReset()
   notifyUser.mockReset()
@@ -523,6 +534,35 @@ describe('where each sub-agent runs', () => {
     const children = runs.filter((run) => run.parentRunId)
     expect(children).toHaveLength(1)
     expect(children[0].provider).toBe('local')
+  })
+})
+
+describe('a sub-agent whose own turns were flagged', () => {
+  it('reports the count back, so the parent does not build on it unwarned', async () => {
+    // `flaggedTurns` is how a run records that it described an outcome that
+    // did not happen. The parent is a model and will treat a sub-agent's
+    // report the way it would treat a file it had read, so the count has to
+    // travel with the report rather than staying on the child's record where
+    // only a person looking at the panel would see it.
+    subAgentsEnabled = true
+    childStartsFlagged = 2
+    let reports: SubAgentReport[] = []
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Rewrote the config', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        reports = (await io.delegate(['check auth'])) as SubAgentReport[]
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(reports[0].flaggedTurns).toBe(2)
   })
 })
 

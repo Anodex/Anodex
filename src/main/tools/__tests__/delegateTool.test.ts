@@ -44,6 +44,7 @@ const report = (overrides: Partial<SubAgentReport> = {}): SubAgentReport => ({
   runId: 'run-1',
   status: 'done',
   report: 'Found an unchecked null on line 40.',
+  flaggedTurns: 0,
   ...overrides
 })
 

@@ -1365,7 +1365,8 @@ class AgentRunService {
         runId: child.id,
         // A run deleted while it was working still owes the parent an answer.
         status: finished?.status ?? 'error',
-        report: finished?.summary ?? finished?.lastError ?? ''
+        report: finished?.summary ?? finished?.lastError ?? '',
+        flaggedTurns: finished?.flaggedTurns ?? 0
       } satisfies SubAgentReport
     })
     return { reports, tokens }
