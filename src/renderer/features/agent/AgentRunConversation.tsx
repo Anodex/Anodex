@@ -411,13 +411,26 @@ export function SubAgentChips({
           className={`${styles.subAgentChip} ${
             child.status === 'running'
               ? styles[`identity-${index % 3}`]
-              : styles[`status-${child.status}`]
+              : // A sub-agent that described outcomes which did not happen
+                // finished 'done', and green is the wrong answer to "did any
+                // of them fail" — the row of marks exists to be read at a
+                // glance, and this is the case where a glance would be
+                // reassured by something that should not reassure it.
+                child.flaggedTurns > 0
+                ? styles['status-stopped']
+                : styles[`status-${child.status}`]
           }`}
           // The task, because "what is it doing" is the question these are here
           // to answer, and a tooltip answers it without spending a click.
-          title={`${names[index]} — ${STATUS_LABEL[child.status]}
+          title={`${names[index]} — ${STATUS_LABEL[child.status]}${
+            child.flaggedTurns > 0
+              ? ` · ${child.flaggedTurns} turn${child.flaggedTurns === 1 ? '' : 's'} claimed an outcome that didn’t happen`
+              : ''
+          }
 ${child.delegatedTask ?? child.goal}`}
-          aria-label={`Open ${names[index]}, ${STATUS_LABEL[child.status]}`}
+          aria-label={`Open ${names[index]}, ${STATUS_LABEL[child.status]}${
+            child.flaggedTurns > 0 ? ', possible fabrication' : ''
+          }`}
           onClick={() => onOpenRun(child.id)}
         >
           <SubAgentMark index={index} size={16} working={child.status === 'running'} />

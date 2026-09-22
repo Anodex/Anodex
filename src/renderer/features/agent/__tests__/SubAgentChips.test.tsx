@@ -150,4 +150,19 @@ describe('SubAgentChips', () => {
     expect(screen.getByLabelText(/Open Alpha/).getAttribute('aria-label')).toMatch(/error/i)
     expect(screen.getByLabelText(/Open Bravo/).getAttribute('aria-label')).toMatch(/done/i)
   })
+
+  it('does not show a fabricating sub-agent as a clean finish', () => {
+    // The row of marks exists to answer "are they done, and did any of them
+    // fail" at a glance. A sub-agent that described outcomes which did not
+    // happen finished 'done', and a green mark is a glance being reassured by
+    // something that should not reassure it.
+    render(
+      <SubAgentChips
+        subAgents={[child('a', { status: 'done', flaggedTurns: 2 })]}
+        onOpenRun={vi.fn()}
+      />
+    )
+    const chip = screen.getByRole('button', { name: /possible fabrication/i })
+    expect(chip.getAttribute('title')).toMatch(/claimed an outcome that didn’t happen/)
+  })
 })
