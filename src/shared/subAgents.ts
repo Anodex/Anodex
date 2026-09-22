@@ -264,7 +264,25 @@ export function subAgentNames(tasks: readonly string[]): string[] {
  * separately in each, one of them simply omitted it and nothing complained —
  * see `ToolRuntimeContext.delegate`.
  */
-export type DelegateCapability = (tasks: string[]) => Promise<SubAgentReport[]>
+export interface DelegateCapability {
+  (tasks: string[]): Promise<SubAgentReport[]>
+  /**
+   * The most sub-agents this run may actually start — see
+   * {@link maxSubAgentsFor}.
+   *
+   * Carried on the capability rather than added beside it in the tool
+   * context, because the context is rebuilt by hand in six places and a
+   * seventh field is a seventh chance for one of them to omit it. This
+   * travels wherever the function already travels.
+   *
+   * The tool needs it to describe itself honestly. Advertising the
+   * product-wide maximum to a run that can only start one costs that run a
+   * whole turn: it asks for three, is refused, and tries again — which on a
+   * local engine is a minute or two of an unattended run spent learning
+   * something that was knowable before it started.
+   */
+  readonly ceiling: number
+}
 
 /** What came back from one sub-agent. */
 export interface SubAgentReport {
@@ -274,6 +292,17 @@ export interface SubAgentReport {
   status: AgentRun['status']
   /** What it said it found, or why it could not say. */
   report: string
+  /**
+   * Turns on which this sub-agent described an outcome that did not happen.
+   *
+   * Carried because the parent is a model, and it will build conclusions on
+   * this report the way it would on a file it had read. The journal already
+   * surfaces the same count beside a summary for exactly this reason — a run
+   * that claimed outcomes it did not produce is the one case where its own
+   * account should not be taken at face value — and a delegated report is
+   * that case with a second model downstream of it.
+   */
+  flaggedTurns: number
 }
 
 /**
@@ -344,7 +373,9 @@ export function subAgentTools(parentTools: Iterable<string>): string[] {
  * Each report is labelled with the task it answers, because the parent issued
  * several at once and the order they finish in is not the order it asked. A
  * sub-agent that produced nothing says so rather than contributing an empty
- * section the parent might read as "nothing found".
+ * section the parent might read as "nothing found". And one that claimed
+ * outcomes it did not produce is flagged above its own findings, because the
+ * parent will otherwise treat them as established fact and build on them.
  */
 export function renderReports(reports: readonly SubAgentReport[]): string {
   if (reports.length === 0) return 'No sub-agents ran.'
@@ -354,7 +385,17 @@ export function renderReports(reports: readonly SubAgentReport[]): string {
       const body =
         entry.report.trim() ||
         `_Reported nothing. The run ended as "${entry.status}" — open it to see what happened._`
-      return `### ${names[index]} — ${entry.status}\nTask: ${entry.task}\n\n${body}`
+      // Above the report, not after it: a warning that arrives once the
+      // parent has already read the findings is a warning it has to go back
+      // and re-weigh, and models are no better at that than people.
+      const caution =
+        entry.flaggedTurns > 0
+          ? `**Treat this report with suspicion.** On ${entry.flaggedTurns} turn${
+              entry.flaggedTurns === 1 ? '' : 's'
+            } this sub-agent described an outcome — a change, an approval, a denial — that did ` +
+            'not actually happen. Verify anything below against the files before relying on it.\n\n'
+          : ''
+      return `### ${names[index]} — ${entry.status}\nTask: ${entry.task}\n\n${caution}${body}`
     })
     .join('\n\n')
 }

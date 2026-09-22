@@ -591,6 +591,7 @@ export function AgentView(): JSX.Element {
           onApprove={() => void handleApprove(selectedRun)}
           onReject={() => void handleReject(selectedRun)}
           onContinueInChat={() => void continueInChat(selectedRun)}
+          seriesPlace={places.get(selectedRun.id) ?? null}
         />
         {editor}
       </div>

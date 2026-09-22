@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
 import type { Conversation } from '@shared/conversation.types'
+import type { SubAgentReport } from '@shared/subAgents'
 
 /**
  * A parent agent run fanning work out to sub-agents, driven through the real
@@ -34,6 +35,23 @@ let subAgentsEnabled = true
 let parallelJobs = 1
 /** Where each sub-agent runs; empty means it inherits the parent's provider. */
 let subAgentProviders: string[] = []
+/**
+ * Whether the settings file still has its provider block.
+ *
+ * Real files have lost one — a partial write, a hand edit, a migration that
+ * did not finish. `isConfigured` reaches straight into it, so the absence
+ * throws rather than reading as "nothing configured".
+ */
+let providerBlockPresent = true
+/**
+ * Turns a *sub-agent* starts life already having flagged.
+ *
+ * Set on creation rather than mid-run because the service reads
+ * `run.flaggedTurns` once when its loop starts and is authoritative from
+ * then on — mutating the record mid-turn is simply overwritten, which is
+ * correct and makes creation the only honest seam for a test.
+ */
+let childStartsFlagged = 0
 
 /**
  * A complete provider block, because `agentRunProviderOptions` asks every
@@ -58,7 +76,14 @@ function providerSettings(): Record<string, unknown> {
   const block: Record<string, unknown> = { active: 'local' }
   for (const id of ids) {
     block[id] =
-      id === 'deepseek' ? { apiKey: 'sk-test', model: 'deepseek-chat' } : { apiKey: '', model: '' }
+      id === 'deepseek'
+        ? { apiKey: 'sk-test', model: 'deepseek-chat' }
+        : id === 'openai'
+          ? // A second configured provider, so the wrap-around across
+            // *different* vendors can be exercised end to end. Anthropic
+            // stays unconfigured — the stale-provider tests rely on it.
+            { apiKey: 'sk-openai', model: 'gpt-5' }
+          : { apiKey: '', model: '' }
   }
   return block
 }
@@ -93,7 +118,7 @@ vi.mock('../AgentRunStore', () => ({
         model: request.model ?? null,
         maxTurns: request.maxTurns ?? 8,
         turnsUsed: 0,
-        flaggedTurns: 0,
+        flaggedTurns: prepared.parentRunId ? childStartsFlagged : 0,
         maxTokens: request.maxTokens ?? 50_000,
         tokensUsed: 0,
         maxDurationMinutes: request.maxDurationMinutes ?? 30,
@@ -166,10 +191,15 @@ vi.mock('../../settings/SettingsStore', () => ({
       // The local ceiling is parallelJobs - 1, so this decides whether a
       // local run may delegate at all. Cloud runs ignore it.
       model: { parallelJobs },
-      provider: providerSettings(),
+      provider: providerBlockPresent ? providerSettings() : ({} as Record<string, unknown>),
       agents: { subAgentsEnabled, subAgentProviders }
     })
   }
+}))
+const appendRunToJournal = vi.fn<(run: AgentRun) => void>()
+vi.mock('../agentJournal', () => ({
+  appendRunToJournal: (run: AgentRun) => appendRunToJournal(run),
+  readJournal: () => null
 }))
 vi.mock('../../utils/logger', () => ({
   createLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() })
@@ -230,6 +260,9 @@ beforeEach(() => {
   subAgentsEnabled = true
   parallelJobs = 1
   subAgentProviders = []
+  childStartsFlagged = 0
+  providerBlockPresent = true
+  appendRunToJournal.mockReset()
   runGeneration.mockReset()
   notifyUser.mockReset()
   broadcastToWindows.mockReset()
@@ -465,6 +498,266 @@ describe('where each sub-agent runs', () => {
       expect(child?.provider).toBe('deepseek')
     })
   })
+
+  it('counts the slots that fallback will actually need, not the ones asked for', async () => {
+    // The dangerous shape of the case above. A local parent with a cloud
+    // child was allowed the full three, because no child was local — and
+    // then the key was cleared, every child fell back to the parent, and
+    // three local children went looking for the one free slot the parent was
+    // not already holding. That is the deadlock `maxSubAgentsFor` exists to
+    // prevent, arrived at through the fallback that prevents a different one.
+    //
+    // Refused rather than trimmed to fit, which is `validateDelegation`'s
+    // rule throughout: the model is told the real ceiling and can re-plan,
+    // where quietly dropping the third task loses work without saying so.
+    subAgentsEnabled = true
+    subAgentProviders = ['anthropic'] // chosen, then its key was cleared
+    parallelJobs = 2 // the parent holds one; exactly one is free
+    let refusal: string | null = null
+    let accepted = 0
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (refusal === null && io.delegate) {
+        try {
+          await io.delegate(['check auth', 'check parsing', 'check config'])
+        } catch (error) {
+          refusal = error instanceof Error ? error.message : String(error)
+        }
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      if (accepted === 0 && io.delegate) {
+        accepted = ((await io.delegate(['check auth'])) as unknown[]).length
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'local' })
+
+    expect(refusal).toMatch(/1 is the most/)
+    // And the one it is allowed does start, so the ceiling narrowed the
+    // fan-out rather than switching delegation off.
+    expect(accepted).toBe(1)
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children).toHaveLength(1)
+    expect(children[0].provider).toBe('local')
+  })
+})
+
+describe('a sub-agent whose own turns were flagged', () => {
+  it('reports the count back, so the parent does not build on it unwarned', async () => {
+    // `flaggedTurns` is how a run records that it described an outcome that
+    // did not happen. The parent is a model and will treat a sub-agent's
+    // report the way it would treat a file it had read, so the count has to
+    // travel with the report rather than staying on the child's record where
+    // only a person looking at the panel would see it.
+    subAgentsEnabled = true
+    childStartsFlagged = 2
+    let reports: SubAgentReport[] = []
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Rewrote the config', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        reports = (await io.delegate(['check auth'])) as SubAgentReport[]
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(reports[0].flaggedTurns).toBe(2)
+  })
+})
+
+describe('sub-agents spread across different vendors', () => {
+  it('wraps the provider list and gives each child that vendor’s own model', async () => {
+    // Two providers, three sub-agents: the third wraps back to the first.
+    // Worth an end-to-end case because two things have to agree — which
+    // vendor a slot lands on, and which model id means anything to it. A
+    // model name carried across vendors is a run that cannot start.
+    subAgentsEnabled = true
+    subAgentProviders = ['deepseek', 'openai']
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing', 'check config'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'local' })
+
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children.map((child) => child.provider)).toEqual(['deepseek', 'openai', 'deepseek'])
+    expect(children.map((child) => child.model)).toEqual([
+      'deepseek-chat',
+      'gpt-5',
+      'deepseek-chat'
+    ])
+  })
+})
+
+describe('a run that delegates more than once', () => {
+  it('may fan out again, against what is left of its budget', async () => {
+    // Nothing forbids a second delegation and nothing should: a parent that
+    // has read three reports and found a fourth question worth asking is the
+    // feature working. What bounds it is the budget — `splitRunBudget`
+    // divides what is *left*, so the second round is smaller than the first,
+    // and eventually there is not enough to start one at all.
+    subAgentsEnabled = true
+    const rounds: number[] = []
+    let round = 0
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, 'Checked it', 500)
+      if (round < 2 && io.delegate) {
+        round++
+        const reports = (await io.delegate([`round ${round}`])) as SubAgentReport[]
+        rounds.push(reports.length)
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Done', 100)
+    })
+
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(rounds).toEqual([1, 1])
+    const children = runs.filter((entry) => entry.parentRunId)
+    expect(children.map((child) => child.goal)).toEqual(['round 1', 'round 2'])
+    // The second child is given less than the first, because the first has
+    // already spent part of the run's allowance.
+    expect(children[1].maxTokens).toBeLessThan(children[0].maxTokens)
+    // And every token either of them spent is charged to the parent.
+    const parent = runs.find((entry) => !entry.parentRunId)!
+    expect(parent.tokensUsed).toBeGreaterThanOrEqual(1000)
+  })
+})
+
+describe('when the settings file is missing its provider block', () => {
+  it('runs without sub-agents rather than failing to start', async () => {
+    // `canDelegate` asks for the ceiling on the first turn, and the ceiling
+    // now consults the provider settings to see which chosen children this
+    // install can still authenticate as. A throw on that path turns "no
+    // sub-agents" into "the run failed", which is the outcome the defaulting
+    // around it was written to avoid — so the read has to fail soft.
+    subAgentsEnabled = true
+    subAgentProviders = ['deepseek']
+    providerBlockPresent = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      noteTurn(request, io)
+      return finished(io, 'Done', 100)
+    })
+
+    const started = await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    const run = runs.find((entry) => entry.id === started.id)!
+    expect(run.status).toBe('done')
+    expect(runs.filter((entry) => entry.parentRunId)).toHaveLength(0)
+  })
+})
+
+describe('stopping a delegation', () => {
+  /**
+   * Set up a parent that delegates two tasks, and hand back the signals each
+   * sub-agent is running under. The callback fires inside the first child's
+   * first turn, which is the only moment a delegation is genuinely in flight.
+   */
+  function delegatingRun(whileInFlight: (parentId: string) => void) {
+    const signals = new Map<string, AbortSignal>()
+    let parentId = ''
+    let delegated = false
+    let acted = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) {
+        signals.set(runId, io.signal)
+        if (!acted) {
+          acted = true
+          whileInFlight(parentId)
+        }
+        // A real transport returns from an aborted generation without having
+        // produced anything; the loop reads that as a terminal stop.
+        if (io.signal?.aborted) {
+          return { content: '', stats: { tokens: 0 }, stopped: true, stopReason: 'user' }
+        }
+        return finished(io, 'Checked it', 500)
+      }
+      parentId = runId
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      if (io.signal?.aborted) {
+        return { content: '', stats: { tokens: 0 }, stopped: true, stopReason: 'user' }
+      }
+      return finished(io, 'Done', 100)
+    })
+    return { signals, parentId: () => parentId }
+  }
+
+  it('stops every sub-agent when the parent is stopped', async () => {
+    // The scariest failure an unattended feature can have is work that
+    // carries on after you told it to stop. A parent blocked inside
+    // `delegate` is not the one doing the work — its children are — so
+    // stopping it has to reach them or Stop means nothing here.
+    const { signals } = delegatingRun((parentId) => agentRunService.stop(parentId))
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(signals.size).toBe(2)
+    for (const signal of signals.values()) expect(signal.aborted).toBe(true)
+    const children = runs.filter((run) => run.parentRunId)
+    expect(children.every((child) => child.status === 'stopped')).toBe(true)
+  })
+
+  it('stops one sub-agent without touching its siblings', async () => {
+    // Each child gets its own controller chained to the parent's rather than
+    // sharing it, which is what makes this possible: one branch of an
+    // investigation can be abandoned while the other two carry on.
+    const stopped: string[] = []
+    const { signals } = delegatingRun(() => {
+      const first = runs.find((run) => run.parentRunId)
+      if (!first) return
+      stopped.push(first.id)
+      agentRunService.stop(first.id)
+    })
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(stopped).toHaveLength(1)
+    expect(signals.get(stopped[0])!.aborted).toBe(true)
+    const sibling = runs.find((run) => run.parentRunId && run.id !== stopped[0])!
+    expect(signals.get(sibling.id)!.aborted).toBe(false)
+    expect(sibling.status).toBe('done')
+    // And the parent still finishes: one abandoned branch is a result to
+    // work around, not a reason to lose the run.
+    const parent = runs.find((run) => !run.parentRunId)!
+    expect(parent.status).toBe('done')
+  })
+
+  it('stops every sub-agent on quit', async () => {
+    // `stopAll` aborts the parent, which cascades, and then aborts every
+    // child itself as well. This asserts the outcome rather than which of
+    // the two paths delivered it — either alone would satisfy it, and the
+    // point of the second is that quitting should not depend on the first.
+    const { signals } = delegatingRun(() => agentRunService.stopAll())
+    await startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' })
+
+    expect(signals.size).toBe(2)
+    for (const signal of signals.values()) expect(signal.aborted).toBe(true)
+  })
 })
 
 describe('on the local engine', () => {
@@ -494,6 +787,35 @@ describe('on the local engine', () => {
     return startAndSettle({ provider: 'anthropic', model: 'claude-sonnet-5' }).then(() => {
       expect(turns[0].hasDelegate).toBe(true)
       expect(turns[0].enabledTools.has('delegate')).toBe(true)
+    })
+  })
+})
+
+describe('a delegating run that belongs to a series', () => {
+  it('journals once, for the parent, and never for a sub-agent', () => {
+    // The two features landed the same night and meet here. A sub-agent is a
+    // step inside its parent's run, and the parent reports the same work in
+    // full a moment later — journalling each child would fill a series'
+    // history with fragments of something already recorded whole.
+    subAgentsEnabled = true
+    let delegated = false
+    runGeneration.mockImplementation(async (request: any, io: any) => {
+      const runId = noteTurn(request, io)
+      const run = runs.find((entry) => entry.id === runId)
+      if (run?.parentRunId) return finished(io, `Checked ${run.goal}`, 500)
+      if (!delegated && io.delegate) {
+        delegated = true
+        await io.delegate(['check auth', 'check parsing'])
+        return { content: 'delegated', stats: { tokens: 100 }, stopped: false }
+      }
+      return finished(io, 'Collated.', 100)
+    })
+
+    return startAndSettle().then(() => {
+      expect(runs.filter((run) => run.parentRunId)).toHaveLength(2)
+      const journalled = appendRunToJournal.mock.calls.map(([run]) => run)
+      expect(journalled).toHaveLength(1)
+      expect(journalled[0].parentRunId).toBeUndefined()
     })
   })
 })
