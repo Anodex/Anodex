@@ -89,7 +89,7 @@ function setup() {
           'run_command'
         ],
         provider: 'local',
-        maxTurns: 30,
+        maxTurns: 45,
         maxTokens: 400_000,
         maxDurationMinutes: 40,
         requirePlan: false
@@ -149,6 +149,55 @@ function arm() {
   console.log(`armed: continues series ${series} every 2 minutes`)
 }
 
+/**
+ * Every guard that fired on a run, read from its transcript.
+ *
+ * Refusals carry the guard's own words in `detail` — "Blocked: gathering
+ * without progress", "Blocked: repeating call" — so grouping by that names the
+ * guard without this file having to know what guards exist.
+ */
+function guardsFor(run) {
+  const root = path.join(USER_DATA, 'conversations')
+  if (!run.conversationId || !fs.existsSync(root)) return { refusals: [], calls: 0 }
+  const stack = [root]
+  let conversation = null
+  while (stack.length > 0 && !conversation) {
+    const dir = stack.pop()
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name)
+      if (fs.statSync(full).isDirectory()) stack.push(full)
+      else if (name.endsWith('.json')) {
+        const candidate = readJson(full, null)
+        if (candidate?.id === run.conversationId) {
+          conversation = candidate
+          break
+        }
+      }
+    }
+  }
+  if (!conversation) return { refusals: [], calls: 0 }
+
+  const calls = []
+  for (const message of conversation.messages ?? []) {
+    for (const call of message.toolCalls ?? []) calls.push(call)
+  }
+  const byReason = new Map()
+  for (const call of calls) {
+    if (call.status === 'success') continue
+    const reason = (call.detail ?? call.status ?? 'error').split('\n')[0].slice(0, 60)
+    if (!byReason.has(reason)) byReason.set(reason, { reason, count: 0, tools: new Set() })
+    const entry = byReason.get(reason)
+    entry.count++
+    entry.tools.add(call.name)
+  }
+  return {
+    calls: calls.length,
+    refusals: [...byReason.values()]
+      .sort((a, b) => b.count - a.count)
+      .map((entry) => ({ reason: entry.reason, count: entry.count, tools: [...entry.tools] }))
+  }
+}
+
 function score() {
   const output = execFileSync(
     'python',
@@ -200,6 +249,8 @@ async function watch() {
         activeMs: run.activeMs,
         flaggedTurns: run.flaggedTurns,
         summary: (run.summary ?? run.lastError ?? '').slice(0, 300),
+        stoppedBecause: (run.lastError ?? '').slice(0, 200),
+        ...guardsFor(run),
         ticked: ticked(),
         passed: result.passed,
         total: result.total,
@@ -207,10 +258,16 @@ async function watch() {
         at: new Date().toISOString()
       })
       fs.writeFileSync(RESULTS, JSON.stringify(rows, null, 2) + '\n')
+      const row = rows[rows.length - 1]
       console.log(
         `run ${rows.length}: ${run.status}, ${run.turnsUsed} turns — ` +
           `${result.passed}/${result.total} features, ${ticked()} boxes ticked`
       )
+      // Every guard, not the first one noticed.
+      for (const refusal of row.refusals ?? []) {
+        console.log(`    ${refusal.count}x ${refusal.reason} (${refusal.tools.join(', ')})`)
+      }
+      if (row.stoppedBecause) console.log(`    ended: ${row.stoppedBecause}`)
     }
     await new Promise((resolve) => setTimeout(resolve, 20_000))
   }
@@ -254,6 +311,41 @@ function report() {
   const flagged = rows.filter((row) => (row.flaggedTurns ?? 0) > 0)
   if (flagged.length) {
     console.log(`${flagged.length} run(s) claimed an outcome that did not happen.`)
+  }
+
+  // Guards, counted across the whole series. Two different guards firing is
+  // two different problems, and reading one of them is how this was missed.
+  const guards = new Map()
+  for (const row of rows) {
+    for (const refusal of row.refusals ?? []) {
+      const seen = guards.get(refusal.reason) ?? { count: 0, runs: 0, tools: new Set() }
+      seen.count += refusal.count
+      seen.runs++
+      for (const tool of refusal.tools) seen.tools.add(tool)
+      guards.set(refusal.reason, seen)
+    }
+  }
+  if (guards.size > 0) {
+    console.log('\nguards that fired')
+    console.log('-'.repeat(64))
+    for (const [reason, seen] of [...guards].sort((a, b) => b[1].count - a[1].count)) {
+      console.log(`  ${String(seen.count).padStart(4)}x across ${seen.runs} run(s)  ${reason}`)
+      console.log(`        tools: ${[...seen.tools].sort().join(', ')}`)
+    }
+  }
+
+  const endings = new Map()
+  for (const row of rows) {
+    if (!row.stoppedBecause) continue
+    const key = row.stoppedBecause.slice(0, 70)
+    endings.set(key, (endings.get(key) ?? 0) + 1)
+  }
+  if (endings.size > 0) {
+    console.log('\nhow runs ended')
+    console.log('-'.repeat(64))
+    for (const [reason, count] of [...endings].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${String(count).padStart(4)}x  ${reason}`)
+    }
   }
 }
 
