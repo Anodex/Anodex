@@ -18,7 +18,24 @@ import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { notifyRemoteClients, notifyUser } from '../notify'
 import { runGeneration } from '../chat/runGeneration'
 import { describeTurnOutcome, isDurableChange } from '../chat/turnSummary'
-import { AGENT_TURN_BUDGET, turnTimeLimitOverride } from '../chat/GenerationBudget'
+import { agentBudgetForContext, turnTimeLimitOverride } from '../chat/GenerationBudget'
+import { llamaService } from '../llama/LlamaService'
+
+/**
+ * The window this run's turns will actually have, or undefined to leave the
+ * budget flat.
+ *
+ * Only the local engine answers. A cloud provider's window is not the local
+ * one, and scaling a cloud run's round cap by a number that has nothing to do
+ * with it would be guessing — at four times the rounds, on the user's bill.
+ * The measurement behind this calibration is a local one, so it is applied
+ * where it was measured and cloud runs keep the flat budget they have always
+ * had.
+ */
+function localContextSizeFor(provider: AgentRun['provider']): number | undefined {
+  if (provider !== 'local') return undefined
+  return llamaService.getState().contextSize ?? undefined
+}
 import { settingsStore } from '../settings/SettingsStore'
 import { createLogger } from '../utils/logger'
 import { agentRunStore, generateAgentRunId } from './AgentRunStore'
@@ -990,7 +1007,7 @@ class AgentRunService {
         // fails closed on destructive and human-approval-only calls alike.
         permissionModeOverride: 'untethered',
         executionBudget: {
-          ...AGENT_TURN_BUDGET,
+          ...agentBudgetForContext(localContextSizeFor(providerOverride.provider)),
           ...turnTimeLimitOverride(settingsStore.get().generation.turnTimeLimitMinutes)
         },
         ledger,
