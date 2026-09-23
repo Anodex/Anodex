@@ -18,6 +18,12 @@ Two things learned the hard way from grading the engine are built in here:
     `depth`, `sprites()`, `hud_lines()`, `minimap_rect()`, `ending_lines()`.
     That is not test-fitting; it is the same reason the engine has `state()`.
 
+**Score a snapshot, not a live workspace.** The watcher copies the workspace
+when a run finishes and grades the copy. Running this by hand against the
+workspace while a run is working grades a moving target: two passes minutes
+apart legitimately disagree, and the difference reads like a probe fault when
+it is only the agent having written something in between.
+
 Usage: python bench-view3d-accept.py [workspace]
 Prints one line per feature and a JSON summary on the final line.
 """
