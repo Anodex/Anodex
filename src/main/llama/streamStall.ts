@@ -89,13 +89,22 @@ export function watchForStall(
     finished = true
     if (timer) cancel(timer)
     timer = null
+    stopListening()
   }
 
   // The caller's own abort still ends the request, and is not a stall.
+  //
+  // The listener is removed by `done()`, not left to `{ once: true }` alone.
+  // One watch is created per round and they all listen to the same turn-long
+  // signal, so a listener that is never fired is a listener that accumulates:
+  // forty-eight rounds would leave forty-eight of them and Node starts warning
+  // about a leak past ten.
+  const relay = (): void => controller.abort()
   if (caller) {
     if (caller.aborted) controller.abort()
-    else caller.addEventListener('abort', () => controller.abort(), { once: true })
+    else caller.addEventListener('abort', relay, { once: true })
   }
+  const stopListening = (): void => caller?.removeEventListener('abort', relay)
   restart()
 
   return {
