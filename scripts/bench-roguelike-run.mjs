@@ -92,7 +92,13 @@ function setup() {
         maxTurns: 45,
         maxTokens: 400_000,
         maxDurationMinutes: 40,
-        requirePlan: false
+        requirePlan: false,
+        // Pinned, not inherited. Run one of the first attempt ran at 8,192
+        // because this spec said nothing — and FEATURES.md, at 6,694 bytes,
+        // does not fit a result budget that small, so the run could not read
+        // its own task list and spent 177 calls working around it.
+        contextSize: 65_536,
+        parallelJobs: 1
       },
       null,
       2

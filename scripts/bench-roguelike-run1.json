@@ -14,8 +14,10 @@
     "run_command"
   ],
   "provider": "local",
-  "maxTurns": 30,
+  "maxTurns": 45,
   "maxTokens": 400000,
   "maxDurationMinutes": 40,
-  "requirePlan": false
+  "requirePlan": false,
+  "contextSize": 65536,
+  "parallelJobs": 1
 }
