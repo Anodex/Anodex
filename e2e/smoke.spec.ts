@@ -972,8 +972,11 @@ test('a scheduled continuation starts the next run of the same work', async () =
 
     // Not an exact match: the sidebar item's accessible name gains a count
     // once a run is going (`Agent, 1 notification`), and a run going is
-    // exactly what this test just caused.
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    // exactly what this test just caused. Main tightened every other Agent
+    // selector in this file to an exact match; this one cannot follow it, and
+    // a merge applied it here anyway — the comment above was already saying
+    // why that would not work.
+    await window.getByRole('button', { name: /^Agent/ }).click()
 
     // Two runs of one series: the seeded one, and the one the schedule just
     // started. The mark only appears on series with more than one run, so its
