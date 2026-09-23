@@ -35,13 +35,20 @@ def new_game(engine, seed=42):
     return engine.Game(seed)
 
 
+# Squares a player can stand on. Doors count: a shut one is an obstacle you
+# open, not a wall — and treating it as a wall cut levels in half.
+WALKABLE = '.<>/+'
+OPEN_DOOR = '/'
+SHUT_DOOR = '+'
+
+
 def floor_tiles(state):
     tiles = state['map']['tiles']
     return [
         (x, y)
         for y, row in enumerate(tiles)
         for x, char in enumerate(row)
-        if char in '.<>'
+        if char in WALKABLE
     ]
 
 
@@ -57,7 +64,7 @@ def _passable(state, allow=()):
         (x, y)
         for y, row in enumerate(tiles)
         for x, char in enumerate(row)
-        if char in '.<>' and (x, y) not in blocked
+        if char in WALKABLE and (x, y) not in blocked
     }
 
 
@@ -118,6 +125,13 @@ def walk_to(game, x, y, limit=500):
         direction = ('n' if dy < 0 else 's' if dy > 0 else '') + (
             'w' if dx < 0 else 'e' if dx > 0 else ''
         )
+        # A shut door on the path is opened rather than walked into, which
+        # is what a player does and what the level's connectivity assumes.
+        if state['map']['tiles'][step_y][step_x] == SHUT_DOOR:
+            game.act('open', x=step_x, y=step_y)
+            if game.state()['map']['tiles'][step_y][step_x] == SHUT_DOOR:
+                return False
+            continue
         before = (state['player']['x'], state['player']['y'])
         game.move(direction)
         after = game.state()['player']
@@ -134,31 +148,44 @@ def walk_to(game, x, y, limit=500):
 
 
 def bump_target(game):
-    """Walk beside a living monster and return the direction to hit it.
+    """Walk beside a living monster and return it with the direction to hit it.
 
-    The combat checks used to wait for one to come to them. Monsters chase
-    what they can see, so on a quiet level nothing ever arrived and the check
-    timed out — an engine with working combat scored zero on four features for
-    want of an introduction.
+    Looks again on arrival. The first version walked to a square beside where
+    a monster had been and then swung at empty floor, because monsters move
+    while you cross the room — so a working engine failed four combat checks
+    for being lively.
     """
+    def adjacent_now():
+        here = game.state()['player']
+        for monster in game.state().get('monsters', []):
+            if not monster.get('alive', True):
+                continue
+            dx = monster['x'] - here['x']
+            dy = monster['y'] - here['y']
+            if max(abs(dx), abs(dy)) == 1:
+                direction = ('n' if dy < 0 else 's' if dy > 0 else '') + (
+                    'w' if dx < 0 else 'e' if dx > 0 else ''
+                )
+                return monster, direction
+        return None, None
+
+    found, direction = adjacent_now()
+    if found is not None:
+        return found, direction
+
     for monster in [m for m in game.state().get('monsters', []) if m.get('alive', True)]:
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             beside = (monster['x'] + dx, monster['y'] + dy)
             tiles = game.state()['map']['tiles']
             if not (0 <= beside[1] < len(tiles) and 0 <= beside[0] < len(tiles[0])):
                 continue
-            if tiles[beside[1]][beside[0]] not in '.<>':
+            if tiles[beside[1]][beside[0]] not in WALKABLE:
                 continue
             if not walk_to(game, *beside):
                 continue
-            here = game.state()['player']
-            sx = (monster['x'] > here['x']) - (monster['x'] < here['x'])
-            sy = (monster['y'] > here['y']) - (monster['y'] < here['y'])
-            direction = ('n' if sy < 0 else 's' if sy > 0 else '') + (
-                'w' if sx < 0 else 'e' if sx > 0 else ''
-            )
-            if direction:
-                return monster, direction
+            found, direction = adjacent_now()
+            if found is not None:
+                return found, direction
     return None, None
 
 
@@ -194,7 +221,7 @@ def f02_player(engine):
     for key in ('x', 'y', 'hp', 'max_hp'):
         if key not in player:
             return False
-    return state['map']['tiles'][player['y']][player['x']] in '.<>'
+    return state['map']['tiles'][player['y']][player['x']] in WALKABLE
 
 
 def f03_movement(engine):
@@ -207,7 +234,7 @@ def f03_movement(engine):
         tiles = game.state()['map']['tiles']
         if not (0 <= target_y < len(tiles) and 0 <= target_x < len(tiles[0])):
             continue
-        if tiles[target_y][target_x] not in '.<>':
+        if tiles[target_y][target_x] not in WALKABLE:
             continue
         game.move(direction)
         after = game.state()['player']
@@ -221,15 +248,31 @@ def f03_movement(engine):
 def f04_walls(engine):
     game = new_game(engine)
     tiles = game.state()['map']['tiles']
-    for _ in range(200):
-        player = game.state()['player']
-        for direction, dx, dy in (('e', 1, 0), ('w', -1, 0), ('n', 0, -1), ('s', 0, 1)):
-            tx, ty = player['x'] + dx, player['y'] + dy
-            if 0 <= ty < len(tiles) and 0 <= tx < len(tiles[0]) and tiles[ty][tx] == '#':
+    # Pick a wall off the map and go and stand next to it. Walking in a
+    # straight line until something blocks you finds a door as readily as a
+    # wall, and a door is meant to stop you.
+    for y, row in enumerate(tiles):
+        for x, char in enumerate(row):
+            if char != '#':
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                spot = (x + dx, y + dy)
+                if not (0 <= spot[1] < len(tiles) and 0 <= spot[0] < len(tiles[0])):
+                    continue
+                if tiles[spot[1]][spot[0]] not in '.<>':
+                    continue
+                if not walk_to(game, *spot):
+                    continue
+                here = game.state()['player']
+                direction = ('n' if y < here['y'] else 's' if y > here['y'] else '') + (
+                    'w' if x < here['x'] else 'e' if x > here['x'] else ''
+                )
+                if not direction:
+                    continue
+                before = (here['x'], here['y'])
                 game.move(direction)
                 after = game.state()['player']
-                return (after['x'], after['y']) == (player['x'], player['y'])
-        game.move('e')
+                return (after['x'], after['y']) == before
     return False
 
 
@@ -261,7 +304,7 @@ def f05_rooms(engine):
     wide = 0
     for y in range(1, len(tiles) - 1):
         for x in range(1, len(tiles[0]) - 1):
-            if all(tiles[y + j][x + i] in '.<>' for j in (-1, 0, 1) for i in (-1, 0, 1)):
+            if all(tiles[y + j][x + i] in WALKABLE for j in (-1, 0, 1) for i in (-1, 0, 1)):
                 wide += 1
     return wide >= 3
 
@@ -335,7 +378,7 @@ def f09_monsters(engine):
         for key in ('x', 'y', 'hp', 'max_hp', 'name', 'alive'):
             if key not in monster:
                 return False
-        if tiles[monster['y']][monster['x']] not in '.<>':
+        if tiles[monster['y']][monster['x']] not in WALKABLE:
             return False
         if (monster['x'], monster['y']) == player:
             return False
@@ -390,15 +433,17 @@ def f11_bump(engine):
     monster, direction = bump_target(game)
     if monster is None:
         return False
-    before_hp = next(
-        (m['hp'] for m in game.state()['monsters'] if (m['x'], m['y']) == (monster['x'], monster['y'])),
-        None,
-    )
+    before_hp = monster['hp']
+    square = (monster['x'], monster['y'])
     before_pos = (game.state()['player']['x'], game.state()['player']['y'])
     game.move(direction)
     after = game.state()
-    same = [m for m in after['monsters'] if (m['x'], m['y']) == (monster['x'], monster['y'])]
-    hurt = (not same) or any(m['hp'] < before_hp or not m.get('alive', True) for m in same)
+    # Either something on that square is worse off, or it is no longer there
+    # because it died. Both are the feature working.
+    same = [m for m in after['monsters'] if (m['x'], m['y']) == square]
+    hurt = (not same) or any(
+        m['hp'] < before_hp or not m.get('alive', True) for m in same
+    )
     moved = (after['player']['x'], after['player']['y']) != before_pos
     return hurt and not moved
 
@@ -441,7 +486,7 @@ def f14_items(engine):
         return False
     tiles = state['map']['tiles']
     return all(
-        'name' in item and 'kind' in item and tiles[item['y']][item['x']] in '.<>'
+        'name' in item and 'kind' in item and tiles[item['y']][item['x']] in WALKABLE
         for item in items
     )
 
@@ -714,6 +759,278 @@ def f25_amulet(engine):
     )
 
 
+def _tiles_of(state, char):
+    return [
+        (x, y)
+        for y, row in enumerate(state['map']['tiles'])
+        for x, c in enumerate(row)
+        if c == char
+    ]
+
+
+def _seeds(engine, depths=(1,), seeds=(42, 7, 99, 123, 5, 2024)):
+    """Games to look in. Several, because most of what follows is placed by
+    chance and one floor of one game is a dice roll, not a test."""
+    for seed in seeds:
+        for depth in depths:
+            try:
+                yield engine.Game(seed, start_depth=depth) if depth > 1 else engine.Game(seed)
+            except TypeError:
+                if depth == 1:
+                    yield engine.Game(seed)
+
+
+def f26_doors(engine):
+    for game in _seeds(engine, depths=(1, 2)):
+        shut = _tiles_of(game.state(), '+')
+        if not shut:
+            continue
+        door = shut[0]
+        # Stand beside it. A door you cannot reach proves nothing either way.
+        beside = None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            spot = (door[0] + dx, door[1] + dy)
+            tiles = game.state()['map']['tiles']
+            if not (0 <= spot[1] < len(tiles) and 0 <= spot[0] < len(tiles[0])):
+                continue
+            if tiles[spot[1]][spot[0]] in '.<>/' and walk_to(game, *spot):
+                beside = spot
+                break
+        if beside is None:
+            continue
+        here = game.state()['player']
+        direction = ('n' if door[1] < here['y'] else 's' if door[1] > here['y'] else '') + (
+            'w' if door[0] < here['x'] else 'e' if door[0] > here['x'] else ''
+        )
+        # Shut: it stops you.
+        game.move(direction)
+        if (game.state()['player']['x'], game.state()['player']['y']) != tuple(beside):
+            return False
+        game.act('open', x=door[0], y=door[1])
+        if game.state()['map']['tiles'][door[1]][door[0]] != '/':
+            return False
+        # Open: it does not.
+        game.move(direction)
+        return (game.state()['player']['x'], game.state()['player']['y']) == door
+    return False
+
+
+def f27_traps(engine):
+    for game in _seeds(engine, depths=(1, 2, 3)):
+        if not isinstance(game.state().get('traps'), list):
+            return False
+        if game.state()['traps']:
+            return False  # nothing discovered yet, so nothing should be listed
+        floors = floor_tiles(game.state())
+        for square in floors[:: max(1, len(floors) // 40)]:
+            if game.state().get('game_over'):
+                break
+            walk_to(game, *square)
+            found = game.state().get('traps') or []
+            if found:
+                trap = found[0]
+                return all(key in trap for key in ('x', 'y', 'kind'))
+    return False
+
+
+def f28_unidentified(engine):
+    for game in _seeds(engine, depths=(1, 2)):
+        unknown = [
+            i
+            for i in game.state().get('items', [])
+            if i['kind'] in ('potion', 'scroll') and i.get('identified') is False
+        ]
+        if not unknown:
+            continue
+        appearance = unknown[0]['name']
+        # Stable within a seed, or the name is noise rather than a disguise.
+        twin = engine.Game(42) if game.state()['depth'] == 1 else None
+        if not walk_to(game, unknown[0]['x'], unknown[0]['y']):
+            continue
+        game.act('pickup')
+        held = game.state().get('inventory', [])
+        index = next((i for i, e in enumerate(held) if e.get('identified') is False), None)
+        if index is None:
+            continue
+        game.act('use', index=index)
+        after = game.state()
+        # Everything of that type is known now, wherever it is.
+        same = [
+            i
+            for i in after.get('items', []) + after.get('inventory', [])
+            if i.get('name') == appearance
+        ]
+        del twin
+        return not same or all(i.get('identified') is True for i in same)
+    return False
+
+
+def f29_effects(engine):
+    """An effect can land, tick down, and wear off.
+
+    A fresh game per square, rather than one long tour. Touring a level that
+    now has archers and hunger kills the probe before it reaches the third
+    room — the level is deterministic for a seed, so walking to one square in
+    a new game visits exactly the same place with full health.
+    """
+    for seed in (42, 7, 99):
+        try:
+            sample = engine.Game(seed)
+        except Exception:
+            continue
+        if not isinstance(sample.state()['player'].get('effects'), list):
+            continue
+        squares = floor_tiles(sample.state())
+        for square in squares[:: max(1, len(squares) // 25)]:
+            game = engine.Game(seed)
+            walk_to(game, *square)
+            active = game.state()['player'].get('effects') or []
+            if not active:
+                continue
+            if not all('name' in e and 'turns' in e for e in active):
+                return False
+            # It has to end, or it is a permanent change wearing a timer.
+            for _ in range(120):
+                game.act('wait')
+                if game.state().get('game_over'):
+                    return True
+                if not (game.state()['player'].get('effects') or []):
+                    return True
+            return False
+    return False
+
+
+def f30_traits(engine):
+    traits = set()
+    for game in _seeds(engine, depths=(1, 3, 5), seeds=(42,)):
+        for monster in game.state().get('monsters', []):
+            trait = monster.get('trait')
+            if isinstance(trait, str) and trait.strip():
+                traits.add(trait)
+    return len(traits) >= 3
+
+
+def f31_ranged(engine):
+    """Something hurts the player from a distance.
+
+    Asked behaviourally — hp lost with nothing adjacent — rather than by
+    looking for a trait called "archer". Another engine may reasonably name it
+    something else, and a check that reads one implementation's vocabulary is
+    testing the vocabulary.
+    """
+    def nothing_adjacent(state):
+        here = state['player']
+        return not any(
+            m.get('alive', True)
+            and max(abs(m['x'] - here['x']), abs(m['y'] - here['y'])) <= 1
+            for m in state.get('monsters', [])
+        )
+
+    for game in _seeds(engine, depths=(1, 2, 3)):
+        for monster in [m for m in game.state().get('monsters', []) if m.get('alive', True)]:
+            # Stand a few squares off, in the open, and see what happens.
+            tiles = game.state()['map']['tiles']
+            perches = [
+                (monster['x'] + dx, monster['y'] + dy)
+                for dx in range(-5, 6)
+                for dy in range(-5, 6)
+                if 2 <= max(abs(dx), abs(dy)) <= 5
+            ]
+            for spot in perches:
+                if not (0 <= spot[1] < len(tiles) and 0 <= spot[0] < len(tiles[0])):
+                    continue
+                if tiles[spot[1]][spot[0]] not in '.<>':
+                    continue
+                if not walk_to(game, *spot):
+                    continue
+                for _ in range(12):
+                    state = game.state()
+                    if state.get('game_over'):
+                        break
+                    clear = nothing_adjacent(state)
+                    before = state['player']['hp']
+                    game.act('wait')
+                    after = game.state()
+                    if after['player']['hp'] < before and clear and nothing_adjacent(after):
+                        return True
+                break
+            if game.state().get('game_over'):
+                break
+    return False
+
+
+def f32_hunger(engine):
+    game = new_game(engine)
+    start = game.state()['player'].get('nutrition')
+    if not isinstance(start, (int, float)) or start <= 0:
+        return False
+    for _ in range(60):
+        game.act('wait')
+        if game.state().get('game_over'):
+            break
+    dropped = game.state()['player'].get('nutrition', start) < start
+    if not dropped:
+        return False
+    # And something puts it back.
+    for search in _seeds(engine, depths=(1, 2)):
+        food = [i for i in search.state().get('items', []) if i['kind'] == 'food']
+        if not food or not walk_to(search, food[0]['x'], food[0]['y']):
+            continue
+        search.act('pickup')
+        held = search.state().get('inventory', [])
+        index = next((i for i, e in enumerate(held) if e['kind'] == 'food'), None)
+        if index is None:
+            continue
+        for _ in range(40):
+            search.act('wait')
+        before = search.state()['player']['nutrition']
+        search.act('eat', index=index)
+        return search.state()['player']['nutrition'] > before
+    return False
+
+
+def f33_boss(engine):
+    deep = deep_game(engine, 5)
+    if deep is None:
+        return False
+    monsters = deep.state().get('monsters', [])
+    bosses = [m for m in monsters if m.get('boss') is True]
+    if len(bosses) != 1:
+        return False
+    boss = bosses[0]
+    others = [m['max_hp'] for m in monsters if not m.get('boss')]
+    if others and boss['max_hp'] <= max(others):
+        return False
+    # Shallower floors have no boss, or it is not a boss.
+    shallow = deep_game(engine, 1)
+    if shallow and any(m.get('boss') for m in shallow.state().get('monsters', [])):
+        return False
+    return bool(str(boss.get('name', '')).strip())
+
+
+def f34_ending(engine):
+    game = new_game(engine)
+    if 'score' not in game.state() or 'epitaph' not in game.state():
+        return False
+    # Play until it ends one way or another.
+    for _ in range(600):
+        if game.state().get('game_over') or game.state().get('won'):
+            break
+        monster, direction = bump_target(game)
+        if monster is None:
+            break
+        for _ in range(40):
+            game.move(direction)
+            if game.state().get('game_over'):
+                break
+    end = game.state()
+    if not end.get('game_over'):
+        return False
+    return isinstance(end.get('score'), (int, float)) and bool(
+        str(end.get('epitaph') or '').strip()
+    )
+
+
 FEATURES = [
     (1, 'a map exists', f01_map),
     (2, 'the player exists', f02_player),
@@ -740,6 +1057,15 @@ FEATURES = [
     (23, 'scrolls', f23_scrolls),
     (24, 'throwing', f24_throwing),
     (25, 'the amulet, and a guarded exit', f25_amulet),
+    (26, 'doors', f26_doors),
+    (27, 'traps', f27_traps),
+    (28, 'unidentified things', f28_unidentified),
+    (29, 'status effects', f29_effects),
+    (30, 'monsters worth remembering', f30_traits),
+    (31, 'things that shoot back', f31_ranged),
+    (32, 'hunger', f32_hunger),
+    (33, 'something guarding the way out', f33_boss),
+    (34, 'an ending worth reading', f34_ending),
 ]
 
 
