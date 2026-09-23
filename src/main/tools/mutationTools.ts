@@ -9,6 +9,16 @@ import { runGuardedToolWithPrepare } from './helpers'
 import { encodeCheckpointBuffer } from '../checkpoints/contentEncoding'
 import { describeEditResult } from './editEcho'
 import { clampModelResultCap } from './modelResultBudget'
+import { availableTools, listToolNames, toolIsAvailable } from './toolAvailability'
+
+/**
+ * Tools that change part of a file rather than rewriting it whole.
+ *
+ * Named in guidance when an edit fails or a rewrite would discard too much —
+ * but only when the run can actually call them, which is why every use goes
+ * through `availableTools`. See `toolAvailability.ts`.
+ */
+const PARTIAL_EDIT_TOOLS = ['replace_lines', 'patch_file'] as const
 
 const PREVIEW_CHARS = 400
 /**
@@ -117,7 +127,12 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
           const beforeBuffer = beforeExists ? await readFile(file) : null
           const beforeState = beforeBuffer ? encodeCheckpointBuffer(beforeBuffer) : null
           const beforeText = beforeState?.encoding === 'utf8' ? beforeState.data : ''
-          const truncation = describeDestructiveOverwrite(beforeText, args.content, relativePath)
+          const truncation = describeDestructiveOverwrite(
+            beforeText,
+            args.content,
+            relativePath,
+            availableTools(ctx, PARTIAL_EDIT_TOOLS)
+          )
           if (truncation) throw new Error(truncation)
           return {
             confirmDetail: `Write ${args.content.length} characters to ${args.path}:\n\n${preview(args.content)}`,
@@ -182,15 +197,20 @@ export const writeFileTool: WorkspaceToolFactory = (define, ctx) =>
 function describeDestructiveOverwrite(
   before: string,
   after: string,
-  relativePath: string
+  relativePath: string,
+  /** Partial-edit tools this run can actually call; may be empty. */
+  partialEditTools: readonly string[]
 ): string | null {
   if (before.length < MIN_PROTECTED_OVERWRITE_CHARS) return null
   if (after.length >= before.length * MAX_OVERWRITE_SHRINK_RATIO) return null
+  const instead = listToolNames(partialEditTools)
   return (
     `write_file would replace ${relativePath} (${before.length} characters) with only ` +
     `${after.length}, discarding most of the file. It was not applied. ` +
-    'To change part of a file use replace_lines or patch_file — they keep it valid at every step, ' +
-    'which a chunked rewrite does not if the turn ends part-way through. ' +
+    (instead
+      ? `To change part of a file use ${instead} — they keep it valid at every step, ` +
+        'which a chunked rewrite does not if the turn ends part-way through. '
+      : 'Write the whole file in one call, with everything it had that you still want. ') +
     'If you genuinely mean to start this file from scratch, delete_file it first.'
   )
 }
@@ -318,18 +338,25 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             // from memory and lands here. Observed live: eleven of these in one
             // turn, each one a wasted round. `replace_lines` needs only the line
             // numbers, which every read reports and which are cheap to hold.
-            const nearMiss = whereOldTextNearlyIs(args.oldText, original)
+            const byLine = toolIsAvailable(ctx, 'replace_lines')
+            const nearMiss = whereOldTextNearlyIs(args.oldText, original, byLine)
             throw new StaleFileViewError(
               'The text to replace was not found in the file. Do not guess at it — if you no ' +
-                'longer have the exact text in view, use replace_lines with the line numbers ' +
-                'instead, or read that part of the file again to get the exact text first.' +
+                'longer have the exact text in view, ' +
+                (byLine
+                  ? 'use replace_lines with the line numbers instead, or read that part of ' +
+                    'the file again to get the exact text first.'
+                  : 'read that part of the file again to get the exact text first.') +
                 (nearMiss ? `\n\n${nearMiss}` : '')
             )
           }
           if (occurrences > 1) {
             throw new Error(
               `The text to replace appears ${occurrences} times; make it unique by including more ` +
-                'surrounding lines, or use replace_lines to target one specific line range.'
+                'surrounding lines' +
+                (toolIsAvailable(ctx, 'replace_lines')
+                  ? ', or use replace_lines to target one specific line range.'
+                  : '.')
             )
           }
           const updated = original.replace(oldText, newText)
@@ -742,7 +769,12 @@ function matchFileLineEndings(
   return { oldText: asCrlf, newText: newText.replace(/\r?\n/g, '\r\n') }
 }
 
-function whereOldTextNearlyIs(oldText: string, original: string): string | null {
+function whereOldTextNearlyIs(
+  oldText: string,
+  original: string,
+  /** Whether this run can call `replace_lines`; the line numbers are useless to it otherwise. */
+  canReplaceLines: boolean
+): string | null {
   const wantedLines = oldText.split('\n')
   const anchor = wantedLines.find((line) => line.trim().length > 0)?.trim()
   // A punctuation-only anchor ("}", "});") matches almost every block in a
@@ -766,7 +798,8 @@ function whereOldTextNearlyIs(oldText: string, original: string): string | null 
   return (
     `That first line is on line ${start + 1}. What the file actually says at ` +
     `lines ${start + 1}-${end}:\n${truncateEcho(actual)}\n` +
-    'Copy that exactly if it is the text you meant, or use replace_lines with those line numbers.'
+    'Copy that exactly if it is the text you meant' +
+    (canReplaceLines ? ', or use replace_lines with those line numbers.' : '.')
   )
 }
 
