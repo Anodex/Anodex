@@ -7,6 +7,7 @@ import {
 } from './loopGuard'
 import type { ToolKind } from '@shared/tools.types'
 import { createReadCoverageTracker, type ReadCoverageTracker } from './readCoverage'
+import { RUN_BOOKKEEPING_TOOLS } from './turnProgress'
 import { createTurnEvidenceStore, type TurnEvidenceStore } from './evidenceStore'
 
 /**
@@ -97,7 +98,7 @@ export class TaskLedger {
     /** Whether repeating this call is a stable read that may simply run again. */
     rereadable?: boolean
   }): LedgerVerdict {
-    const gathering = this.reviewGathering(spec.kind)
+    const gathering = this.reviewGathering(spec.kind, spec.name)
     if (gathering) return gathering
 
     const guard = checkLoopGuard(this.loopGuard, spec.name, spec.key, spec.args)
@@ -146,8 +147,19 @@ export class TaskLedger {
    * question about the code) reaches the soft rung and is told to answer with
    * what it has, which is the right instruction there too.
    */
-  private reviewGathering(kind: ToolKind): LedgerVerdict | null {
+  private reviewGathering(kind: ToolKind, name: string): LedgerVerdict | null {
     if (!GATHERING_KINDS.has(kind)) return null
+    // How a run ends, or organises itself. Never gathering, and never
+    // blockable — the message this guard hands back says "give the user your
+    // answer", and `finish_goal` is how a run does that. Refusing it leaves a
+    // run that has looked too long with no way to stop looking.
+    //
+    // Measured 2026-09-22: a build run made 77 reads across four files, hit
+    // the hard limit, and had thirteen calls refused — `finish_goal` among
+    // them. It ended by running out of turns instead of reporting, having
+    // written nothing. `finish_goal`, `write_plan` and `delegate` all carry
+    // kind 'plan' and were all caught by a rule meant for reading.
+    if (RUN_BOOKKEEPING_TOOLS.has(name)) return null
     // A run that cannot change anything is not stalling by only looking —
     // looking is the whole job, and the answer is the concrete action. The
     // loop guard still covers the real failure here, which is re-reading the
@@ -232,6 +244,13 @@ export class TaskLedger {
    * rather than work that was attempted.
    */
   recordOutcome(spec: {
+    /**
+     * The tool's name. Needed because kind alone cannot tell organising from
+     * gathering: `finish_goal`, `write_plan` and `delegate` all carry kind
+     * 'plan', and counting them as gathering pushed runs toward a limit meant
+     * for reading.
+     */
+    name?: string
     kind: ToolKind
     madeProgress: boolean
     /**
@@ -271,7 +290,7 @@ export class TaskLedger {
       this.gatheringStreak++
       return
     }
-    if (GATHERING_KINDS.has(spec.kind)) {
+    if (GATHERING_KINDS.has(spec.kind) && !RUN_BOOKKEEPING_TOOLS.has(spec.name ?? '')) {
       this.gatheringStreak++
       return
     }
