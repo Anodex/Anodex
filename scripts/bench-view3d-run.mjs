@@ -69,7 +69,10 @@ const commands = benchmark({
   specPath: 'scripts/bench-view3d-run1.json',
   resultsPath: 'scripts/bench-view3d-results.json',
   snapshotsPath: 'scripts/bench-view3d-snapshots',
-  total: 18
+  total: 18,
+  // The engine is finished and must stay finished; the goal promises the
+  // agent it is re-checked, so it is.
+  inheritedScript: 'scripts/bench-roguelike-accept.py'
 })
 
 await main(commands, 'usage: node scripts/bench-view3d-run.mjs setup|arm|watch|report|cleanup')

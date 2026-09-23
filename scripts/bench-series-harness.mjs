@@ -158,6 +158,8 @@ function passingOf(row, total) {
  * @param {string} config.resultsPath   where the curve is recorded
  * @param {string} config.snapshotsPath where each run's workspace is kept
  * @param {number} config.total         how many checks the rubric has
+ * @param {string} [config.inheritedScript] an earlier phase's rubric, re-run every
+ *   time to prove this phase has not broken what it builds on
  * @param {object} [config.budget]      overrides for FEATURE_BUDGET
  */
 export function benchmark(config) {
@@ -174,6 +176,7 @@ export function benchmark(config) {
     resultsPath,
     snapshotsPath,
     total,
+    inheritedScript = null,
     budget = {}
   } = config
 
@@ -257,17 +260,40 @@ export function benchmark(config) {
     console.log(`armed: continues series ${series} every 2 minutes`)
   }
 
-  function score() {
-    const output = execFileSync('python', [acceptScript, workspace, '--json'], {
+  function runRubric(script) {
+    const output = execFileSync('python', [script, workspace, '--json'], {
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
       timeout: 15 * 60 * 1000
     })
-    // The two rubrics print differently: one emits pretty-printed JSON and
-    // nothing else, the other a line per feature and then JSON on one line.
-    // Both end with an object that opens at the start of a line.
+    // The rubrics print differently: one emits pretty-printed JSON and nothing
+    // else, the other a line per feature and then JSON on one line. Both end
+    // with an object that opens at the start of a line.
     const start = output.lastIndexOf('\n{')
     return JSON.parse(start >= 0 ? output.slice(start + 1) : output.trim())
+  }
+
+  function score() {
+    return runRubric(acceptScript)
+  }
+
+  /**
+   * The rubric for work an earlier phase finished, re-run to prove this phase
+   * has not broken it.
+   *
+   * Phase two's goal tells the agent "everything ticked is checked again after
+   * this run, the engine included". Nothing was actually checking the engine —
+   * the promise was true of phase one and quietly false of phase two, which is
+   * the same kind of unbacked claim this benchmark exists to catch in a model.
+   */
+  function scoreInherited() {
+    if (!inheritedScript) return null
+    try {
+      const result = runRubric(inheritedScript)
+      return { passed: result.passed, total: result.total }
+    } catch (error) {
+      return { passed: 0, total: 0, error: String(error.message ?? error).slice(0, 200) }
+    }
   }
 
   function ticked() {
@@ -317,6 +343,7 @@ export function benchmark(config) {
           summary: (run.summary ?? run.lastError ?? '').slice(0, 300),
           stoppedBecause: (run.lastError ?? '').slice(0, 200),
           ...guardsFor(run),
+          inherited: scoreInherited(),
           ticked: ticked(),
           passed: result.passed,
           total: result.total,
@@ -333,6 +360,11 @@ export function benchmark(config) {
         // Every guard, not the first one noticed.
         for (const refusal of row.refusals ?? []) {
           console.log(`    ${refusal.count}x ${refusal.reason} (${refusal.tools.join(', ')})`)
+        }
+        if (row.inherited) {
+          const kept = row.inherited.passed
+          const was = row.inherited.total
+          console.log(`    engine: ${kept}/${was}${kept < was ? '  <-- BROKE EARLIER WORK' : ''}`)
         }
         if (row.stoppedBecause) console.log(`    ended: ${row.stoppedBecause}`)
       }
