@@ -22,6 +22,17 @@
  * keeps resetting the clock. Only complete silence counts, which is the one
  * thing a working server never does.
  *
+ * ## What it does not cover
+ *
+ * Only silence. If a wedged llama-server kept sending something — an SSE
+ * keep-alive, an empty delta — every chunk would restart the clock and this
+ * would never fire. The observed wedge sent nothing at all (no round
+ * completed, and no prompt-progress chunk arrived either, which that build
+ * streams during a read), so silence is the shape that was actually seen. A
+ * wedge that chatters would need a different signal: no *tokens* for a while
+ * rather than no chunks. Not built, because it has not been observed, and a
+ * token-based deadline would have to be told apart from a long prompt read.
+ *
  * The limit is deliberately far above any legitimate gap. The longest real one
  * is reading a cold prompt before the first token: about three minutes even
  * for a 128k window at the ~700 tok/s this hardware manages, and llama-server
