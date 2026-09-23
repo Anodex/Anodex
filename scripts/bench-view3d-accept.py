@@ -626,6 +626,7 @@ def f18_ending():
 
     view3d = _import('view3d')
     engine = _import('engine')
+    written = {}
     for won in (False, True):
         ended = view3d.View(Ended(engine.Game(42), won), width=320, height=200)
         ended.frame()
@@ -638,11 +639,19 @@ def f18_ending():
             return False, f"the ending never says how deep you got: {lines}"
         if str(state['player']['level']) not in text:
             return False, f"the ending never says what level you reached: {lines}"
-        verdict = 'escape' in text or 'win' in text or 'victor' in text
-        if won and not verdict:
-            return False, f"victory reads the same as death: {lines}"
-        if not won and verdict:
-            return False, f"death reads like a victory: {lines}"
+        written[won] = text
+
+    # The two endings must differ from each other. That is the whole claim,
+    # and it is what this compares.
+    #
+    # It used to look for 'escape', 'win' or 'victor' in the victory text — a
+    # word list standing in for a concept, which is this codebase's most
+    # reliable way of failing correct work. It duly failed an ending that read
+    # "YOU SURVIVE / You climb out at depth 1 / The amulet is yours", because
+    # none of three arbitrary words happened to appear. No word list can cover
+    # how many ways there are to say someone lived.
+    if written[True] == written[False]:
+        return False, f"victory and death print the same words: {lines}"
     return True, 'death and victory each read differently, with depth and level'
 
 
