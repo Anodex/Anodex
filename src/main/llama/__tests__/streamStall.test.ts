@@ -96,3 +96,50 @@ describe('watchForStall', () => {
     expect(SILENCE_LIMIT_MS).toBeGreaterThan(worstHonestGapMs)
   })
 })
+
+/**
+ * One watch is created per round and they all listen to the same turn-long
+ * abort signal, so a listener that never fires is a listener that accumulates.
+ * A 65k turn now gets 48 rounds; Node starts warning about a leak past ten.
+ */
+describe('watchForStall listener hygiene', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('leaves nothing listening on the turn signal after a round ends', () => {
+    const caller = new AbortController()
+    const added: unknown[] = []
+    const removed: unknown[] = []
+    const realAdd = caller.signal.addEventListener.bind(caller.signal)
+    const realRemove = caller.signal.removeEventListener.bind(caller.signal)
+    caller.signal.addEventListener = (type, listener, options): void => {
+      if (type === 'abort') added.push(listener)
+      realAdd(type, listener, options)
+    }
+    caller.signal.removeEventListener = (type, listener, options): void => {
+      if (type === 'abort') removed.push(listener)
+      realRemove(type, listener, options)
+    }
+
+    for (let round = 0; round < 48; round++) {
+      watchForStall(caller.signal).done()
+    }
+
+    expect(added).toHaveLength(48)
+    expect(removed).toHaveLength(48)
+  })
+
+  it('still relays the caller abort while the round is live', () => {
+    const caller = new AbortController()
+    const watch = watchForStall(caller.signal)
+    caller.abort()
+    expect(watch.signal.aborted).toBe(true)
+    expect(watch.stalled).toBe(false)
+    watch.done()
+  })
+})
