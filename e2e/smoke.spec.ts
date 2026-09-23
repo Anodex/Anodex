@@ -862,7 +862,7 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: /^Agent/ }).click()
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
 
     // Two runs in one series, so the cards say where each sits.
     await expect(window.getByText('run 2 of 2')).toBeVisible()
@@ -973,7 +973,7 @@ test('a scheduled continuation starts the next run of the same work', async () =
     // Not an exact match: the sidebar item's accessible name gains a count
     // once a run is going (`Agent, 1 notification`), and a run going is
     // exactly what this test just caused.
-    await window.getByRole('button', { name: /^Agent/ }).click()
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
 
     // Two runs of one series: the seeded one, and the one the schedule just
     // started. The mark only appears on series with more than one run, so its
@@ -1029,7 +1029,7 @@ test('a finished run can be put on a schedule from the run list', async () => {
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: /^Agent/ }).click()
+    await window.getByRole('button', { name: 'Agent', exact: true }).click()
 
     await window.getByRole('button', { name: 'Keep this work going on a schedule' }).click()
 
