@@ -192,7 +192,11 @@ including the engine and the terminal view, which both have to keep passing.
 - [ ] 9. **Walls in perspective.** \`frame()\` draws one vertical slice per
       column, sized and placed by \`column_height\`, shaded by \`shade\`, cast by
       \`cast_view\`. Ceiling, wall and floor are not all one colour, and
-      neighbouring columns differ.
+      neighbouring columns differ. **The drawing has to fill the whole
+      surface.** If you cast fewer rays than the frame is wide — which is a
+      reasonable thing to do — each one has to be stretched to cover the
+      pixels it stands for, or the picture ends up occupying only part of the
+      window with the rest left blank.
 - [ ] 10. **Turning.** \`key('left')\` and \`key('right')\` rotate \`facing\` in
       opposite directions, by less than a quarter turn a press, and the frame
       drawn afterwards changes with it.
