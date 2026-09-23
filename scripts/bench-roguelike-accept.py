@@ -52,14 +52,27 @@ def floor_tiles(state):
     ]
 
 
-def _passable(state, allow=()):
-    """Floor squares a player could stand on, minus anything living in the way."""
+def _passable(state, avoid_monsters=True):
+    """Squares the player can end up on.
+
+    Two answers, because the probe needs both. Walking *around* a monster is
+    what a careful player does and what keeps the probe alive; walking
+    *through* one is what a player does when it is standing in the only
+    corridor. Asking only the first question once disconnected a level so
+    thoroughly that the stairs were unreachable and two features were scored
+    as regressions for five runs. Asking only the second sends the probe into
+    every fight on the floor and it dies before it arrives.
+    """
     tiles = state['map']['tiles']
-    blocked = {
-        (m['x'], m['y'])
-        for m in state.get('monsters', [])
-        if m.get('alive', True) and (m['x'], m['y']) not in allow
-    }
+    blocked = (
+        {
+            (m['x'], m['y'])
+            for m in state.get('monsters', [])
+            if m.get('alive', True)
+        }
+        if avoid_monsters
+        else set()
+    )
     return {
         (x, y)
         for y, row in enumerate(tiles)
@@ -68,17 +81,15 @@ def _passable(state, allow=()):
     }
 
 
-def _route(state, target):
-    """Shortest path to a square, or None. Breadth-first, eight-way."""
+def _bfs(state, target, open_squares):
     from collections import deque
 
     start = (state['player']['x'], state['player']['y'])
     if start == target:
         return []
-    open_squares = _passable(state, allow={target})
+    open_squares = set(open_squares)
     open_squares.add(start)
-    if target not in open_squares:
-        return None
+    open_squares.add(target)
     came = {start: None}
     queue = deque([start])
     while queue:
@@ -86,8 +97,7 @@ def _route(state, target):
         if current == target:
             break
         x, y = current
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
-                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
             nxt = (x + dx, y + dy)
             if nxt in open_squares and nxt not in came:
                 came[nxt] = current
@@ -102,14 +112,23 @@ def _route(state, target):
     return list(reversed(path))
 
 
-def walk_to(game, x, y, limit=500):
-    """Walk the player to a square, re-planning when the world moves.
+def _route(state, target):
+    """A way there: around the monsters if one exists, through them if not."""
+    clear = _bfs(state, target, _passable(state, avoid_monsters=True))
+    if clear is not None:
+        return clear
+    return _bfs(state, target, _passable(state, avoid_monsters=False))
 
-    Breadth-first rather than greedy. The first version of this walked toward
-    the target one step at a time and wedged in the first corridor that turned
-    the wrong way — which failed nine checks that were really about stairs,
-    items and monsters, and said nothing about the engine at all.
+
+def walk_to(game, x, y, limit=500):
+    """Walk the player to a square, fighting and opening what is in the way.
+
+    Breadth-first, re-planned every step because the world moves. Three things
+    have broken this before and each is handled here rather than by hoping:
+    a greedy walker wedged in corridors, a shut door read as a wall, and a
+    monster standing in a corridor treated as terrain.
     """
+    stuck = 0
     for _ in range(limit):
         state = game.state()
         if state.get('game_over'):
@@ -125,25 +144,27 @@ def walk_to(game, x, y, limit=500):
         direction = ('n' if dy < 0 else 's' if dy > 0 else '') + (
             'w' if dx < 0 else 'e' if dx > 0 else ''
         )
-        # A shut door on the path is opened rather than walked into, which
-        # is what a player does and what the level's connectivity assumes.
+
+        # A shut door is opened rather than walked into.
         if state['map']['tiles'][step_y][step_x] == SHUT_DOOR:
             game.act('open', x=step_x, y=step_y)
             if game.state()['map']['tiles'][step_y][step_x] == SHUT_DOOR:
                 return False
             continue
+
         before = (state['player']['x'], state['player']['y'])
         game.move(direction)
         after = game.state()['player']
-        if (after['x'], after['y']) == before:
-            # Something is in the way that the plan did not know about. One
-            # wait lets it move; a second failure means give up rather than
-            # spin.
-            game.act('wait')
-            state = game.state()
-            path = _route(state, (x, y))
-            if not path:
-                return False
+        if (after['x'], after['y']) != before:
+            stuck = 0
+            continue
+
+        # Blocked. Moving into a monster attacks it, which is progress even
+        # though the player has not moved — so keep swinging for a while
+        # before giving up on this route.
+        stuck += 1
+        if stuck > 30:
+            return False
     return False
 
 
@@ -913,10 +934,14 @@ def f30_traits(engine):
 def f31_ranged(engine):
     """Something hurts the player from a distance.
 
-    Asked behaviourally — hp lost with nothing adjacent — rather than by
-    looking for a trait called "archer". Another engine may reasonably name it
-    something else, and a check that reads one implementation's vocabulary is
-    testing the vocabulary.
+    A fresh game per attempt. The probe now fights through a blocking monster
+    when it has to, which means a long tour can end in a corpse before it ever
+    stands in the open — and this check is about being shot at, not about
+    surviving the walk.
+
+    Asked behaviourally rather than by looking for a trait called "archer":
+    another engine may reasonably name it something else, and a check that
+    reads one implementation's vocabulary tests the vocabulary.
     """
     def nothing_adjacent(state):
         here = state['player']
@@ -926,24 +951,40 @@ def f31_ranged(engine):
             for m in state.get('monsters', [])
         )
 
-    for game in _seeds(engine, depths=(1, 2, 3)):
-        for monster in [m for m in game.state().get('monsters', []) if m.get('alive', True)]:
-            # Stand a few squares off, in the open, and see what happens.
-            tiles = game.state()['map']['tiles']
-            perches = [
-                (monster['x'] + dx, monster['y'] + dy)
-                for dx in range(-5, 6)
-                for dy in range(-5, 6)
-                if 2 <= max(abs(dx), abs(dy)) <= 5
-            ]
-            for spot in perches:
-                if not (0 <= spot[1] < len(tiles) and 0 <= spot[0] < len(tiles[0])):
+    # Widely, because a ranged monster is placed by chance: three floors of
+    # one seed had none at all, and a check that looked only there would fail
+    # an engine that has the feature.
+    for seed in (42, 7, 99, 123):
+        for depth in (1, 2, 3, 4, 5):
+            try:
+                probe = engine.Game(seed, start_depth=depth) if depth > 1 else engine.Game(seed)
+            except TypeError:
+                if depth > 1:
                     continue
-                if tiles[spot[1]][spot[0]] not in '.<>':
+                probe = engine.Game(seed)
+            for monster in [m for m in probe.state().get('monsters', []) if m.get('alive', True)]:
+                try:
+                    game = (
+                        engine.Game(seed, start_depth=depth) if depth > 1 else engine.Game(seed)
+                    )
+                except TypeError:
+                    game = engine.Game(seed)
+                tiles = game.state()['map']['tiles']
+                perch = next(
+                    (
+                        (monster['x'] + dx, monster['y'] + dy)
+                        for dx in range(-5, 6)
+                        for dy in range(-5, 6)
+                        if 2 <= max(abs(dx), abs(dy)) <= 4
+                        and 0 <= monster['y'] + dy < len(tiles)
+                        and 0 <= monster['x'] + dx < len(tiles[0])
+                        and tiles[monster['y'] + dy][monster['x'] + dx] in '.<>'
+                    ),
+                    None,
+                )
+                if perch is None or not walk_to(game, *perch):
                     continue
-                if not walk_to(game, *spot):
-                    continue
-                for _ in range(12):
+                for _ in range(15):
                     state = game.state()
                     if state.get('game_over'):
                         break
@@ -953,9 +994,6 @@ def f31_ranged(engine):
                     after = game.state()
                     if after['player']['hp'] < before and clear and nothing_adjacent(after):
                         return True
-                break
-            if game.state().get('game_over'):
-                break
     return False
 
 
