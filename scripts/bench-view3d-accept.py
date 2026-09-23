@@ -273,7 +273,35 @@ def f09_walls_drawn():
     vertical = {surface.get_at((width // 2, y))[:3] for y in (2, height // 2, height - 3)}
     if len(vertical) < 2:
         return False, 'ceiling, wall and floor are all one colour'
-    return True, f"{len(set(row))} colours across the row, ceiling/wall/floor distinct"
+
+    # The drawing has to reach the whole frame, not just part of it.
+    #
+    # This check used to sample the entire middle row and count colours, which
+    # a half-drawn frame passes easily: an implementation casting `width // 2`
+    # rays and painting each at pixel x = ray index filled the left half with
+    # twenty-one colours and left the right half a single flat block. The row
+    # as a whole looked richly varied, and the window was half empty. Nothing
+    # here noticed until somebody looked at a screenshot.
+    #
+    # Several facings, because one of them can legitimately face a blank wall
+    # or a corner where a strip really is uniform. A renderer that fills its
+    # frame manages it from almost anywhere; one that does not, never does.
+    varied = 0
+    for step in range(6):
+        view.facing = step * (math.pi / 3)
+        drawn = view.frame()
+        far = {drawn.get_at((x, height // 2))[:3] for x in range(width // 2, width, 3)}
+        if len(far) > 1:
+            varied += 1
+    if varied < 3:
+        return False, (
+            f"the right half of the frame is a flat block from {6 - varied} of 6 facings — "
+            'the view is not filling the window it was given'
+        )
+    return True, (
+        f"{len(set(row))} colours across the row, ceiling/wall/floor distinct, "
+        f"both halves drawn from {varied}/6 facings"
+    )
 
 
 def f10_turning():
