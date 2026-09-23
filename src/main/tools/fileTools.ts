@@ -37,6 +37,28 @@ function describeReadAlternatives(
 }
 
 /**
+ * Why a search found nothing because it never started.
+ *
+ * The distinction matters more than the wording: answering "no matches" for a
+ * path that is not there tells a model something about the workspace when the
+ * truth is about its own argument, and it acts on that.
+ *
+ * With no path at all the workspace root itself is missing — deleted or
+ * unmounted while it was open — which is worth saying plainly rather than
+ * reporting as "undefined does not exist".
+ */
+function missingSearchPath(requested: string | undefined, verb: 'searched' | 'scanned'): string {
+  const named = requested?.trim()
+  if (!named) {
+    return `The workspace folder is no longer there, so nothing was ${verb}.`
+  }
+  return (
+    `${named} does not exist in the workspace, so nothing was ${verb}. ` +
+    `Check the path, or leave it out to ${verb === 'searched' ? 'search' : 'scan'} everything.`
+  )
+}
+
+/**
  * Disk-safety ceiling only — how much of a file `read_file`/`read_file_range`
  * are willing to read off disk at all. This is NOT how much of that content
  * reaches the model: `modelResultCap` below is clamped down further, per
@@ -345,14 +367,16 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
           // ENOTDIR into a bare catch; a mistyped path did the same.
           const target = await stat(start).catch(() => null)
           if (!target) {
-            throw new Error(
-              `${args.path?.trim()} does not exist in the workspace, so nothing was searched. ` +
-                'Check the path, or leave it out to search everything.'
-            )
+            throw new Error(missingSearchPath(args.path, 'searched'))
           }
           if (target.isDirectory()) {
             await walk(start, ctx.workspaceRoot, needle, results)
           } else {
+            // Deliberately not filtered by `isTextFile`, unlike the walk. The
+            // filter exists so a sweep does not read every binary it meets;
+            // naming one file is a decision already made, and it makes an
+            // extensionless or unusually-suffixed file searchable. The size
+            // cap inside still applies.
             await searchOneFile(start, ctx.workspaceRoot, needle, results)
           }
           const shown = results.slice(0, MAX_SEARCH_RESULTS)
@@ -412,10 +436,7 @@ export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
           // reads as proof about the workspace rather than about its own
           // argument.
           if (!(await stat(start).catch(() => null))) {
-            throw new Error(
-              `${args.path?.trim()} does not exist in the workspace, so nothing was scanned. ` +
-                'Check the path, or leave it out to scan everything.'
-            )
+            throw new Error(missingSearchPath(args.path, 'scanned'))
           }
           const results: string[] = []
           const matcher = createPathMatcher(query)
