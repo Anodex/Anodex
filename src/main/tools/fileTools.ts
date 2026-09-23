@@ -314,7 +314,10 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Text to search for.' },
-        path: { type: 'string', description: 'Optional subdirectory to search within.' }
+        path: {
+          type: 'string',
+          description: 'Optional file or subdirectory to search within.'
+        }
       },
       required: ['query']
     } as const,
@@ -333,7 +336,25 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
 
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const results: string[] = []
-          await walk(start, ctx.workspaceRoot, query.toLowerCase(), results)
+          const needle = query.toLowerCase()
+
+          // What `path` points at decides how to search it. Both of the other
+          // answers used to be "No matches found.", which is the worst one
+          // available: a model reads it as proof the term is absent, and acts
+          // on that. A file was searched by calling readdir on it, throwing
+          // ENOTDIR into a bare catch; a mistyped path did the same.
+          const target = await stat(start).catch(() => null)
+          if (!target) {
+            throw new Error(
+              `${args.path?.trim()} does not exist in the workspace, so nothing was searched. ` +
+                'Check the path, or leave it out to search everything.'
+            )
+          }
+          if (target.isDirectory()) {
+            await walk(start, ctx.workspaceRoot, needle, results)
+          } else {
+            await searchOneFile(start, ctx.workspaceRoot, needle, results)
+          }
           const shown = results.slice(0, MAX_SEARCH_RESULTS)
           // The walk itself stops at `SEARCH_HARD_CAP`, so once it is reached
           // the count is a floor rather than a total — reporting it bare told
@@ -386,6 +407,16 @@ export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
           if (!query) throw new Error('query was empty.')
 
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
+          // Same reason as `search_files`: a path that is not there used to
+          // scan nothing and answer "No matching paths found.", which a model
+          // reads as proof about the workspace rather than about its own
+          // argument.
+          if (!(await stat(start).catch(() => null))) {
+            throw new Error(
+              `${args.path?.trim()} does not exist in the workspace, so nothing was scanned. ` +
+                'Check the path, or leave it out to scan everything.'
+            )
+          }
           const results: string[] = []
           const matcher = createPathMatcher(query)
           await walkNames(
@@ -818,21 +849,37 @@ async function walk(dir: string, root: string, needle: string, results: string[]
       continue
     }
     if (!isTextFile(entry.name)) continue
-    try {
-      const info = await stat(full)
-      if (info.size > MAX_FILE_BYTES * 4) continue
-      const lines = (await readFile(full, 'utf-8')).split('\n')
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].toLowerCase().includes(needle)) {
-          results.push(
-            `${toWorkspaceRelative(root, full)}:${i + 1}: ${lines[i].trim().slice(0, 160)}`
-          )
-          if (results.length >= SEARCH_HARD_CAP) break
-        }
+    await searchOneFile(full, root, needle, results)
+  }
+}
+
+/**
+ * Collect matching lines from one file.
+ *
+ * Split out of the walk so a `path` naming a single file can use it. An
+ * unreadable or oversized file contributes nothing, exactly as it did inside
+ * the walk.
+ */
+async function searchOneFile(
+  full: string,
+  root: string,
+  needle: string,
+  results: string[]
+): Promise<void> {
+  try {
+    const info = await stat(full)
+    if (info.size > MAX_FILE_BYTES * 4) return
+    const lines = (await readFile(full, 'utf-8')).split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(needle)) {
+        results.push(
+          `${toWorkspaceRelative(root, full)}:${i + 1}: ${lines[i].trim().slice(0, 160)}`
+        )
+        if (results.length >= SEARCH_HARD_CAP) return
       }
-    } catch {
-      /* Unreadable file — skip. */
     }
+  } catch {
+    /* Unreadable file — skip. */
   }
 }
 
