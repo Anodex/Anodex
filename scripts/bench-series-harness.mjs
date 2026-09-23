@@ -45,7 +45,15 @@ export const BUILD_TOOLS = [
   'find_files',
   'write_file',
   'edit_file',
-  'run_command'
+  'run_command',
+  // Eyes. A graphics phase ran twenty-one times without this and shipped a
+  // renderer that filled half its window, because the only way the agent
+  // could check its own picture was to guess which pixel assertion to write
+  // — and "does the frame reach the right-hand edge" was not one it thought
+  // of. The model is a vision model and the tool already existed; it was
+  // simply switched off. A run that produces something to look at should be
+  // able to look at it.
+  'inspect_visual'
 ]
 
 /**
@@ -58,9 +66,26 @@ export const BUILD_TOOLS = [
  * 65k costs three to five minutes, so this is roughly fifteen turns of room.
  */
 export const FEATURE_BUDGET = {
-  maxTurns: 45,
-  maxTokens: 600_000,
-  maxDurationMinutes: 75,
+  /**
+   * Off, so a run ends when the work ends rather than when a clock does.
+   *
+   * Safe here because the checklist already bounds a run: the goal is one
+   * feature, and the model calls `finish_goal` when it has it. The limits were
+   * only ever a backstop, and they were the wrong kind — seven of eighteen
+   * engine runs stopped mid-edit on the clock, which is the one ending that
+   * can leave a workspace worse than it was found.
+   *
+   * What still stops a run is progress-based and stays on: the loop guard, the
+   * gathering streak, the twenty-five fruitless-epoch limit, the idle check,
+   * a provider error, and the stream-stall watchdog. Those catch a run that is
+   * stuck, which is the thing worth catching. The numbers below are ignored
+   * while this is false and are kept as sane values for anything that reads
+   * them.
+   */
+  limitsEnabled: false,
+  maxTurns: 200,
+  maxTokens: 3_000_000,
+  maxDurationMinutes: 240,
   // Pinned, never inherited. The first roguelike attempt ran at 8,192 because
   // its spec said nothing about context, and a 6,694-byte task list does not
   // fit a result budget that small — so the run could not read its own
