@@ -152,7 +152,12 @@ export const FRUITLESS_EPOCH_LIMIT = 25
 export function contextRecoveryExhaustedReason(
   consecutiveEpochs: number,
   totalEpochs = 0,
-  planStepsCompleted = 0
+  /**
+   * Whatever this run has to show for itself. Both signals, because only one
+   * of them exists for any given run — see the note below on why a single one
+   * was not enough.
+   */
+  progress: { planStepsCompleted?: number; durableChanges?: number } = {}
 ): string | null {
   // A run that has recovered this many times and closed nothing is not
   // recovering, it is grinding.
@@ -163,11 +168,27 @@ export function contextRecoveryExhaustedReason(
   // closed 4 of 4 plan steps, and the run that failed used 169 across 170 and
   // closed none. Any epoch bound low enough to stop the second ends the first.
   //
-  // Progress separates them cleanly, because the passing run closes steps
-  // early and the grinding one never closes any. The limit is set well above
-  // what a working run needs before its first step, so it only fires on a run
-  // that has genuinely achieved nothing.
-  if (totalEpochs >= FRUITLESS_EPOCH_LIMIT && planStepsCompleted === 0) {
+  // Progress separates them cleanly, because the passing run shows something
+  // for itself early and the grinding one never does. The limit is set well
+  // above what a working run needs before its first sign of progress, so it
+  // only fires on a run that has genuinely achieved nothing.
+  // Either signal counts. Plan steps only exist for a run with plan review,
+  // which is optional and off for most unattended work — so keyed on steps
+  // alone this test read "no plan" as "no progress" and degenerated into a
+  // bare epoch cap for every run that skips review.
+  //
+  // Measured 2026-09-22 across nine runs of a long build: six were stopped
+  // here, all of them `requirePlan: false` with `plan: null`, while the file
+  // they were building grew from nothing to 176 lines. The message they were
+  // given — that the fixed part of the prompt does not fit, try a larger
+  // window or fewer tools — was wrong in every case: they had a 64k window
+  // and twelve tools.
+  //
+  // Durable changes are the signal a plan-less run can actually produce, and
+  // the run already counts them. A run that can only look produces neither,
+  // which leaves its behaviour here exactly as it was.
+  const madeProgress = (progress.planStepsCompleted ?? 0) > 0 || (progress.durableChanges ?? 0) > 0
+  if (totalEpochs >= FRUITLESS_EPOCH_LIMIT && !madeProgress) {
     return (
       `Stopped after ${totalEpochs} context recoveries without completing a single plan step. ` +
       'Each one dropped the accumulated history and kept a summary of it, and the run still ' +

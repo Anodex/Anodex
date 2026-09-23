@@ -641,11 +641,10 @@ class AgentRunService {
         }
 
         const idleReason =
-          contextRecoveryExhaustedReason(
-            consecutiveEpochs,
-            contextEpochCount,
-            (plan?.steps ?? []).filter((step) => step.status === 'completed').length
-          ) ??
+          contextRecoveryExhaustedReason(consecutiveEpochs, contextEpochCount, {
+            planStepsCompleted: (plan?.steps ?? []).filter((s) => s.status === 'completed').length,
+            durableChanges: durableChangesMade
+          }) ??
           idleRunReason(idleTurns, idleStopReasons) ??
           refusedRunReason(refusedTurns)
         if (idleReason) {

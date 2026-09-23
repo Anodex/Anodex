@@ -220,13 +220,13 @@ describe('a recovery that never closes anything', () => {
   // end the first, so the bound has to read progress.
   it('lets a working run recover as often as it needs', () => {
     // The passing run's own numbers.
-    expect(contextRecoveryExhaustedReason(0, 17, 4)).toBeNull()
+    expect(contextRecoveryExhaustedReason(0, 17, { planStepsCompleted: 4 })).toBeNull()
     // And before its first step closes, while it is still under the limit.
-    expect(contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT - 1, 0)).toBeNull()
+    expect(contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT - 1, {})).toBeNull()
   })
 
   it('stops a run that has recovered many times and closed nothing', () => {
-    const reason = contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT, 0) ?? ''
+    const reason = contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT, {}) ?? ''
 
     expect(reason).toMatch(/without completing a single plan step/i)
     // Names the real cause: dropping history cannot help when the fixed part
@@ -235,7 +235,36 @@ describe('a recovery that never closes anything', () => {
   })
 
   it('never stops a run that is closing steps, however many recoveries it takes', () => {
-    expect(contextRecoveryExhaustedReason(0, 169, 1)).toBeNull()
+    expect(contextRecoveryExhaustedReason(0, 169, { planStepsCompleted: 1 })).toBeNull()
+
+    // The case that made this a bug rather than a tuning question: a run with
+    // no plan review can never close a plan step, so keyed on steps alone the
+    // test read "no plan" as "no progress" and became a bare epoch cap for
+    // every run that skips review — which is most unattended work.
+    //
+    // Measured 2026-09-22 over nine runs of a long build: six stopped here,
+    // all `requirePlan: false`, while the file they were writing grew from
+    // nothing to 176 lines. They were told the fixed prompt did not fit and to
+    // try a larger window or fewer tools; they had a 64k window and 12 tools.
+    expect(
+      contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT, { durableChanges: 3 })
+    ).toBeNull()
+    expect(
+      contextRecoveryExhaustedReason(0, 169, { planStepsCompleted: 0, durableChanges: 12 })
+    ).toBeNull()
+  })
+
+  it('still stops a run that has nothing to show by either measure', () => {
+    // A run that has neither closed a step nor changed anything, after
+    // twenty-five recoveries, is grinding whichever way it is asked.
+    const reason =
+      contextRecoveryExhaustedReason(0, FRUITLESS_EPOCH_LIMIT, {
+        planStepsCompleted: 0,
+        durableChanges: 0
+      }) ?? ''
+
+    expect(reason).toMatch(/context recoveries/i)
+    expect(reason).toMatch(/larger context window|fewer tools/i)
   })
 
   it('sits above what a passing run needed and below what a grinding one reached', () => {
