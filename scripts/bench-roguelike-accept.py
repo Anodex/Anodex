@@ -407,46 +407,67 @@ def f09_monsters(engine):
 
 
 def f10_chase(engine):
-    game = new_game(engine)
+    """A monster that can see the player closes in.
 
-    def living():
-        return [m for m in game.state().get('monsters', []) if m.get('alive', True)]
+    Stands on any reachable floor square a few tiles from a living monster,
+    rather than on two fixed offsets. The first version tried exactly
+    `(x + 4, y)` and `(x, y + 4)`; both are usually walls, so it gave up
+    before testing anything and reported a working chase as missing for
+    eleven runs.
 
-    def gap():
-        here = game.state()['player']
-        return min(
-            (max(abs(m['x'] - here['x']), abs(m['y'] - here['y'])) for m in living()),
-            default=None,
+    Getting hit or killed counts. A monster that walked over and bit you has
+    demonstrated the feature more convincingly than one that merely got closer.
+    """
+    for seed in (42, 7, 99, 123):
+        try:
+            game = engine.Game(seed)
+        except Exception:
+            continue
+        living = [m for m in game.state().get('monsters', []) if m.get('alive', True)]
+        if not living:
+            continue
+        tiles = game.state()['map']['tiles']
+        target = living[0]
+        perch = next(
+            (
+                (target['x'] + dx, target['y'] + dy)
+                for dx in range(-4, 5)
+                for dy in range(-4, 5)
+                if 2 <= max(abs(dx), abs(dy)) <= 4
+                and 0 <= target['y'] + dy < len(tiles)
+                and 0 <= target['x'] + dx < len(tiles[0])
+                and tiles[target['y'] + dy][target['x'] + dx] in '.<>'
+            ),
+            None,
         )
+        if perch is None or not walk_to(game, *perch):
+            continue
 
-    # Walk within sight first. A monster across the level behind three walls
-    # not coming for you is correct behaviour, not a missing feature — the
-    # check is about what happens once it can see you.
-    target = None
-    for monster in living():
-        if walk_to(game, monster['x'] + 4, monster['y']) or walk_to(
-            game, monster['x'], monster['y'] + 4
-        ):
-            target = monster
-            break
-    if target is None:
-        return False
+        def nearest():
+            here = game.state()['player']
+            alive = [m for m in game.state().get('monsters', []) if m.get('alive', True)]
+            return min(
+                (max(abs(m['x'] - here['x']), abs(m['y'] - here['y'])) for m in alive),
+                default=None,
+            )
 
-    start = gap()
-    if start is None:
-        return True
-    closest = start
-    before_hp = game.state()['player']['hp']
-    for _ in range(25):
-        game.act('wait')
-        state = game.state()
-        if state.get('game_over') or state['player']['hp'] < before_hp:
+        start = nearest()
+        if start is None:
+            continue
+        closest = start
+        before_hp = game.state()['player']['hp']
+        for _ in range(20):
+            game.act('wait')
+            state = game.state()
+            if state.get('game_over') or state['player']['hp'] < before_hp:
+                return True
+            now = nearest()
+            if now is None:
+                break
+            closest = min(closest, now)
+        if closest < start:
             return True
-        now = gap()
-        if now is None:
-            return True
-        closest = min(closest, now)
-    return closest < start
+    return False
 
 
 def f11_bump(engine):
