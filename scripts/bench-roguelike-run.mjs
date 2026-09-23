@@ -40,19 +40,32 @@ const readJson = (file, fallback) => {
 const GOAL = [
   `You are building ${MARKER}. Read SPEC.md first, then FEATURES.md.`,
   '',
-  'Implement the next unchecked feature — exactly one, the first unchecked — and tick ' +
-    'its box in FEATURES.md. Do not implement several at once, even if the next few look ' +
-    'easy.',
+  '**The checklist may be behind the code.** An earlier run may have built more than ' +
+    'it ticked. So before anything else: check each unticked feature against what the ' +
+    'engine actually does, and tick every one that already works. Do that in one pass, ' +
+    'cheaply, without rewriting anything.',
+  '',
+  'Then implement the first feature that genuinely does not work yet — exactly one — ' +
+    'and tick it.',
   '',
   '**Do not break a feature that already works.** Everything already ticked is checked ' +
-    'again after this run, and breaking an earlier feature counts against you more than ' +
-    'adding this one counts for you. Read the code you are changing before you change it.',
+    'again after this run, and breaking an earlier feature costs more than adding this ' +
+    'one gains. Read the code you are about to change before you change it.',
   '',
-  'Run `python check.py` before you finish. If it fails, fix that before anything else — ' +
-    'an engine that will not import scores nothing at all.',
+  'Keep your own regression file, `tests.py`: one check per finished feature, runnable ' +
+    'with `python tests.py`, printing a line per check and a failure count. Add a check ' +
+    'for whatever you build this run, and **run the whole file before you finish**. If ' +
+    'something you did not touch has started failing, fix that first — it is worth more ' +
+    'than the feature you came here to add.',
+  '',
+  'Run `python check.py` too. An engine that will not import scores nothing at all.',
+  '',
+  'Keep throwaway scripts out of the project: use `python -c` for one-offs, or put them ' +
+    'in `scratch/`. Do not leave copies of engine.py or FEATURES.md lying around.',
   '',
   'When the feature works and its box is ticked, call finish_goal saying which feature ' +
-    'you did and anything you had to change in what was already there.'
+    'you did, which boxes you ticked for work that was already there, and anything you ' +
+    'had to change in what existed.'
 ].join('\n')
 
 function setup() {

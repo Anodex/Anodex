@@ -64,7 +64,8 @@ when you build stairs (feature 8); before then it can be ignored.
 
 **\`act\`** takes an action name and keyword arguments:
 \`wait\`, \`descend\`, \`ascend\`, \`pickup\`, \`use(index)\`, \`equip(index)\`,
-\`unequip(slot)\`, \`drop(index)\`, \`throw(index, x, y)\`.
+\`unequip(slot)\`, \`drop(index)\`, \`throw(index, x, y)\`, \`open(x, y)\`,
+\`close(x, y)\`, \`eat(index)\`.
 
 An action that cannot happen — descending where there are no stairs, using
 item 9 of three — does nothing and adds a message. **It never raises.**
@@ -90,13 +91,20 @@ feature exists.
   'messages': ['You descend into the dark.'],
   'game_over': False,
   'won': False,
+
+  # added by the features that make it a game (26 onward)
+  'traps':   [{'x': 12, 'y': 3, 'kind': 'dart'}],
+  'score':   0,
+  'epitaph': None,
 }
 \`\`\`
 
 **Tiles** are single characters: \`#\` wall, \`.\` floor, \`>\` stairs down,
-\`<\` stairs up. \`tiles[y][x]\`, not \`[x][y]\`.
+\`<\` stairs up, \`+\` a shut door, \`/\` an open one. \`tiles[y][x]\`, not
+\`[x][y]\`.
 
-**\`kind\`** is one of \`potion\`, \`scroll\`, \`weapon\`, \`armour\`, \`amulet\`.
+**\`kind\`** is one of \`potion\`, \`scroll\`, \`weapon\`, \`armour\`, \`amulet\`,
+\`food\`.
 
 ## Definition of done for a feature
 
@@ -171,6 +179,47 @@ One per run, in order. Tick a box only when that feature actually works.
       at that square from a distance and consumes the item.
 - [ ] 25. **A reason to go down.** An \`amulet\` lies on depth 5. Carrying it
       back to the \`<\` on depth 1 and calling \`act('ascend')\` sets \`won\`.
+
+## The half that makes it a game
+
+Everything above is the skeleton. Everything below is the reason to play it.
+Same rules: one per run, tick only what works, break nothing.
+
+- [ ] 26. **Doors.** Some room entrances are doors — tile \`+\` shut, \`/\` open.
+      \`act('open', x=, y=)\` and \`act('close', x=, y=)\` on an adjacent door
+      toggle it. A shut door blocks both movement and sight; an open one blocks
+      neither. A door cannot be shut on a square something is standing on.
+- [ ] 27. **Traps.** Hidden squares that fire when stepped on — damage, or a
+      teleport across the level. \`state()['traps']\` lists only the ones the
+      player has discovered, each with \`x\`, \`y\`, \`kind\`. Stepping on one
+      discovers it, applies it, and says so.
+- [ ] 28. **Unidentified things.** Potions and scrolls start unknown: \`name\`
+      reads as an appearance — "cloudy potion", "scroll labelled ZELGO MER" —
+      and each carries \`identified\` false. Using one identifies every item of
+      that type for the rest of the game. The appearance for a kind is stable
+      within a seed. This is the whole tension of finding a potion.
+- [ ] 29. **Status effects.** \`player['effects']\` is a list of
+      \`{'name', 'turns'}\`. Poison costs hp each turn and wears off; confusion
+      sends \`move\` somewhere other than where it was aimed. Effects tick down
+      on every action and are announced when they end.
+- [ ] 30. **Monsters worth remembering.** At least three with a behaviour
+      rather than a stat line: one that flees below a third of its hp, one that
+      steals an item and runs for the stairs, one that splits into two weaker
+      copies when hit and survives. Each names it in \`monsters[i]['trait']\`.
+- [ ] 31. **Things that shoot back.** A monster that attacks along a clear line
+      from range instead of closing. It costs hp without ever being adjacent,
+      which is what turns a corridor into a decision.
+- [ ] 32. **Hunger.** \`player['nutrition']\` falls every turn from a full start.
+      \`food\` items restore it, eaten with \`act('eat', index=i)\`. At zero the
+      player starves, with warnings well before. This is the clock that stops
+      anyone grinding one safe level forever.
+- [ ] 33. **Something guarding the way out.** A unique boss on depth 5: its own
+      name, \`boss\` true, more hp than anything else in the game, and the amulet
+      in its room. Killing it is the point of the descent.
+- [ ] 34. **An ending worth reading.** On death or victory \`state()['score']\`
+      holds a number built from depth reached, xp earned and what was carried
+      out, and \`state()['epitaph']\` is a line naming what killed you, or that
+      you got out. A roguelike you lose should still tell you the story.
 `
 
 const MAIN = `#!/usr/bin/env python3
