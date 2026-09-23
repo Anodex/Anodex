@@ -7,6 +7,34 @@ import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
 import { clampModelResultCap, type ModelToolResultBudget } from './modelResultBudget'
+import { availableTools } from './toolAvailability'
+import type { ToolRuntimeContext } from './types'
+
+/**
+ * How to get at a file that will not fit in the context, in one sentence.
+ *
+ * Built from the tools this run actually has rather than written out flat.
+ * The flat version named `code_outline` to a benchmark whose tool list did not
+ * include it — and that fired on the very first run, when the agent's own task
+ * list was too large for an 8,192-token window, so the one message that was
+ * supposed to rescue it pointed at a tool it could not call. See
+ * `toolAvailability.ts`.
+ */
+function describeReadAlternatives(
+  ctx: Pick<ToolRuntimeContext, 'enabledTools' | 'disabledTools'>
+): string {
+  const uses: Record<string, string> = {
+    code_outline: 'code_outline for its structure',
+    search_files: 'search_files to locate a section',
+    read_file_range: 'read_file_range to page through specific lines'
+  }
+  const have = availableTools(ctx, ['code_outline', 'search_files', 'read_file_range'])
+  if (have.length === 0) {
+    // Nothing left to point at, so say the one thing that is still true.
+    return 'Read it in parts, or raise the context size.'
+  }
+  return `Use ${have.map((name) => uses[name]).join(', or ')}.`
+}
 
 /**
  * Disk-safety ceiling only — how much of a file `read_file`/`read_file_range`
@@ -247,7 +275,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               modelResult:
                 `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes. ` +
                 'Too large for the active context to return in full.\n' +
-                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+                describeReadAlternatives(ctx),
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
@@ -264,7 +292,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               modelResult:
                 `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes, ${lineCount} lines. ` +
                 'Too large for the active context to return in full.\n' +
-                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+                describeReadAlternatives(ctx),
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
@@ -499,7 +527,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const attemptCount = ctx.ledger.reads.recordReadAttempt(file)
           if (attemptCount > MAX_SAME_FILE_READS) {
             return {
-              modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, use search_files or code_outline instead of paging through it further.`,
+              modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, ${describeReadAlternatives(ctx).replace(/^Use /, 'use ')} rather than paging through it further.`,
               detail: `Redirected after ${attemptCount - 1} reads of this file`,
               madeProgress: false
             }
