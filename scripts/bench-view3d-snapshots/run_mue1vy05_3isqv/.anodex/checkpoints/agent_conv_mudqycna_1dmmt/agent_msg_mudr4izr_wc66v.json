@@ -1,0 +1,13 @@
+{
+  "conversationId": "agent_conv_mudqycna_1dmmt",
+  "messageId": "agent_msg_mudr4izr_wc66v",
+  "createdAt": 1790146788154,
+  "restoredPaths": [],
+  "changes": [
+    {
+      "path": "scratch/f25.py",
+      "before": null,
+      "after": "import os, sys\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nfrom engine import Game\n\nfor seed in (1, 7, 42, 3):\n    g = Game(seed)\n    g.depth = 5\n    g._build_level()\n    tiles = g.state()['map']['tiles']\n    amulet = [i for i in g.state()['items'] if i['name'] == 'amulet']\n    if not amulet:\n        print(f'seed {seed}: NO AMULET on depth 5')\n        continue\n    a = amulet[0]\n    print(f'seed {seed}: amulet at ({a[\"x\"]},{a[\"y\"]}), tile={tiles[a[\"y\"]][a[\"x\"]]}')\n    # pick it up\n    g._player['x'], g._player['y'] = a['x'], a['y']\n    g.act('pickup')\n    inv = g.state()['inventory']\n    print(f'  picked up: {[i[\"name\"] for i in inv]}')\n    # back to surface, on the ladder\n    g.depth = 1\n    g._build_level()\n    t1 = g.state()['map']['tiles']\n    w, h = len(t1[0]), len(t1)\n    for y in range(h):\n        for x in range(w):\n            if t1[y][x] == '<':\n                g._player['x'], g._player['y'] = x, y\n                break\n    g.act('ascend')\n    print(f'  won={g.state()[\"won\"]}, msg={g.state()[\"messages\"][-1]!r}')\n    # ascend again after winning: must stay True, no error\n    g.act('ascend')\n    print(f'  second ascend: won={g.state()[\"won\"]}')\n"
+    }
+  ]
+}

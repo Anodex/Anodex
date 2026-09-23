@@ -211,6 +211,16 @@ export function benchmark(config) {
       .sort((a, b) => a.createdAt - b.createdAt)
   }
 
+  /**
+   * Schedule the continuation that drives every run after the first.
+   *
+   * Writes `tasks.json` directly, which the app reads when it starts. A
+   * running app keeps its tasks in memory and does not re-read the file, so
+   * both `arm` and `cleanup` take effect on the next app start — a `cleanup`
+   * against a running app leaves the series continuing, which looked for a
+   * while like the Scheduler ignoring a removal. It is not: nothing reads the
+   * file again. Stop a live series by restarting the app.
+   */
   function arm() {
     const runs = benchRuns()
     if (runs.length === 0) {
@@ -412,10 +422,11 @@ export function benchmark(config) {
     }
   }
 
+  /** Take the schedule away. Takes effect on the next app start — see `arm`. */
   function cleanup() {
     const tasks = (readJson(TASKS, []) ?? []).filter((task) => task.id !== taskId)
     fs.writeFileSync(TASKS, JSON.stringify(tasks, null, 2) + '\n')
-    console.log('schedule removed')
+    console.log('schedule removed from tasks.json (restart the app to stop a live series)')
   }
 
   return { setup, arm, watch, report, cleanup, benchRuns, score, ticked }

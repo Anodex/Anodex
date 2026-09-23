@@ -1,0 +1,5 @@
+Feature 21 (Experience):
+1. engine: _gain_xp(amount) — award xp, level up while xp >= level*10 (raise level, +5 max_hp, heal), message.
+2. engine: call _gain_xp(monster max_hp) in _attack on monster death.
+3. tests: feature_21() — kill a monster, assert xp rises; force threshold crossing, assert level and max_hp rise with a message.
+4. Verify: python tests.py && python check.py, tick box 21.

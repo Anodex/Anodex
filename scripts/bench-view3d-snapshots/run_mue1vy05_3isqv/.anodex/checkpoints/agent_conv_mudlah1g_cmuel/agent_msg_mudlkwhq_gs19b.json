@@ -1,0 +1,13 @@
+{
+  "conversationId": "agent_conv_mudlah1g_cmuel",
+  "messageId": "agent_msg_mudlkwhq_gs19b",
+  "createdAt": 1790137570810,
+  "changes": [
+    {
+      "path": "scratch/diag78.py",
+      "before": null,
+      "after": "\"\"\"Diagnose feature 7/8 walk failures: is a monster sitting on the BFS path?\"\"\"\nfrom collections import deque\nfrom engine import Game\n\nDIRS = {'n': (0, -1), 's': (0, 1), 'e': (1, 0), 'w': (-1, 0)}\n\n\ndef bfs_path(tiles, w, h, walkable, start, goal):\n    prev = {start: None}\n    q = deque([start])\n    while q and goal not in prev:\n        cx, cy = q.popleft()\n        for name, (dx, dy) in DIRS.items():\n            nx, ny = cx + dx, cy + dy\n            if (0 <= nx < w and 0 <= ny < h and walkable(tiles[ny][nx])\n                    and (nx, ny) not in prev):\n                prev[(nx, ny)] = (cx, cy)\n                q.append((nx, ny))\n    if goal not in prev:\n        return None\n    path = [goal]\n    node = goal\n    while prev[node] is not None:\n        node = prev[node]\n        path.append(node)\n    return path[::-1]\n\n\nfor seed in (3, 42):\n    g = Game(seed)\n    tiles, w, h = g.state()['map']['tiles'], 80, 24\n    start = (g.state()['player']['x'], g.state()['player']['y'])\n    print(f\"--- seed {seed}: start {start}\")\n\n    # feature-7 target: first floor tile >= 20 away (same scan order as tests.py)\n    target = None\n    for y in range(h):\n        for x in range(w):\n            if tiles[y][x] == '.' and (x - start[0])**2 + (y - start[1])**2 >= 400:\n                target = (x, y)\n                break\n        if target:\n            break\n    p7 = bfs_path(tiles, w, h, lambda t: t == '.', start, target)\n    if p7:\n        blockers = [c for c in p7[1:]\n                    if any(m['alive'] and (m['x'], m['y']) == c for m in g._monsters)]\n        print(f\"  f7 target {target}: path len {len(p7)}, monster-blocked cells: {blockers}\")\n    else:\n        print(f\"  f7 target {target}: NO PATH\")\n\n    # feature-8 stairs\n    stairs = [(x, y) for y in range(h) for x in range(w) if tiles[y][x] == '>']\n    p8 = bfs_path(tiles, w, h, lambda t: t in ('.', '>'), start, stairs[0])\n    if p8:\n        blockers = [c for c in p8[1:]\n                    if any(m['alive'] and (m['x'], m['y']) == c for m in g._monsters)]\n        print(f\"  f8 stairs {stairs[0]}: path len {len(p8)}, monster-blocked cells: {blockers}\")\n    else:\n        print(f\"  f8 stairs {stairs[0]}: NO PATH\")\n",
+      "afterEncoding": "utf8"
+    }
+  ]
+}

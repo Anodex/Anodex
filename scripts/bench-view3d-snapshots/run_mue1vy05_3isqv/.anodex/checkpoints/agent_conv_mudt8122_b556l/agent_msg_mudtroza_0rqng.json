@@ -1,0 +1,13 @@
+{
+  "conversationId": "agent_conv_mudt8122_b556l",
+  "messageId": "agent_msg_mudtroza_0rqng",
+  "createdAt": 1790151305200,
+  "changes": [
+    {
+      "path": "scratch/diag_doors.py",
+      "before": null,
+      "after": "\"\"\"Diagnose feature 26 regressions: do shut doors block monster LOS/pathing?\"\"\"\nfrom engine import Game\n\nfor seed in (7, 42, 3, 11, 99):\n    g = Game(seed)\n    s = g.state()\n    tiles = s['map']['tiles']\n    p = s['player']\n    doors = [(x, y) for y in range(len(tiles)) for x in range(len(tiles[y]))\n             if tiles[y][x] in ('+', '/')]\n    see = [m['name'] for m in s['monsters'] if m['alive'] and g._monster_sees(m)]\n    # Can each monster path to the player right now?\n    paths = []\n    for m in s['monsters']:\n        if not m['alive']:\n            continue\n        path = g._bfs(m['x'], m['y'], p['x'], p['y'])\n        paths.append((m['name'], bool(path)))\n    print(f\"seed {seed}: player=({p['x']},{p['y']}) doors={len(doors)} \"\n          f\"seeing_player={see} bfs_reaches_player={paths}\")\n    # What tile is the player on, and where are the doors relative to the start room?\n    for d in doors:\n        dist = abs(d[0] - p['x']) + abs(d[1] - p['y'])\n        print(f\"   door {d} tile={tiles[d[1]][d[0]]!r} manhattan_dist_to_player={dist}\")\n",
+      "afterEncoding": "utf8"
+    }
+  ]
+}

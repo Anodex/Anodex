@@ -1,0 +1,13 @@
+{
+  "conversationId": "agent_conv_mudwfsjz_3w7o4",
+  "messageId": "agent_msg_mudx0qau_kjgvt",
+  "createdAt": 1790156681691,
+  "changes": [
+    {
+      "path": "scratch/repro.py",
+      "before": null,
+      "after": "from engine import Game\ng = Game(7)\ng2 = Game(7)\npo = [i for i in g.state()['items'] if i['kind'] == 'potion']\nsc = [i for i in g.state()['items'] if i['kind'] == 'scroll']\nprint('potion floor:', po)\nprint('scroll floor:', sc)\nprint('same seed same look:',\n      [i['name'] for i in g2.state()['items'] if i['kind'] == 'potion'])\nprint('raw _inventory before state():', repr(g._inventory))\nprint('inv set:', g.state()['inventory'])\n",
+      "afterEncoding": "utf8"
+    }
+  ]
+}

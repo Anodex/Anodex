@@ -1,0 +1,19 @@
+{
+  "conversationId": "agent_conv_mudux4ii_teyc2",
+  "messageId": "agent_msg_mudux4iq_elqhj",
+  "createdAt": 1790153152024,
+  "restoredPaths": [],
+  "changes": [
+    {
+      "path": "scratch/_doorcheck.py",
+      "before": null,
+      "after": "\"\"\"One-off: does the current engine have any door support?\"\"\"\nimport re\nimport sys\n\nsys.path.insert(0, '.')\nsrc = open('engine.py').read()\nlines = src.splitlines()\nfor pat in ('door', \"'+'\", \"'/'\", \"'open'\", \"'close'\", \"'open' \", \"toggle\"):\n    hits = [i + 1 for i, l in enumerate(lines) if re.search(pat, l)]\n    print(repr(pat), '->', hits[:30])\n"
+    },
+    {
+      "path": "scratch/f26_doors_check.py",
+      "before": null,
+      "after": "[content omitted after execution; read the file if the exact text is needed]",
+      "afterEncoding": "utf8"
+    }
+  ]
+}

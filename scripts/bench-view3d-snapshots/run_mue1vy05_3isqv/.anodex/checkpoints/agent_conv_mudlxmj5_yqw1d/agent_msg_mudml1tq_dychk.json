@@ -1,0 +1,13 @@
+{
+  "conversationId": "agent_conv_mudlxmj5_yqw1d",
+  "messageId": "agent_msg_mudml1tq_dychk",
+  "createdAt": 1790139403539,
+  "changes": [
+    {
+      "path": "scratch/diag12.py",
+      "before": null,
+      "after": "import faulthandler\nfaulthandler.dump_traceback_later(5, exit=True)\nfrom engine import Game\n\nfor seed in (7, 42, 3):\n    g = Game(seed)\n    tiles = g.state()['map']['tiles']\n    w, h = len(tiles[0]), len(tiles)\n    m = next(mon for mon in g._monsters if mon['alive'])\n    mx, my = m['x'], m['y']\n    name = None\n    ax = ay = None\n    for nm, (dx, dy) in {'e': (1, 0), 'w': (-1, 0), 's': (0, 1), 'n': (0, -1)}.items():\n        ax, ay = mx + dx, my + dy\n        if 0 <= ax < w and 0 <= ay < h and tiles[ay][ax] == '.':\n            name = nm\n            break\n    if name is None:\n        print(f'seed {seed}: no adjacent floor for monster at ({mx},{my})')\n        continue\n    g._player['x'], g._player['y'] = ax, ay\n    hits = 0\n    while m['alive'] and hits < 10:\n        g.move(name)\n        hits += 1\n    px, py = g.state()['player']['x'], g.state()['player']['y']\n    print(f'seed {seed}: name={name} start=({ax},{ay}) monster=({mx},{my}) '\n          f'hp={m[\"hp\"]}/{m[\"max_hp\"]} alive={m[\"alive\"]} hits={hits} player=({px},{py})')\nprint('exit ok')\n",
+      "afterEncoding": "utf8"
+    }
+  ]
+}

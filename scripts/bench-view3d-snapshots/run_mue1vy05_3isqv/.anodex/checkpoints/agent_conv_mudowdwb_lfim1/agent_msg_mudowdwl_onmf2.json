@@ -1,0 +1,19 @@
+{
+  "conversationId": "agent_conv_mudowdwb_lfim1",
+  "messageId": "agent_msg_mudowdwl_onmf2",
+  "createdAt": 1790143063091,
+  "restoredPaths": [],
+  "changes": [
+    {
+      "path": "scratch/unticked_check.py",
+      "before": null,
+      "after": "\"\"\"Cheap pass over unticked features 18-34: what does the engine actually do?\"\"\"\nimport os\nimport sys\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nimport engine\n\ng = engine.Game(42)\n\n# 18: equipment\ninv = g.state()['inventory']\nidx = None\nfor i, it in enumerate(inv):\n    if it['kind'] in ('weapon', 'armour'):\n        idx = i\n        break\nprint(\"18 equip: act('equip') in act()? \", end=\"\")\ntry:\n    if idx is not None:\n        g.act('equip', index=idx)\n    print(\"no exception; equipped=\", g.state()['equipped'],\n          \"attack=\", g.state()['player']['attack'])\nexcept Exception as e:\n    print(\"raised\", type(e).__name__, e)\n\n# 19/20: bestiary across depths 1-5\nnames, hp_by_name = set(), {}\nfor d in range(1, 6):\n    gd = engine.Game(42, start_depth=d)\n    for m in gd.state()['monsters']:\n        names.add(m['name'])\n        hp_by_name.setdefault(m['name'], set()).add(m['max_hp'])\nprint(\"19 names 1-5:\", sorted(names), \"max_hp per name:\", hp_by_name)\n\n# 21: xp on kill\ng2 = engine.Game(7)\nprint(\"21 xp starts:\", g2.state()['player']['xp'])\n\n# 22: save/load\ntry:\n    g2.save('scratch/save.bin')\n    print(\"22 save: no exception\")\nexcept Exception as e:\n    print(\"22 save:\", type(e).__name__, e)\n\n# 23: scroll use\ngs = engine.Game(11)\nsidx = None\nfor i, it in enumerate(gs.state()['inventory']):\n    if it['kind'] == 'scroll':\n        sidx = i\nprint(\"23 scroll in fresh inv (before pickup):\", sidx)\n\n# 25: amulet on depth 5\ng5 = engine.Game(42, start_depth=5)\nprint(\"25 kinds on depth 5:\", sorted({i['kind'] for i in g5.state()['items']}),\n      \"won key:\", g5.state().get('won'))\n\n# 26-34: keys in state?\nst = g.state()\nprint(\"27 traps key present:\", 'traps' in st)\nprint(\"28 identified key on items:\", any('identified' in i for i in st['items']))\nprint(\"29 player effects key:\", 'effects' in st['player'])\nprint(\"30 trait key:\", any('trait' in m for m in st['monsters']))\nprint(\"32 nutrition key:\", 'nutrition' in st['player'])\nprint(\"34 score/epitaph keys:\", 'score' in st, 'epitaph' in st)\n"
+    },
+    {
+      "path": "scratch/bestiary_check.py",
+      "before": null,
+      "after": "\"\"\"Does feature 19 (bestiary) hold across seeds, as currently built?\"\"\"\nimport os\nimport sys\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nimport engine\n\nfor seed in range(1, 15):\n    names = set()\n    hp_by_name = {}\n    for d in range(1, 6):\n        gd = engine.Game(seed, start_depth=d)\n        for m in gd.state()['monsters']:\n            names.add(m['name'])\n            hp_by_name.setdefault(m['name'], set()).add(m['max_hp'])\n    ok = len(names) >= 3\n    if ok:\n        # \"different max_hp between them\": the species must not all share one hp\n        allsets = [hp_by_name[n] for n in names]\n        ok = len(set(frozenset(s) for s in allsets)) >= 2\n    print(f\"seed {seed:2d}: names={sorted(names)} ok={ok} \"\n          f\"hp={ {n: sorted(hp_by_name[n]) for n in sorted(names)} }\")\n",
+      "afterEncoding": "utf8"
+    }
+  ]
+}
