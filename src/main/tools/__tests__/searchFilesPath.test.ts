@@ -90,3 +90,46 @@ describe('find_files with a path', () => {
     expect(out).not.toContain('No matching paths found')
   })
 })
+
+/** The two cases the message has to keep apart. */
+describe('a missing search path is explained, not implied', () => {
+  let workspace: string
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'anodex-missing-path-'))
+    await writeFile(join(workspace, 'engine.py'), 'descend\n', 'utf-8')
+  })
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true })
+  })
+
+  it('names the path the caller actually gave', async () => {
+    const tool = searchFilesTool(createMockDefine(), createMockContext(workspace)) as unknown as {
+      handler: (args: { query: string; path?: string }) => Promise<string>
+    }
+    const out = await tool.handler({ query: 'descend', path: 'src/engine.py' })
+    expect(out).toContain('src/engine.py')
+    expect(out).not.toContain('undefined')
+  })
+
+  it('says the workspace is gone rather than printing "undefined"', async () => {
+    const ctx = createMockContext(workspace)
+    await rm(workspace, { recursive: true, force: true })
+    const tool = searchFilesTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { query: string; path?: string }) => Promise<string>
+    }
+    const out = await tool.handler({ query: 'descend' })
+    expect(out).not.toContain('undefined')
+    expect(out).toContain('no longer there')
+  })
+
+  it('searches a file the walk would have skipped for its extension', async () => {
+    await writeFile(join(workspace, 'notes.weird'), 'descend here\n', 'utf-8')
+    const tool = searchFilesTool(createMockDefine(), createMockContext(workspace)) as unknown as {
+      handler: (args: { query: string; path?: string }) => Promise<string>
+    }
+    const out = await tool.handler({ query: 'descend', path: 'notes.weird' })
+    expect(out).toContain('notes.weird')
+  })
+})
