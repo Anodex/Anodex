@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import type { CreateAgentRunRequest } from '@shared/agentRun.types'
 import { buildRunToolNames } from '@shared/tools.types'
-import { readJournal } from '../agents/agentJournal'
+import { discardJournalIfSeriesGone, readJournal } from '../agents/agentJournal'
 import { seriesIdOf } from '@shared/agentRun.types'
 import { agentRunStore } from '../agents/AgentRunStore'
 import { agentRunService } from '../agents/AgentRunService'
@@ -100,11 +100,16 @@ export function registerAgentHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.Agent.delete, async (_event, id: string) => {
-    if (agentRunStore.get(id)?.status === 'running') {
+    const run = agentRunStore.get(id)
+    if (run?.status === 'running') {
       throw new Error('Stop this run before deleting it.')
     }
     agentRunStore.delete(id)
     await discardRunAttachments(id)
+    // The journal belongs to the series, not the run, so it goes only when the
+    // last run of that series does. Otherwise deleting one run of five would
+    // take the other four's shared history with it.
+    if (run) discardJournalIfSeriesGone(seriesIdOf(run), agentRunStore.list())
   })
 
   ipcMain.handle(IpcChannel.Agent.approvePlan, (_event, id: string) => {

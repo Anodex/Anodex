@@ -26,6 +26,7 @@ import {
 } from '../tools/evidenceStore'
 import { createTaskLedger } from '../tools/taskLedger'
 import { createLogger } from '../utils/logger'
+import { describeStall, SILENCE_LIMIT_MS, watchForStall } from './streamStall'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
@@ -479,6 +480,8 @@ export class LlamaVisionService {
     let toolCallsTruncated = false
     /** Set when the runtime failed a tool-call parse without having generated. */
     let staleParseFailure = false
+    /** The runtime went silent mid-stream — see `streamStall.ts`. */
+    let runtimeStalled = false
     /** Set when a round failed outright after earlier ones had produced work. */
     let providerError: string | null = null
     /**
@@ -789,6 +792,7 @@ export class LlamaVisionService {
       const visibleText = createBudgetMessageFilter()
       /** llama-server's own timing for this round — see `roundTimings.ts`. */
       let roundTimings: RoundTimings | null = null
+      const stallWatch = watchForStall(params.signal)
       try {
         const stream = await client.chat.completions.create(
           {
@@ -816,10 +820,13 @@ export class LlamaVisionService {
                 } as unknown as Record<string, never>)
               : {})
           },
-          { signal: params.signal }
+          { signal: stallWatch.signal }
         )
 
         for await (const chunk of stream) {
+          // Every chunk restarts the silence clock. A long reply keeps
+          // resetting it; only a runtime that has stopped talking runs it out.
+          stallWatch.heard()
           const reading = promptProgressOf(chunk)
           if (reading) params.onPromptProgress?.(reading)
           roundTimings = roundTimingsOf(chunk) ?? roundTimings
@@ -867,6 +874,7 @@ export class LlamaVisionService {
         // token chat request measured 6,817 ms cold against 90 ms warm — and
         // until this line the log recorded the prompt's size but never which
         // of those two had just happened. See `roundTimings.ts`.
+        stallWatch.done()
         if (roundTimings) {
           log.info('Vision round timings', {
             round,
@@ -875,6 +883,7 @@ export class LlamaVisionService {
           })
         }
       } catch (error) {
+        stallWatch.done()
         roundContent += visibleText.flush()
         // Folded before anything below reads `content`. While streaming wrote
         // straight into `content`, a round that produced text before failing
@@ -884,6 +893,18 @@ export class LlamaVisionService {
         // transports fold in their own catch for exactly this reason.
         content = appendRoundText(content, roundContent)
         roundContent = ''
+        // A stall aborts the request the same way a user would, so it has to
+        // be read first or a wedged runtime is reported as "you stopped it"
+        // and nothing in the log says otherwise.
+        if (stallWatch.stalled) {
+          runtimeStalled = true
+          log.error('The local runtime went silent mid-stream; abandoning the request', {
+            round,
+            silentForMs: SILENCE_LIMIT_MS,
+            roundMs: Date.now() - roundStartedAt
+          })
+          break
+        }
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -1124,6 +1145,12 @@ export class LlamaVisionService {
     // unattributed to any message. A late runtime fault is a reason to end the
     // turn, never a reason to throw away what it accomplished; `runtime-stalled`
     // reports it just as plainly with the content kept.
+    // Same rule as the parse-failure case below: only throw when the turn has
+    // nothing to lose. A stall that arrives after real work is a reason to end
+    // the turn, not to discard what it already did.
+    if (runtimeStalled && !content && !hadAnyToolAttempt) {
+      throw new Error(describeStall())
+    }
     if (staleParseFailure && !content && !hadAnyToolAttempt) {
       throw new Error(
         'The local runtime stopped running the model and returned the same tool-call parse ' +
@@ -1163,6 +1190,7 @@ export class LlamaVisionService {
       }),
       stopped:
         stopped ||
+        runtimeStalled ||
         roundsExhausted ||
         tokenLimit ||
         toolCallsTruncated ||
@@ -1174,7 +1202,7 @@ export class LlamaVisionService {
       // an exhausted context are all diagnoses the coarser reasons would hide.
       stopReason: providerError
         ? 'provider-error'
-        : staleParseFailure
+        : runtimeStalled || staleParseFailure
           ? 'runtime-stalled'
           : contextExhausted === 'fixed'
             ? 'fixed-context-limit'

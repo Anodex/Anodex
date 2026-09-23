@@ -124,7 +124,9 @@ function leadingExecutable(command: string): string | null {
 export function describeEmptySearchResult(
   command: string,
   output: string,
-  terminated: boolean
+  terminated: boolean,
+  /** Search tools this run can actually call; named in the note only if there are any. */
+  confirmWith: readonly string[] = []
 ): string | null {
   if (terminated) return null
   if (!SEARCH_COMMANDS.test(command)) return null
@@ -133,7 +135,8 @@ export function describeEmptySearchResult(
   return (
     '\n\nNote: this search produced no output. That means EITHER the pattern genuinely does not ' +
     'occur, OR the pattern syntax is wrong for this tool. Do not conclude the term is absent ' +
-    'from a single empty result — confirm with a different tool (search_files, code_outline) or ' +
+    'from a single empty result — confirm with ' +
+    (confirmWith.length > 0 ? `a different tool (${confirmWith.join(', ')}) or ` : '') +
     'a simpler literal pattern before relying on it.'
   )
 }

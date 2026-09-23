@@ -255,7 +255,14 @@ export function hasStaleVisualEvidence(progress: TurnProgress): boolean {
  * whether it can change anything: finding and loading skills, and managing the
  * run's own plan and ending.
  */
-const RUN_BOOKKEEPING_TOOLS = new Set([
+/**
+ * Tools a run uses to organise or end itself, rather than to do the work.
+ *
+ * Shared with `taskLedger`, which must never block or count them: the
+ * gathering guard's own advice is to stop looking and answer, and
+ * `finish_goal` is the answering.
+ */
+export const RUN_BOOKKEEPING_TOOLS = new Set([
   'find_skill',
   'load_skill',
   'finish_goal',

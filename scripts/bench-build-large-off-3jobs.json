@@ -1,0 +1,25 @@
+{
+  "goal": "The project folder is a working command-line tool. Read SPEC.md first — it describes the shared library in lib/ and the four commands already built on top of it. Then read SPEC-NEW.md, which specifies six more commands to add: components, errors, rate, sessions, diff and tail.\n\nBuild those six as commands/<name>.js. Use the existing library rather than your own parsing, formatting or time handling — the four commands that already exist are the worked examples. Do not change cli.js, anything in lib/, or the four commands that already work.\n\nCheck your work by running the commands against samples/app.log before you finish.\n\nWhen the six commands work, call finish_goal with a short account of what you built and anything you could not get working.",
+  "project": "BuildToolLarge",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/BuildToolLarge",
+  "enabledTools": [
+    "list_directory",
+    "read_file",
+    "read_file_range",
+    "read_multiple_files",
+    "search_files",
+    "find_files",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "run_command"
+  ],
+  "provider": "local",
+  "maxTurns": 50,
+  "maxTokens": 700000,
+  "maxDurationMinutes": 100,
+  "requirePlan": false,
+  "contextSize": 65536,
+  "parallelJobs": 3,
+  "subAgentsEnabled": false
+}

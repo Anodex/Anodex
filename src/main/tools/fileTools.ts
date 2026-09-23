@@ -7,6 +7,56 @@ import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
 import { clampModelResultCap, type ModelToolResultBudget } from './modelResultBudget'
+import { availableTools } from './toolAvailability'
+import type { ToolRuntimeContext } from './types'
+
+/**
+ * How to get at a file that will not fit in the context, in one sentence.
+ *
+ * Built from the tools this run actually has rather than written out flat.
+ * The flat version named `code_outline` to a benchmark whose tool list did not
+ * include it — and that fired on the very first run, when the agent's own task
+ * list was too large for an 8,192-token window, so the one message that was
+ * supposed to rescue it pointed at a tool it could not call. See
+ * `toolAvailability.ts`.
+ */
+function describeReadAlternatives(
+  ctx: Pick<ToolRuntimeContext, 'enabledTools' | 'disabledTools'>
+): string {
+  const uses: Record<string, string> = {
+    code_outline: 'code_outline for its structure',
+    search_files: 'search_files to locate a section',
+    read_file_range: 'read_file_range to page through specific lines'
+  }
+  const have = availableTools(ctx, ['code_outline', 'search_files', 'read_file_range'])
+  if (have.length === 0) {
+    // Nothing left to point at, so say the one thing that is still true.
+    return 'Read it in parts, or raise the context size.'
+  }
+  return `Use ${have.map((name) => uses[name]).join(', or ')}.`
+}
+
+/**
+ * Why a search found nothing because it never started.
+ *
+ * The distinction matters more than the wording: answering "no matches" for a
+ * path that is not there tells a model something about the workspace when the
+ * truth is about its own argument, and it acts on that.
+ *
+ * With no path at all the workspace root itself is missing — deleted or
+ * unmounted while it was open — which is worth saying plainly rather than
+ * reporting as "undefined does not exist".
+ */
+function missingSearchPath(requested: string | undefined, verb: 'searched' | 'scanned'): string {
+  const named = requested?.trim()
+  if (!named) {
+    return `The workspace folder is no longer there, so nothing was ${verb}.`
+  }
+  return (
+    `${named} does not exist in the workspace, so nothing was ${verb}. ` +
+    `Check the path, or leave it out to ${verb === 'searched' ? 'search' : 'scan'} everything.`
+  )
+}
 
 /**
  * Disk-safety ceiling only — how much of a file `read_file`/`read_file_range`
@@ -247,7 +297,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               modelResult:
                 `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes. ` +
                 'Too large for the active context to return in full.\n' +
-                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+                describeReadAlternatives(ctx),
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
@@ -264,7 +314,7 @@ export const readFileTool: WorkspaceToolFactory = (define, ctx) =>
               modelResult:
                 `${toWorkspaceRelative(ctx.workspaceRoot, file)}: ${info.size} bytes, ${lineCount} lines. ` +
                 'Too large for the active context to return in full.\n' +
-                'Use code_outline for its structure, search_files to locate a section, or read_file_range to page through specific lines.',
+                describeReadAlternatives(ctx),
               detail: `${info.size} bytes (too large; see recommendation)`
             }
           }
@@ -286,7 +336,10 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Text to search for.' },
-        path: { type: 'string', description: 'Optional subdirectory to search within.' }
+        path: {
+          type: 'string',
+          description: 'Optional file or subdirectory to search within.'
+        }
       },
       required: ['query']
     } as const,
@@ -305,7 +358,27 @@ export const searchFilesTool: WorkspaceToolFactory = (define, ctx) =>
 
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
           const results: string[] = []
-          await walk(start, ctx.workspaceRoot, query.toLowerCase(), results)
+          const needle = query.toLowerCase()
+
+          // What `path` points at decides how to search it. Both of the other
+          // answers used to be "No matches found.", which is the worst one
+          // available: a model reads it as proof the term is absent, and acts
+          // on that. A file was searched by calling readdir on it, throwing
+          // ENOTDIR into a bare catch; a mistyped path did the same.
+          const target = await stat(start).catch(() => null)
+          if (!target) {
+            throw new Error(missingSearchPath(args.path, 'searched'))
+          }
+          if (target.isDirectory()) {
+            await walk(start, ctx.workspaceRoot, needle, results)
+          } else {
+            // Deliberately not filtered by `isTextFile`, unlike the walk. The
+            // filter exists so a sweep does not read every binary it meets;
+            // naming one file is a decision already made, and it makes an
+            // extensionless or unusually-suffixed file searchable. The size
+            // cap inside still applies.
+            await searchOneFile(start, ctx.workspaceRoot, needle, results)
+          }
           const shown = results.slice(0, MAX_SEARCH_RESULTS)
           // The walk itself stops at `SEARCH_HARD_CAP`, so once it is reached
           // the count is a floor rather than a total — reporting it bare told
@@ -358,6 +431,13 @@ export const findFilesTool: WorkspaceToolFactory = (define, ctx) =>
           if (!query) throw new Error('query was empty.')
 
           const start = resolveInWorkspace(ctx.workspaceRoot, args.path?.trim() || '.')
+          // Same reason as `search_files`: a path that is not there used to
+          // scan nothing and answer "No matching paths found.", which a model
+          // reads as proof about the workspace rather than about its own
+          // argument.
+          if (!(await stat(start).catch(() => null))) {
+            throw new Error(missingSearchPath(args.path, 'scanned'))
+          }
           const results: string[] = []
           const matcher = createPathMatcher(query)
           await walkNames(
@@ -499,7 +579,7 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
           const attemptCount = ctx.ledger.reads.recordReadAttempt(file)
           if (attemptCount > MAX_SAME_FILE_READS) {
             return {
-              modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, use search_files or code_outline instead of paging through it further.`,
+              modelResult: `[${normalized.path}: this is read attempt ${attemptCount} on this same file this task.]\nThe request needs coverage across many files, not exhaustive depth on one — move to a different file now. If you need to find something specific in this file later, ${describeReadAlternatives(ctx).replace(/^Use /, 'use ')} rather than paging through it further.`,
               detail: `Redirected after ${attemptCount - 1} reads of this file`,
               madeProgress: false
             }
@@ -790,21 +870,37 @@ async function walk(dir: string, root: string, needle: string, results: string[]
       continue
     }
     if (!isTextFile(entry.name)) continue
-    try {
-      const info = await stat(full)
-      if (info.size > MAX_FILE_BYTES * 4) continue
-      const lines = (await readFile(full, 'utf-8')).split('\n')
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].toLowerCase().includes(needle)) {
-          results.push(
-            `${toWorkspaceRelative(root, full)}:${i + 1}: ${lines[i].trim().slice(0, 160)}`
-          )
-          if (results.length >= SEARCH_HARD_CAP) break
-        }
+    await searchOneFile(full, root, needle, results)
+  }
+}
+
+/**
+ * Collect matching lines from one file.
+ *
+ * Split out of the walk so a `path` naming a single file can use it. An
+ * unreadable or oversized file contributes nothing, exactly as it did inside
+ * the walk.
+ */
+async function searchOneFile(
+  full: string,
+  root: string,
+  needle: string,
+  results: string[]
+): Promise<void> {
+  try {
+    const info = await stat(full)
+    if (info.size > MAX_FILE_BYTES * 4) return
+    const lines = (await readFile(full, 'utf-8')).split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(needle)) {
+        results.push(
+          `${toWorkspaceRelative(root, full)}:${i + 1}: ${lines[i].trim().slice(0, 160)}`
+        )
+        if (results.length >= SEARCH_HARD_CAP) return
       }
-    } catch {
-      /* Unreadable file — skip. */
     }
+  } catch {
+    /* Unreadable file — skip. */
   }
 }
 

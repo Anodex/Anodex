@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   GenerationBudget,
+  AGENT_TURN_BUDGET,
+  agentBudgetForContext,
   interactiveBudgetForContext,
   turnTimeLimitOverride
 } from '../GenerationBudget'
@@ -183,5 +185,45 @@ describe('the tool-limit soft gate is bounded', () => {
 
     expect(budget.signal.aborted).toBe(false)
     expect(budget.stopReason).toBeUndefined()
+  })
+})
+
+/**
+ * An unattended run is paced by the same window an interactive turn is, and
+ * was left flat when interactive turns were scaled. Nothing reported it
+ * because a turn that stops at its round cap looks exactly like a turn that
+ * finished; the cost only shows a level up, as a run that keeps re-entering.
+ */
+describe('agentBudgetForContext', () => {
+  it('gives an agent turn the same room an interactive turn gets on the same window', () => {
+    for (const size of [8_192, 16_384, 65_536, 131_072]) {
+      const agent = agentBudgetForContext(size)
+      const interactive = interactiveBudgetForContext(size)
+      expect(agent.maxProviderRounds).toBe(interactive.maxProviderRounds)
+      expect(agent.maxTools).toBe(interactive.maxTools)
+      expect(agent.maxContextShifts).toBe(interactive.maxContextShifts)
+    }
+  })
+
+  it('is unchanged where the flat numbers were chosen', () => {
+    expect(agentBudgetForContext(16_384).maxProviderRounds).toBe(12)
+    expect(agentBudgetForContext(16_384).maxTools).toBe(32)
+    expect(agentBudgetForContext(8_192).maxContextShifts).toBe(8)
+  })
+
+  it('opens up at the size the benchmark actually runs at', () => {
+    // 65,536 got 12 rounds and 32 tools, a quarter of the window's worth.
+    expect(agentBudgetForContext(65_536).maxProviderRounds).toBe(48)
+    expect(agentBudgetForContext(65_536).maxTools).toBe(128)
+  })
+
+  it('keeps the flat budget when the window is unknown, as a cloud run is', () => {
+    expect(agentBudgetForContext(undefined)).toEqual(AGENT_TURN_BUDGET)
+  })
+
+  it('never lets the wall clock stretch with the window', () => {
+    for (const size of [8_192, 131_072, undefined]) {
+      expect(agentBudgetForContext(size).maxDurationMs).toBe(AGENT_TURN_BUDGET.maxDurationMs)
+    }
   })
 })

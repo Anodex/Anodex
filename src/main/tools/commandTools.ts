@@ -9,6 +9,7 @@ import {
   describeEmptySearchResult
 } from './commandGuidance'
 import { isKnownMutatingCommand, isObservationalCommand } from './commandEffect'
+import { availableTools } from './toolAvailability'
 
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
@@ -111,7 +112,12 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // pattern", and reading it as the former is what sent the driving
           // incident chasing elements that were present all along.
           const emptySearchNote =
-            describeEmptySearchResult(args.command, combined, Boolean(terminated)) ?? ''
+            describeEmptySearchResult(
+              args.command,
+              combined,
+              Boolean(terminated),
+              availableTools(ctx, ['search_files', 'code_outline'])
+            ) ?? ''
           // No truncation here: `runGuardedTool`'s own MAX_MODEL_RESULT_CHARS
           // cap already applies to every guarded tool's result uniformly, the
           // same way `runReadTool`'s does for read tools. This tool used to

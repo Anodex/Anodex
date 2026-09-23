@@ -72,18 +72,59 @@ function cycleLimitsForContext(
   return { maxProviderRounds, maxTools: Math.round((maxProviderRounds * 8) / 3) }
 }
 
+/**
+ * Context epochs a cycle may spend, scaled for the same reason as
+ * {@link cycleLimitsForContext}: left flat it stops being a failsafe and starts
+ * deciding how much work fits in a window it was never chosen for.
+ */
+function contextShiftsForContext(contextSize: number): number {
+  return Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
+}
+
+/**
+ * Scale a flat policy to the window it will actually run in.
+ *
+ * The wall-clock cap is left alone — time does not get cheaper with a bigger
+ * window — and so is anything the caller has already overridden.
+ */
+function scaleToContext(
+  base: GenerationBudgetPolicy,
+  contextSize: number | undefined
+): GenerationBudgetPolicy {
+  if (!contextSize) return base
+  return {
+    ...base,
+    ...cycleLimitsForContext(contextSize),
+    maxContextShifts: contextShiftsForContext(contextSize)
+  }
+}
+
 export function interactiveBudgetForContext(
   contextSize: number | undefined,
   turnTimeLimitMinutes: number | null = 15
 ): GenerationBudgetPolicy {
-  const base = !contextSize
-    ? DEFAULT_INTERACTIVE_BUDGET
-    : {
-        ...DEFAULT_INTERACTIVE_BUDGET,
-        ...cycleLimitsForContext(contextSize),
-        maxContextShifts: Math.max(4, Math.min(12, Math.ceil(contextSize / 4_096) * 4))
-      }
-  return { ...base, ...turnTimeLimitOverride(turnTimeLimitMinutes) }
+  return {
+    ...scaleToContext(DEFAULT_INTERACTIVE_BUDGET, contextSize),
+    ...turnTimeLimitOverride(turnTimeLimitMinutes)
+  }
+}
+
+/**
+ * The same calibration for an unattended agent run.
+ *
+ * `AGENT_TURN_BUDGET` was left flat when interactive turns were scaled, and
+ * nothing reported it because a turn that stops at its round cap looks like a
+ * turn that finished. The cost shows up a level up: at 65,536 an agent turn got
+ * 12 provider rounds and 32 tool calls where an interactive turn on the same
+ * window gets 48 and 128, so the run ended each turn a quarter of the way
+ * through its context and paid the fixed re-entry cost again on the next one.
+ * Measured on a benchmark that runs at exactly that size, where turns cost
+ * three to five minutes each and runs kept ending on the clock.
+ *
+ * Unchanged at 8k and below, where the flat numbers were chosen.
+ */
+export function agentBudgetForContext(contextSize: number | undefined): GenerationBudgetPolicy {
+  return scaleToContext(AGENT_TURN_BUDGET, contextSize)
 }
 
 /** One-turn wall-clock/tool budget shared by every model provider. */

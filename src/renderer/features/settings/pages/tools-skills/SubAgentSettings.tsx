@@ -88,10 +88,17 @@ export function SubAgentSettings({
       {settings.agents.subAgentsEnabled && (
         <>
           <p className={pageStyles.sectionDesc}>
-            <strong>One sub-agent on a cloud provider measured best.</strong> On a bug-hunt
-            benchmark it found every planted defect in the same wall-clock as using no sub-agents at
-            all, for a few thousand metered tokens. Two and three found no more and cost four to
-            seven times as much, because each one re-reads the whole workspace. Start with one.
+            <strong>Measured helpful for reviewing, measured useless for building.</strong> On a bug
+            hunt, one sub-agent on a cloud provider found every planted defect in the same
+            wall-clock as using none at all, for a few thousand metered tokens — reading divides
+            cleanly, so splitting it works. On a build benchmark across two workloads, delegation
+            never produced a better result and cost three and a half to five times as much.
+          </p>
+          <p className={pageStyles.sectionDesc}>
+            So: worth turning on for a review, an audit, a search across a codebase. Not worth it
+            for writing code a single run could write, whatever the number of sub-agents — more of
+            them never helped in either benchmark, because each one re-reads the workspace from
+            nothing. If you do use them, start with one.
           </p>
           <p className={pageStyles.sectionDesc}>
             Where each sub-agent runs. Leaving these as “same as the run” keeps them on whatever the

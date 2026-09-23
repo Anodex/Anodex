@@ -106,6 +106,7 @@ import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
+import { describeLoad } from './modelLoadKey'
 import { createTurnProgress, type TurnProgressSeed } from '../tools/turnProgress'
 import { guardToolHandlers } from './guardedToolDefine'
 import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
@@ -476,8 +477,16 @@ class LlamaService extends EventEmitter {
    * `useAnodexBridge.ts`). Kept here too, not just fixed at the source, so
    * *any* future duplicate call — from anywhere — fails loudly and safely
    * instead of racing the native engine.
+   *
+   * Holds the load in flight, not just a flag, so a second call asking for the
+   * *same* model can wait for it instead of being refused. Startup produces
+   * that race on its own — something restores the last model while something
+   * else asks for it — and refusing the second one surfaced "Failed to load the
+   * model" to the user three times in one night for a model that loaded fine a
+   * second later. A request for a *different* model still fails fast: that one
+   * is a genuine conflict, and the reason this guard exists.
    */
-  private loadingModel = false
+  private inFlightLoad: { key: string; load: Promise<EngineState> } | null = null
   /**
    * Admits model-touching operations onto the loaded model, as many at once as it
    * has room for. The vision runtime is a `llama-server` started with one slot per
@@ -550,21 +559,37 @@ class LlamaService extends EventEmitter {
    * before — both IPC entry points (`Models.load`, and `Models.delete` via
    * `unload`) call straight through while a reply may still be streaming.
    *
-   * `loadingModel` is still set synchronously, before the first await, so a
-   * genuine duplicate call fails fast instead of quietly queueing behind the
-   * first and loading the same model twice.
+   * `inFlightLoad` is set synchronously, before the first await, so a second
+   * call cannot slip past and load into the same GPU resources.
+   *
+   * A second call for the *same* model with the same settings joins the load
+   * already running and gets its result. It is not a conflict — it is two
+   * parts of the app wanting the same thing — and the model is loaded once
+   * either way. A call for anything else still fails fast, which is the race
+   * this guard was built for.
    */
   async loadModel(options: ModelLoadOptions, info: ModelInfo): Promise<EngineState> {
-    if (this.loadingModel) {
+    const key = describeLoad(options)
+    if (this.inFlightLoad) {
+      if (this.inFlightLoad.key === key) return this.inFlightLoad.load
       throw new Error('Another model is already loading. Wait for it to finish first.')
     }
-    this.loadingModel = true
+    const load = this.runModelLoad(options, info)
+    this.inFlightLoad = { key, load }
+    try {
+      return await load
+    } finally {
+      this.inFlightLoad = null
+    }
+  }
+
+  /** The load itself, with the engine lock held for all of it. */
+  private async runModelLoad(options: ModelLoadOptions, info: ModelInfo): Promise<EngineState> {
     const release = await this.modelLock.acquireExclusive()
     let state: EngineState
     try {
       state = await this.loadModelInternal(options, info)
     } finally {
-      this.loadingModel = false
       release()
     }
     if (this.visionService.active) void this.warmUpPromptCache(info.path)

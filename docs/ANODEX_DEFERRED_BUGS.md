@@ -975,3 +975,31 @@ the autorun harnesses. What was fixed is in git; these are the ones left.
   _consistent_ failure across both passes, which reads as "this model reliably
   invents a message for a bad id" when the model never got to speak. The rubric
   now reports that turn `N/A` rather than `FAIL`.
+
+## The three cloud transports have no stream-stall timeout either
+
+**Open. Noticed 2026-09-23 while fixing the local one; deliberately not fixed
+at the same time.**
+
+`AnthropicProvider`, `OpenAiProvider` and `OpenAiCompatibleProvider` all open a
+stream and consume it with no bound on the gaps between chunks — the same shape
+that wedged the local runtime for nineteen minutes (see `streamStall.ts` for
+the full account). A cloud connection that hangs with the stream open would
+hang the run the same way.
+
+It is not the same severity. The local wedge also stopped every background task
+on the machine, because `llamaService.isGenerating()` stayed true and the
+Scheduler defers to it; a cloud hang stalls only its own run.
+
+**Why it is not fixed yet: there is no observed instance.** The local one was
+caught live, sampled, and measured before anything was written. Adding three
+more watchdogs on the strength of "the code looks alike" is how this codebase
+accumulated the guards that were themselves the reason it stopped working.
+A stall timeout is a mild kind of guard — it refuses no work, it only stops an
+already-dead wait — but a spurious abort on a cloud provider discards a
+generation the user paid for, which the local one cannot do.
+
+**What would settle it:** one observed cloud hang, or a deliberate test against
+a server that accepts a stream and then stops writing. `watchForStall` is
+transport-agnostic and takes a limit, so the fix is a few lines per provider
+once there is a reason for it.

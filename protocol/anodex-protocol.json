@@ -14786,6 +14786,20 @@
               "kind": "string"
             }
           }
+        },
+        "continuesSeriesId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
         }
       }
     },
@@ -23197,6 +23211,20 @@
             "of": [
               {
                 "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "continuesSeriesId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
               },
               {
                 "kind": "string"

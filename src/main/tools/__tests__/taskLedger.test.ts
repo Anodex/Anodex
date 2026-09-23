@@ -617,3 +617,55 @@ describe('a read-only run and the gathering ceiling', () => {
     expect(blocked).toBeGreaterThan(0)
   })
 })
+
+describe('the tools a run uses to stop', () => {
+  /**
+   * The guard's own message tells a model that has looked too long to "give
+   * the user your answer". `finish_goal` is how an agent run does that — and
+   * it carried kind 'plan', which the gathering rule counts and, at the hard
+   * limit, blocks. A run that had looked too long was therefore refused the
+   * only way it had to stop looking.
+   *
+   * Measured 2026-09-22: a build run made 77 reads across four files, hit the
+   * hard limit, had thirteen calls refused including `finish_goal`, and ended
+   * by running out of turns having written nothing.
+   */
+  function gatherUntilBlocked(ledger: ReturnType<typeof createTaskLedger>) {
+    for (let call = 0; call < GATHERING_HARD_LIMIT + 2; call++) {
+      ledger.reviewCall({ name: 'read_file', kind: 'read', key: `file-${call}` })
+      ledger.recordOutcome({ name: 'read_file', kind: 'read', madeProgress: true })
+    }
+  }
+
+  it('never blocks finish_goal, however long the run has been looking', () => {
+    const ledger = createTaskLedger()
+    gatherUntilBlocked(ledger)
+
+    // The guard is working — an ordinary read is refused by now.
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'another' }).action).toBe(
+      'block'
+    )
+    // And the way out is still open.
+    expect(ledger.reviewCall({ name: 'finish_goal', kind: 'plan', key: 'done' }).action).toBe('run')
+  })
+
+  it('never blocks the tools a run organises itself with', () => {
+    const ledger = createTaskLedger()
+    gatherUntilBlocked(ledger)
+
+    for (const name of ['write_plan', 'update_plan_step', 'delegate', 'find_skill']) {
+      expect(ledger.reviewCall({ name, kind: 'plan', key: name }).action).toBe('run')
+    }
+  })
+
+  it('does not count organising as gathering', () => {
+    // Otherwise a run that writes a plan and ticks its steps walks itself
+    // toward a limit built for reading, without having read anything.
+    const ledger = createTaskLedger()
+    for (let call = 0; call < GATHERING_HARD_LIMIT + 5; call++) {
+      ledger.reviewCall({ name: 'update_plan_step', kind: 'plan', key: `step-${call}` })
+      ledger.recordOutcome({ name: 'update_plan_step', kind: 'plan', madeProgress: true })
+    }
+    expect(ledger.reviewCall({ name: 'read_file', kind: 'read', key: 'x' }).action).toBe('run')
+  })
+})

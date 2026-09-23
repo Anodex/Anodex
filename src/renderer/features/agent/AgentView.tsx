@@ -26,6 +26,7 @@ import {
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
 import { describeSubAgents, groupRunsByParent, seriesPlaces, type SeriesPlace } from './runTree'
+import { KeepGoingDialog } from './KeepGoingDialog'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
 import styles from './AgentView.module.css'
@@ -211,6 +212,7 @@ function RunCard({
   handleStop,
   retryRun,
   continueRun,
+  keepGoing,
   deleteRun,
   subAgents = [],
   subAgentIndex = null,
@@ -236,6 +238,7 @@ function RunCard({
   retryRun: (run: AgentRun) => void
   /** Start the next run of this ongoing work, carrying its series. */
   continueRun: (run: AgentRun) => void
+  keepGoing: (run: AgentRun) => void
   deleteRun: (run: AgentRun) => void
   /** The view is announcing this landing itself; don't self-announce. */
   orchestrated?: boolean
@@ -374,6 +377,21 @@ function RunCard({
               <Icon name="chevrons-up" size={14} />
             </button>
           )}
+          {/* The same decision as Continue, made once instead of every time.
+              Offered beside it rather than buried in the Scheduler, because
+              "this should keep happening" is a thought you have while looking
+              at what just happened. */}
+          {run.status !== 'running' && !run.parentRunId && (
+            <button
+              type="button"
+              className={styles.iconAction}
+              onClick={() => keepGoing(run)}
+              aria-label="Keep this work going on a schedule"
+              title="Keep this work going on a schedule"
+            >
+              <Icon name="clock" size={14} />
+            </button>
+          )}
           <button
             type="button"
             className={styles.iconAction}
@@ -427,6 +445,8 @@ export function AgentView(): JSX.Element {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [awayOnly, setAwayOnly] = useState(false)
+  /** The finished run whose work is being put on a schedule, if any. */
+  const [keepGoingId, setKeepGoingId] = useState<string | null>(null)
 
   const away = useAwayArrivals(runs, loaded)
   const listRef = useRef<HTMLDivElement>(null)
@@ -449,6 +469,7 @@ export function AgentView(): JSX.Element {
   // Across every run, not the filtered view: a series' length is a fact
   // about the work, not about what the list happens to be showing.
   const places = seriesPlaces(runs)
+  const keepGoingRun = runs.find((run) => run.id === keepGoingId) ?? null
 
   const awayIds = new Set(away.runs.map((run) => run.id))
   const visibleRuns = awayOnly
@@ -594,6 +615,9 @@ export function AgentView(): JSX.Element {
           seriesPlace={places.get(selectedRun.id) ?? null}
         />
         {editor}
+        {keepGoingRun && (
+          <KeepGoingDialog run={keepGoingRun} onClose={() => setKeepGoingId(null)} />
+        )}
       </div>
     )
   }
@@ -697,6 +721,7 @@ export function AgentView(): JSX.Element {
                   handleStop={(r) => void handleStop(r)}
                   retryRun={retryRun}
                   continueRun={continueRun}
+                  keepGoing={(run) => setKeepGoingId(run.id)}
                   deleteRun={(r) => void handleDelete(r)}
                   orchestrated={away.orchestrated(entry.id)}
                   spotlit={away.spotlightId === entry.id}
@@ -723,6 +748,7 @@ export function AgentView(): JSX.Element {
       </div>
 
       {editor}
+      {keepGoingRun && <KeepGoingDialog run={keepGoingRun} onClose={() => setKeepGoingId(null)} />}
     </div>
   )
 }
