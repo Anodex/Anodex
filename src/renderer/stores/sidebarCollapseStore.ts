@@ -1,10 +1,8 @@
 import { create } from 'zustand'
 
-/** Narrower than this, even the minimum sidebar width starts crowding out the
- *  chat — matches AppShell's own layout math, kept here too since the
- *  title-bar toggle button needs to know whether "expand" means reopening
- *  the docked column or just popping a temporary overlay. */
-export const SIDEBAR_COLLAPSE_BREAKPOINT = 760
+/** Keep the 52px rail and a useful chat area when the project/chat panel is open. */
+export const SIDEBAR_RAIL_WIDTH = 52
+export const SIDEBAR_COLLAPSE_BREAKPOINT = 812
 
 const MANUAL_KEY = 'anodex:sidebarManuallyCollapsed'
 
@@ -33,8 +31,12 @@ interface SidebarCollapseState {
   autoCollapsed: boolean
   /** Temporary full-sidebar overlay shown over a narrow window. */
   overlayOpen: boolean
+  /** Consumed by the search input after the panel opens and focus moves. */
+  searchFocusPending: boolean
   setAutoCollapsed: (value: boolean) => void
   setOverlayOpen: (value: boolean) => void
+  requestSearch: () => void
+  clearSearchFocus: () => void
   /** Collapses to the icon rail and persists that as the user's preference. */
   collapse: () => void
   /** Docks the sidebar back open, or — on a narrow window where there's no
@@ -48,6 +50,7 @@ export const useSidebarCollapse = create<SidebarCollapseState>((set, get) => ({
   manuallyCollapsed: loadManuallyCollapsed(),
   autoCollapsed: typeof window !== 'undefined' && window.innerWidth < SIDEBAR_COLLAPSE_BREAKPOINT,
   overlayOpen: false,
+  searchFocusPending: false,
 
   setAutoCollapsed: (autoCollapsed) => {
     set({ autoCollapsed })
@@ -56,9 +59,16 @@ export const useSidebarCollapse = create<SidebarCollapseState>((set, get) => ({
 
   setOverlayOpen: (overlayOpen) => set({ overlayOpen }),
 
+  requestSearch: () => {
+    get().expand()
+    set({ searchFocusPending: true })
+  },
+
+  clearSearchFocus: () => set({ searchFocusPending: false }),
+
   collapse: () => {
     saveManuallyCollapsed(true)
-    set({ manuallyCollapsed: true, overlayOpen: false })
+    set({ manuallyCollapsed: true, overlayOpen: false, searchFocusPending: false })
   },
 
   expand: () => {
@@ -71,8 +81,9 @@ export const useSidebarCollapse = create<SidebarCollapseState>((set, get) => ({
   },
 
   toggle: () => {
-    const { autoCollapsed, manuallyCollapsed } = get()
-    if (autoCollapsed || manuallyCollapsed) get().expand()
+    const { autoCollapsed, manuallyCollapsed, overlayOpen } = get()
+    if (overlayOpen) set({ overlayOpen: false })
+    else if (autoCollapsed || manuallyCollapsed) get().expand()
     else get().collapse()
   }
 }))

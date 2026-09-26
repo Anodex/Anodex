@@ -84,6 +84,163 @@ test('app shell does not render nested buttons', async () => {
   }
 })
 
+test('the navigation rail stays put while the chat panel opens and closes', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-sidebar-e2e-'))
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await window.setViewportSize({ width: 1200, height: 800 })
+    await waitForStartup(window)
+
+    const railButton = window.getByRole('button', { name: 'Chats view', exact: true })
+    const panel = window.locator('#project-chat-sidebar aside')
+    const main = window.locator('main')
+    await expect(railButton).toBeVisible()
+    await expect(panel).toBeVisible()
+
+    const railX = (await railButton.boundingBox())?.x
+    const openMainX = (await main.boundingBox())?.x
+    expect(railX).toBeDefined()
+    expect(openMainX).toBeGreaterThan(52)
+
+    await window.getByRole('button', { name: 'Collapse sidebar' }).click()
+    await expect(panel).toHaveCount(0)
+    await expect(railButton).toBeVisible()
+    await expect.poll(async () => (await main.boundingBox())?.x).toBe(52)
+    expect((await railButton.boundingBox())?.x).toBe(railX)
+
+    await window.keyboard.press('Control+k')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByPlaceholder('Search')).toBeFocused()
+    await expect.poll(async () => (await main.boundingBox())?.x).toBe(openMainX)
+
+    await window.getByRole('button', { name: 'Collapse sidebar' }).click()
+    await railButton.click()
+    await expect(panel).toBeVisible()
+    await expect(panel.getByPlaceholder('Search')).not.toBeFocused()
+
+    await window.setViewportSize({ width: 700, height: 800 })
+    await expect(panel).toHaveCount(0)
+    await railButton.click()
+    const overlay = window.locator('#project-chat-sidebar-overlay aside')
+    await expect(overlay).toBeVisible()
+    expect((await overlay.boundingBox())?.x).toBe(52)
+    await window.getByRole('button', { name: 'Hide sidebar' }).click()
+    await expect(overlay).toHaveCount(0)
+    await railButton.click()
+    await expect(overlay).toBeVisible()
+    await window.getByRole('button', { name: 'Scheduler', exact: true }).click()
+    await expect(overlay).toHaveCount(0)
+    await expect(railButton).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
+test('Chats and Workspace switch the sidebar list without switching the open conversation', async () => {
+  test.setTimeout(60_000) // This flow boots once to seed data and reloads twice to check persistence.
+  const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-sidebar-mode-e2e-'))
+  const folderPath = join(userDataDir, 'workspace')
+  await mkdir(folderPath)
+  const app = await electron.launch({
+    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+  })
+
+  try {
+    const window = await app.firstWindow()
+    await window.setViewportSize({ width: 1200, height: 800 })
+    await window.evaluate(async (projectFolder) => {
+      const anodex = (globalThis as unknown as { anodex: AnodexApi }).anodex
+      const project = await anodex.projects.create({
+        name: 'Sidebar test project',
+        folderPath: projectFolder
+      })
+      const now = Date.now()
+      await anodex.conversations.save({
+        id: 'sidebar-general-chat',
+        projectId: null,
+        title: 'General test chat',
+        messages: [{ id: 'g1', role: 'user', content: 'General message', createdAt: now }],
+        createdAt: now,
+        updatedAt: now
+      })
+      await anodex.conversations.save({
+        id: 'sidebar-project-chat',
+        projectId: project.id,
+        title: 'Project test chat',
+        messages: [{ id: 'p1', role: 'user', content: 'Project message', createdAt: now }],
+        createdAt: now,
+        updatedAt: now
+      })
+      await anodex.projects.setActive(project.id)
+      await anodex.conversations.setState({ activeConversationId: 'sidebar-project-chat' })
+    }, folderPath)
+    await window.reload()
+    await waitForStartup(window)
+
+    const panel = window.locator('#project-chat-sidebar aside')
+    await expect(panel.getByRole('button', { name: 'Sidebar view: Workspace' })).toBeVisible()
+    await expect(panel.getByText('Sidebar test project')).toBeVisible()
+    await expect(panel.getByText('General test chat')).toHaveCount(0)
+    await expect(window.locator('main').getByText('Project test chat')).toBeVisible()
+
+    await panel.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
+    await panel
+      .locator('#sidebar-mode-options')
+      .getByRole('button', { name: /^Chats/ })
+      .click()
+    await expect(panel.getByRole('button', { name: 'Sidebar view: Chats' })).toBeVisible()
+    await expect(window.getByRole('button', { name: 'Chats view' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    await expect(window.getByRole('button', { name: 'Workspace view' })).not.toHaveAttribute(
+      'aria-current',
+      'page'
+    )
+    await expect(panel.getByText('General test chat')).toBeVisible()
+    await expect(panel.getByText('Sidebar test project')).toHaveCount(0)
+    await expect(window.locator('main').getByText('Project test chat')).toBeVisible()
+
+    await window.getByRole('button', { name: 'Workspace view' }).click()
+    await expect(panel.getByText('Sidebar test project')).toBeVisible()
+    await window.getByRole('button', { name: 'Chats view' }).click()
+    await expect(panel.getByText('General test chat')).toBeVisible()
+
+    await window.reload()
+    await waitForStartup(window)
+    await expect(panel.getByRole('button', { name: 'Sidebar view: Chats' })).toBeVisible()
+    await expect(panel.getByText('General test chat')).toBeVisible()
+
+    await window.setViewportSize({ width: 700, height: 800 })
+    await window.getByRole('button', { name: 'Workspace view' }).click()
+    const overlay = window.locator('#project-chat-sidebar-overlay aside')
+    await expect(overlay.getByRole('button', { name: 'Sidebar view: Workspace' })).toBeVisible()
+    await overlay.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
+    await expect(overlay.locator('#sidebar-mode-options')).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(overlay.locator('#sidebar-mode-options')).toHaveCount(0)
+    await expect(overlay).toBeVisible()
+
+    await overlay.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
+    await overlay
+      .locator('#sidebar-mode-options')
+      .getByRole('button', { name: /^Chats/ })
+      .click()
+    await expect(overlay.getByText('General test chat')).toBeVisible()
+    await overlay.getByText('General test chat').click()
+    await expect(overlay).toHaveCount(0)
+    await expect(window.locator('main').getByText('General test chat')).toBeVisible()
+  } finally {
+    await app.close()
+    await rm(userDataDir, { recursive: true, force: true })
+  }
+})
+
 test('GitHub settings exposes the guided hosted-MCP setup', async () => {
   const app = await electron.launch({
     args: ['out/main/index.js']

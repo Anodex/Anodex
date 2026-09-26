@@ -161,6 +161,24 @@ describe('vision image inputs', () => {
     expect(() => enqueueVisualInput(queue, image)).toThrow(/limit reached/i)
   })
 
+  it('accepts eight inspections across rounds while limiting each batch to four', () => {
+    const queue = createVisualInputQueue()
+    const image = {
+      path: 'result.png',
+      name: 'result.png',
+      mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,aGVsbG8=',
+      sizeBytes: 5
+    }
+
+    for (let index = 0; index < 4; index++) enqueueVisualInput(queue, image)
+    expect(() => enqueueVisualInput(queue, image)).toThrow(/batch is full/i)
+    expect(drainVisualInputs(queue)).toHaveLength(4)
+    for (let index = 0; index < 4; index++) enqueueVisualInput(queue, image)
+    expect(drainVisualInputs(queue)).toHaveLength(4)
+    expect(() => enqueueVisualInput(queue, image)).toThrow(/limit reached/i)
+  })
+
   it('rejects BMP before a cloud request while preserving local support', () => {
     const bmp = {
       path: 'scan.bmp',

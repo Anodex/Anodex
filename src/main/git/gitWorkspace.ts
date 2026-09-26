@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { GitWorkspaceStatus } from '@shared/git.types'
 
+/** Bound status checks so a slow Git process does not hold up the workspace UI. */
 const GIT_TIMEOUT_MS = 10_000
 
 interface GitCommandResult {

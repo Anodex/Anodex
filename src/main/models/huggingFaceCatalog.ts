@@ -6,6 +6,7 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('hf-catalog')
 
+/** Bound catalog requests so a slow Hugging Face response does not stall model search. */
 const SEARCH_TIMEOUT_MS = 10_000
 const DETAIL_TIMEOUT_MS = 10_000
 /** How many search hits to fetch full details for — bounds how many extra

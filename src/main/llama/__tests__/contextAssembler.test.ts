@@ -15,6 +15,38 @@ import { reservedNonHistoryTokens } from '@shared/contextBudget'
 const countTokens = (text: string): number => text.length
 
 describe('projectHistoryForModel', () => {
+  it('bounds one long prior assistant reply before a new visual request', () => {
+    const content = `Opening. ${'x'.repeat(47_000)} Closing conclusion.`
+    const history: ChatHistoryTurn[] = [
+      { role: 'user', content: 'Build the model.' },
+      {
+        role: 'assistant',
+        content,
+        toolCalls: Array.from({ length: 137 }, (_, index) => ({
+          id: `t${index}`,
+          name: 'run_command',
+          kind: 'command' as const,
+          title: `Check step ${index}`,
+          status: 'success' as const,
+          result: `Result ${index}: ${'a'.repeat(1_100)}`
+        }))
+      }
+    ]
+
+    const projected = projectHistoryForModel(history)[1]
+
+    expect(projected.content.length).toBeLessThan(8_000)
+    expect(projected.content).toContain('Opening.')
+    expect(projected.content).toContain('Closing conclusion.')
+    expect(projected.toolCalls?.[0].result).toBe('[older result omitted]')
+    expect(projected.toolCalls?.at(-1)?.result).toContain('Result 136:')
+    const replayText = `${projected.content}\n${projected.toolCalls?.map(rememberToolCallForModel).join('\n')}`
+    expect(replayText.length).toBeLessThan(25_000)
+    expect(history[1].content).toBe(content)
+    expect(history[1].toolCalls?.[0].result).toContain('Result 0:')
+    expect(projectHistoryForModel([projected])[0]).toEqual(projected)
+  })
+
   it('sanitizes assistant text and bounds remembered tool output', () => {
     const history: ChatHistoryTurn[] = [
       { role: 'user', content: 'make the change' },

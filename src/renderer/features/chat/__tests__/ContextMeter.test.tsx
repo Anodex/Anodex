@@ -138,8 +138,8 @@ describe('ContextMeter reply ceiling', () => {
     mocks.conversation = {
       id: 'c1',
       messages: [
-        { id: 'm1', role: 'user', content: 'Write a long story.', createdAt: 1 },
-        { id: 'm2', role: 'assistant', content: 'x'.repeat(160_000), createdAt: 2 }
+        { id: 'm1', role: 'user', content: 'x'.repeat(160_000), createdAt: 1 },
+        { id: 'm2', role: 'assistant', content: 'I can help with this.', createdAt: 2 }
       ]
     }
 

@@ -11,8 +11,11 @@ import { REASONING_BUDGET_MESSAGE, reasoningBudgetTokens } from './reasoningOver
 import { summarizeServerStartup } from './serverStartupReport'
 
 const log = createLogger('llama:vision-runtime')
+/** Stop waiting if a vision model never becomes ready. */
 const STARTUP_TIMEOUT_MS = 5 * 60_000
+/** Check readiness frequently without spinning while llama.cpp loads. */
 const HEALTH_POLL_MS = 300
+/** Keep only a bounded error tail from server output in memory. */
 const MAX_DIAGNOSTIC_CHARS = 16_000
 /**
  * Cap on the separately kept startup transcript. Measured on the pinned binary

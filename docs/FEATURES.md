@@ -178,7 +178,8 @@ Key capabilities:
 - Create, rename, archive, restore, and delete projects.
 - Create project conversations.
 - Keep general chats separate from project chats.
-- Search chats from the sidebar.
+- Switch the sidebar between general Chats and project-based Workspace conversations.
+- Search within the selected sidebar view.
 - Mark conversations unread.
 - Archive all active general chats.
 - Store project instructions.

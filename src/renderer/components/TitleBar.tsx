@@ -13,16 +13,19 @@ export function TitleBar(): JSX.Element {
   const openSettings = useUiStore((s) => s.openSettings)
   const autoCollapsed = useSidebarCollapse((s) => s.autoCollapsed)
   const manuallyCollapsed = useSidebarCollapse((s) => s.manuallyCollapsed)
+  const overlayOpen = useSidebarCollapse((s) => s.overlayOpen)
   const sidebarCollapsed = autoCollapsed || manuallyCollapsed
   const toggleSidebar = useSidebarCollapse((s) => s.toggle)
   // On a narrow window there's no room to dock the sidebar back open, so the
   // toggle only pops it as a temporary overlay — "Show" rather than "Expand"
   // so the label doesn't promise a state that won't stick.
-  const sidebarToggleLabel = !sidebarCollapsed
-    ? 'Collapse sidebar'
-    : autoCollapsed
-      ? 'Show sidebar'
-      : 'Expand sidebar'
+  const sidebarToggleLabel = overlayOpen
+    ? 'Hide sidebar'
+    : !sidebarCollapsed
+      ? 'Collapse sidebar'
+      : autoCollapsed
+        ? 'Show sidebar'
+        : 'Expand sidebar'
   const [maximized, setMaximized] = useState(false)
   const [isMac, setIsMac] = useState(false)
   const [logoPulseId, setLogoPulseId] = useState(0)
@@ -89,7 +92,7 @@ export function TitleBar(): JSX.Element {
           label={sidebarToggleLabel}
           icon={<Icon name="panel-left" size={18} />}
           size="sm"
-          className={sidebarCollapsed ? undefined : styles.activeToggle}
+          className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
           onClick={toggleSidebar}
         />
         <WorkspaceDockButton />

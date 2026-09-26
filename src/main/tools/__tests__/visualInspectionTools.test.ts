@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { inspectVisualTool } from '../visualInspectionTools'
-import { createVisualInputQueue } from '../../vision/imageInputs'
+import { createVisualInputQueue, drainVisualInputs } from '../../vision/imageInputs'
 import { captureCalls, createMockContext, createMockDefine } from './test-helpers'
 
 const PNG = Buffer.concat([
@@ -83,6 +83,8 @@ describe('inspect_visual', () => {
     expect(tool.description).toContain('never rename, copy, or duplicate')
     expect(tool.description).toContain('Do not substitute preview_html')
     expect(tool.description).toContain('sectionId')
+    expect(tool.description).toContain('inspect the current source image first')
+    expect(tool.description).toContain('Up to 8 images')
   })
 
   it('queues an existing workspace image for the provider next round', async () => {
@@ -112,6 +114,52 @@ describe('inspect_visual', () => {
         id: 'test-message-preview.png'
       }
     })
+  })
+
+  it('says an image was unseen when the comparison exceeds the visual limit', async () => {
+    await writeFile(join(workspace, 'rat_idle.png'), PNG)
+    const visualInputs = createVisualInputQueue()
+    visualInputs.acceptedCount = visualInputs.limit
+    const capture = captureCalls()
+    const tool = inspectVisualTool(createMockDefine(), {
+      ...createMockContext(workspace),
+      visualInputs,
+      emit: capture.emit
+    }) as unknown as { handler: (args: { path: string }) => Promise<string> }
+
+    const result = await tool.handler({ path: 'rat_idle.png' })
+
+    expect(result).toContain('"rat_idle.png" was not inspected')
+    expect(result).toContain('Do not describe its current appearance')
+    expect(capture.calls.at(-1)).toMatchObject({ status: 'error' })
+  })
+
+  it('lets a longer inspection continue after the first batch reaches four images', async () => {
+    await writeFile(join(workspace, 'rat_idle.png'), PNG)
+    for (let index = 0; index < 4; index++) {
+      await writeFile(join(workspace, `reference-${index}.png`), PNG)
+    }
+    const visualInputs = createVisualInputQueue()
+    const tool = inspectVisualTool(createMockDefine(), {
+      ...createMockContext(workspace),
+      visualInputs
+    }) as unknown as { handler: (args: { path: string }) => Promise<string> }
+
+    for (let index = 0; index < 4; index++) {
+      expect(await tool.handler({ path: `reference-${index}.png` })).toContain(
+        'attached to the next model round'
+      )
+    }
+    const skipped = await tool.handler({ path: 'rat_idle.png' })
+    expect(skipped).toContain('batch is full')
+    expect(skipped).toContain('was not inspected')
+    expect(visualInputs.acceptedCount).toBe(4)
+
+    expect(drainVisualInputs(visualInputs)).toHaveLength(4)
+    expect(await tool.handler({ path: 'rat_idle.png' })).toContain(
+      'attached to the next model round'
+    )
+    expect(visualInputs.acceptedCount).toBe(5)
   })
 
   it('renders confined HTML to a PNG and queues the screenshot', async () => {

@@ -9,10 +9,13 @@ import {
   type ToolchainCheckKind
 } from './projectToolchain'
 
+/** Checks can take longer than ordinary commands, but still need a finite process deadline. */
 const DEFAULT_TIMEOUT_MS = 120_000
 const MAX_TIMEOUT_MS = 10 * 60_000
+/** Bound captured output; retain its tail because check failures usually appear last. */
 const MAX_OUTPUT_BYTES = 1024 * 1024
 const OUTPUT_TAIL_CHARS = 3000
+/** Show a small set of likely failure lines instead of flooding the model with a full log. */
 const FAILURE_HINT_LIMIT = 12
 
 /**

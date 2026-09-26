@@ -4,6 +4,7 @@ import type { WorkspaceToolFactory } from './types'
 import { runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 
+/** In-chat HTML is inlined into one sandboxed document, so bound each input and final payload. */
 const MAX_PREVIEW_SOURCE_BYTES = 200 * 1024
 const MAX_PREVIEW_CONTENT_CHARS = 120 * 1024
 const MAX_PREVIEW_IMAGE_BYTES = 60 * 1024

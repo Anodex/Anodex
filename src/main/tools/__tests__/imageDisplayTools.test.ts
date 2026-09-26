@@ -46,6 +46,7 @@ describe('show_image', () => {
 
     expect(ctx.visualInputs).toBeUndefined()
     expect(result).toContain('Displayed "result.png"')
+    expect(result).toContain('use inspect_visual before describing or comparing')
     expect(capture.calls.find((call) => call.status === 'success')?.preview).toMatchObject({
       kind: 'image',
       source: 'assistant',

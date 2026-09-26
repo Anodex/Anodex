@@ -3,11 +3,15 @@ import type { GenerationStopReason } from '@shared/chat.types'
 export interface GenerationBudgetPolicy {
   /** `null` means no wall-clock cap — the turn runs until it finishes itself or hits another limit. */
   maxDurationMs: number | null
+  /** Tool attempts allowed before further calls are refused so the model can return partial work. */
   maxTools: number
+  /** Provider exchanges allowed in one cycle before the caller must recover or finish. */
   maxProviderRounds: number
+  /** Context recoveries allowed before repeated compaction ends this cycle. */
   maxContextShifts: number
 }
 
+/** Default bounds for one interactive chat cycle; the user's time setting can override its clock. */
 export const DEFAULT_INTERACTIVE_BUDGET: GenerationBudgetPolicy = {
   maxDurationMs: 15 * 60_000,
   maxTools: 32,
@@ -15,6 +19,7 @@ export const DEFAULT_INTERACTIVE_BUDGET: GenerationBudgetPolicy = {
   maxContextShifts: 6
 }
 
+/** Research model phase budget; research I/O has separate run-level limits. */
 export const CRITICAL_THINKING_STEP_BUDGET: GenerationBudgetPolicy = {
   maxDurationMs: 10 * 60_000,
   maxTools: 6,
@@ -22,6 +27,7 @@ export const CRITICAL_THINKING_STEP_BUDGET: GenerationBudgetPolicy = {
   maxContextShifts: 2
 }
 
+/** Per-turn guard for an agent; cumulative run budgets are tracked separately. */
 export const AGENT_TURN_BUDGET: GenerationBudgetPolicy = {
   maxDurationMs: 15 * 60_000,
   maxTools: 32,
@@ -29,6 +35,7 @@ export const AGENT_TURN_BUDGET: GenerationBudgetPolicy = {
   maxContextShifts: 6
 }
 
+/** One unattended scheduled reply gets less time and fewer calls than an interactive reply. */
 export const SCHEDULED_TASK_BUDGET: GenerationBudgetPolicy = {
   maxDurationMs: 10 * 60_000,
   maxTools: 20,

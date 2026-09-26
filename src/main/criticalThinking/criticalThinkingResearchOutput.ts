@@ -2,12 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { CriticalThinkingCoverageAssessment } from '@shared/criticalThinking.types'
 import type { Plan } from '@shared/plan.types'
 
+/** Trim isolated model output before it becomes a persisted query or assessment. */
 const MAX_QUERY_CHARS = 320
 const MAX_FINDING_CHARS = 4_000
 const MAX_RATIONALE_CHARS = 800
 const MAX_GAP_CHARS = 360
+/** Keep an AI-generated plan broad enough to investigate and small enough to finish. */
 const MIN_PLAN_STEPS = 3
 const MAX_PLAN_STEPS = 7
+/** Bound generated step labels; edited plans are validated separately by the service. */
 const MAX_PLAN_TITLE_CHARS = 200
 const MAX_PLAN_STEP_CHARS = 240
 

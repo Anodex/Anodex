@@ -18,6 +18,7 @@ import { RELEASE_PUBLIC_KEY_PEM } from './releaseKey'
 /** Anodex/Anodex is public; release assets are served from a stable path. */
 const RELEASE_ASSET_BASE = 'https://github.com/Anodex/Anodex/releases/download'
 
+/** Bound signature downloads so update verification cannot wait indefinitely. */
 const SIGNATURE_TIMEOUT_MS = 30_000
 
 export type ReleaseVerdict =

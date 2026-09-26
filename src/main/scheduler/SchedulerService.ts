@@ -22,9 +22,11 @@ import { settingsStore } from '../settings/SettingsStore'
 
 const log = createLogger('scheduler-service')
 
+/** Check for due tasks twice a minute while the app is running. */
 const TICK_INTERVAL_MS = 30_000
 /** Give the app a moment to finish hydrating before the first due-task check, same reasoning as the model auto-load delay. */
 const STARTUP_TICK_DELAY_MS = 5000
+/** Keep each scheduled-run notification brief. */
 const SUMMARY_MAX_WORDS = 18
 
 /**

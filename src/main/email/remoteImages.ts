@@ -33,6 +33,7 @@ const MAX_TOTAL_BYTES = 25 * 1024 * 1024
 /** How many images one message may pull. A newsletter can reference hundreds. */
 const MAX_IMAGES = 120
 
+/** Stop waiting on a remote image so opening an email cannot hang indefinitely. */
 const REQUEST_TIMEOUT_MS = 15_000
 
 /** Content types worth putting in an `<img>`; anything else is not an image. */

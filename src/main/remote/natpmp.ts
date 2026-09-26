@@ -46,6 +46,7 @@ const RESPONSE_FLAG = 128
  */
 export const MAPPING_LIFETIME_SECONDS = 3600
 
+/** Fail a router mapping probe quickly when the gateway does not answer. */
 const REQUEST_TIMEOUT_MS = 1500
 
 export interface PortMapping {

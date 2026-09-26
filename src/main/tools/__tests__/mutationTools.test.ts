@@ -47,6 +47,26 @@ describe('edit_file', () => {
     expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('hello there')
   })
 
+  it('refuses an identical edit without recording a successful write', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\r\ntwo\r\n')
+    const ctx = createMockContext(workspace)
+    const capture = captureCalls<ToolCall>()
+    ctx.emit = capture.emit
+    const tool = editFileTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { path: string; oldText: string; newText: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({
+      path: 'a.txt',
+      oldText: 'one\ntwo',
+      newText: 'one\ntwo'
+    })
+
+    expect(result).toContain('leaves the file unchanged')
+    expect(capture.calls.some((call) => call.status === 'success')).toBe(false)
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\r\ntwo\r\n')
+  })
+
   /**
    * The re-read an edit used to force is the single largest source of wasted
    * calls in a long turn -- see `editEcho.ts`. Proven end to end here rather
@@ -727,6 +747,25 @@ describe('replace_lines', () => {
     // The new total is what lets the next call address the file without
     // re-reading it, so it has to be reported.
     expect(result).toContain('lines')
+  })
+
+  it('refuses an identical line replacement without recording a successful write', async () => {
+    await writeFile(join(workspace, 'a.txt'), 'one\ntwo\nthree\n')
+    const ctx = createMockContext(workspace)
+    const capture = captureCalls<ToolCall>()
+    ctx.emit = capture.emit
+
+    const result = await lineTool(ctx).handler({
+      path: 'a.txt',
+      startLine: 2,
+      endLine: 2,
+      newText: 'two',
+      expectedFirstLine: 'two'
+    })
+
+    expect(result).toContain('leaves the file unchanged')
+    expect(capture.calls.some((call) => call.status === 'success')).toBe(false)
+    expect(await readFile(join(workspace, 'a.txt'), 'utf-8')).toBe('one\ntwo\nthree\n')
   })
 
   it('replaces several lines with fewer, and says the numbers below have shifted', async () => {

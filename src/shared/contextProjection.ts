@@ -14,6 +14,8 @@ import { resolveActiveStyle } from './chatPersonality'
 import type { AppSettings } from './settings.types'
 import { buildCompactionSystemPrompt } from './contextPrompt'
 import { messageToHistoryTurn } from './chatSanitizer'
+import { boundAssistantHistoryReplay } from './historyReplay'
+
 /**
  * Conservative character/token estimate used in the renderer, where the real
  * model tokenizer is not available. The main process still uses exact model
@@ -153,7 +155,15 @@ export function planManualContextCompaction(
  * engine treats the separate thinking stream.
  */
 function messageToProjectionTurn(message: ChatMessage): ChatHistoryTurn {
-  const turn = messageToHistoryTurn(message)
+  const raw = messageToHistoryTurn(message)
+  const turn = boundAssistantHistoryReplay({
+    ...raw,
+    toolCalls: raw.toolCalls?.map((call) => ({
+      ...call,
+      result: call.result ? compactToolText(call.result) : call.result,
+      detail: call.detail ? compactToolText(call.detail) : call.detail
+    }))
+  })
   if (!message.thinking) return turn
   return {
     ...turn,

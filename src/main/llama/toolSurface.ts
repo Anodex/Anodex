@@ -56,7 +56,9 @@ export const COMPLETE_BUILDER_LOOP = 10
  */
 const MAX_DIRECT_TOOLS_CEILING = 32
 
+/** Keep tool search results short enough to leave room for the model's work. */
 const MAX_FIND_DESCRIPTION_CHARS = 320
+/** Page large tool schemas instead of sending the whole catalog at once. */
 const MAX_SCHEMA_CHUNK_CHARS = 4_000
 
 export interface BoundedToolSurface {

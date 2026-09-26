@@ -227,8 +227,8 @@ describe('ChatImagePreview', () => {
     )
 
     expect(html).toContain('aria-expanded="false"')
-    // Collapsed, not discarded: the image is still rendered inside the panel.
-    expect(html).toContain('data:image/png;base64,cGl4ZWxz')
+    // The hidden work panel does not load a second copy of the image.
+    expect(html).not.toContain('data:image/png;base64,cGl4ZWxz')
   })
 
   it('does not repeat a message-wide duration on every interrupted work block', () => {
@@ -274,7 +274,7 @@ describe('ChatImagePreview', () => {
     const html = renderToStaticMarkup(
       <TurnRecap
         segments={[{ type: 'toolGroup', phase: 'inspecting', calls: [before, after] }]}
-        streaming={false}
+        streaming={true}
         startedAt={1}
         finalDurationMs={1000}
       />

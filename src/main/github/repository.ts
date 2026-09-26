@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 
+/** Bound remote discovery when a workspace Git command stalls. */
 const GIT_TIMEOUT_MS = 10_000
 
 /** Converts GitHub HTTPS/SSH remotes and `owner/repo` input into one canonical form. */

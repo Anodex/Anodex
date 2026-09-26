@@ -7,6 +7,7 @@ import { normalizeQuote } from './criticalThinkingEvidence'
 import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
+/** Keep fallback findings and citations readable when synthesis cannot finish. */
 const MAX_EXCERPTS_PER_STEP = 4
 const MAX_EXCERPT_CHARS = 480
 const MAX_UNCERTAINTY_ITEMS = 12

@@ -31,7 +31,10 @@ vi.mock('../../../lib/anodex', () => ({
   }
 }))
 
-let settings: unknown = { assistantStyle: { personalities: [], activePersonalityId: null } }
+let settings: unknown = {
+  assistantStyle: { personalities: [], activePersonalityId: null },
+  appearance: { diffView: 'unified' }
+}
 
 vi.mock('../../../stores/settingsStore', () => ({
   useSettingsStore: (select: (state: unknown) => unknown) => select({ settings })
@@ -99,6 +102,70 @@ describe('attachments in a message', () => {
 
     await screen.findByAltText('robot.png')
     expect(container.textContent).toContain('Upload failed')
+  })
+})
+
+describe('images in an assistant reply', () => {
+  const inspection = {
+    id: 'inspect-1',
+    name: 'inspect_visual',
+    kind: 'read' as const,
+    title: 'Inspect old-rat.png',
+    status: 'success' as const,
+    preview: {
+      kind: 'image' as const,
+      source: 'inspection' as const,
+      title: 'Old rat screenshot',
+      path: 'old-rat.png',
+      mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,b2xk'
+    }
+  }
+
+  it('keeps inspections in the work log instead of the finished answer', () => {
+    const container = renderMessage({
+      id: 'assistant-image',
+      role: 'assistant',
+      content: 'I inspected the screenshot.',
+      createdAt: Date.now(),
+      toolCalls: [inspection]
+    })
+
+    expect(screen.queryByRole('region', { name: 'Images in this reply' })).toBeNull()
+    expect(
+      container.querySelector('[aria-label="Show turn activity"]')?.getAttribute('aria-expanded')
+    ).toBe('false')
+  })
+
+  it('shows only an image explicitly selected with show_image', () => {
+    renderMessage({
+      id: 'assistant-selected-image',
+      role: 'assistant',
+      content: 'Here is the current screenshot.',
+      createdAt: Date.now(),
+      toolCalls: [
+        inspection,
+        {
+          id: 'show-1',
+          name: 'show_image',
+          kind: 'read',
+          title: 'Show current-rat.png',
+          status: 'success',
+          preview: {
+            kind: 'image',
+            source: 'assistant',
+            title: 'Current rat screenshot',
+            path: 'current-rat.png',
+            mimeType: 'image/png',
+            dataUrl: 'data:image/png;base64,Y3VycmVudA=='
+          }
+        }
+      ]
+    })
+
+    const gallery = screen.getByRole('region', { name: 'Images in this reply' })
+    expect(gallery.querySelector('img[alt="Assistant image of current-rat.png"]')).toBeTruthy()
+    expect(gallery.textContent).not.toContain('old-rat.png')
   })
 })
 

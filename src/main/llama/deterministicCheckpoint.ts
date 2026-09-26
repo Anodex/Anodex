@@ -1,3 +1,4 @@
+/** Retain recent exact tool identifiers without filling the recovered context. */
 const MAX_CHECKPOINT_CHARS = 6_000
 const HEADER = 'Deterministic context checkpoint (exact tool identifiers retained):'
 
