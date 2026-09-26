@@ -1,6 +1,7 @@
 /* Keep all four tracks present so the rail never moves and panel/dock widths
    can animate without swapping grid templates. */
 .shell {
+  --shell-chrome-bg: color-mix(in srgb, var(--bg-surface) 94%, var(--text) 6%);
   display: grid;
   grid-template-rows: var(--titlebar-height) 1fr;
   grid-template-columns:
@@ -8,6 +9,7 @@
     var(--dock-width, 0px);
   height: 100%;
   overflow: hidden;
+  background: var(--shell-chrome-bg);
   transition:
     grid-template-columns var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease)),
     grid-template-rows var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease));
@@ -38,6 +40,8 @@
   overflow: hidden;
   grid-column: 2;
   grid-row: 2;
+  background: var(--bg-app);
+  border-top-left-radius: var(--radius-lg);
 }
 
 .main {
@@ -48,6 +52,8 @@
   overflow: hidden;
   grid-column: 3;
   grid-row: 2;
+  background: var(--bg-app);
+  border-top-left-radius: var(--radius-lg);
 }
 
 .dockWrap {
@@ -105,6 +111,8 @@
   width: var(--sidebar-expanded-width);
   z-index: var(--z-overlay, 900);
   box-shadow: 8px 0 24px rgba(0, 0, 0, 0.24);
+  border-top-left-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
 .dockWrapFloating {

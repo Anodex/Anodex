@@ -66,7 +66,7 @@ import type {
 import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
-import type { UpdateStatus } from './update.types'
+import type { ReleaseNotes, UpdateStatus } from './update.types'
 import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from './stats.types'
 import type {
   CreateMemoryRequest,
@@ -515,6 +515,7 @@ export const IpcChannel = {
   },
   Updates: {
     getStatus: 'updates:get-status',
+    getReleaseNotes: 'updates:get-release-notes',
     check: 'updates:check',
     download: 'updates:download',
     installAndRestart: 'updates:install-and-restart',
@@ -1105,6 +1106,7 @@ export interface AnodexApi {
   }
   updates: {
     getStatus(): Promise<UpdateStatus>
+    getReleaseNotes(): Promise<Result<ReleaseNotes>>
     /** No-op in an unpackaged dev build. */
     check(): Promise<void>
     /** Only meaningful once status is `available`. */

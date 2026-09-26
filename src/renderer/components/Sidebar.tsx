@@ -16,7 +16,6 @@ import { ProjectRow } from './sidebar/ProjectRow'
 import { ChatRow } from './sidebar/ChatRow'
 import { ChatsActionsMenu, type ChatSortMode } from './sidebar/ChatsActionsMenu'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
-import { SidebarModeSwitcher } from './sidebar/SidebarModeSwitcher'
 import { ConfirmDialog } from './ui/ConfirmDialog'
 import { useSidebarCollapse } from '../stores/sidebarCollapseStore'
 import {
@@ -238,7 +237,7 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside className={styles.sidebar}>
-      <SidebarModeSwitcher mode={mode} onChange={setMode} />
+      <h2 className={styles.modeTitle}>{mode === 'chats' ? 'Chats' : 'Workspace'}</h2>
       <div className={styles.actions}>
         <button
           type="button"

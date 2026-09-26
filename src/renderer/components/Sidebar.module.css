@@ -4,8 +4,16 @@
   height: 100%;
   width: 100%;
   padding: var(--space-3);
-  background: var(--bg-surface);
+  background: var(--bg-app);
   border-right: 1px solid var(--border);
+}
+
+.modeTitle {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 28px;
 }
 
 .actions {

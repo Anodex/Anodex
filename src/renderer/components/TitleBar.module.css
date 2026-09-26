@@ -2,10 +2,14 @@
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--border);
+  background: var(--shell-chrome-bg);
   flex-shrink: 0;
   -webkit-app-region: drag;
+}
+
+.modeSwitcher {
+  margin-left: var(--space-6);
+  -webkit-app-region: no-drag;
 }
 
 .left {

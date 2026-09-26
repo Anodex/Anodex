@@ -5,6 +5,7 @@ import { execSync } from 'node:child_process'
 import { IpcChannel } from '@shared/ipc'
 import type { HardwareInfo, SystemInfo } from '@shared/system.types'
 import { llamaService } from '../llama/LlamaService'
+import { anodexVersion } from '../appVersion'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -105,7 +106,7 @@ export async function getHardware(): Promise<HardwareInfo> {
 /** IPC handler exposing host / build information for the About panel. */
 export function registerSystemHandlers(): void {
   ipcMain.handle(IpcChannel.System.getInfo, (): SystemInfo => ({
-    appVersion: app.getVersion(),
+    appVersion: anodexVersion,
     electronVersion: process.versions.electron,
     nodeVersion: process.versions.node,
     chromeVersion: process.versions.chrome,

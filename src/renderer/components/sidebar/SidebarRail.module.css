@@ -6,8 +6,7 @@
   width: var(--sidebar-rail-width);
   padding: var(--space-2) 0;
   gap: var(--space-1);
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border);
+  background: var(--shell-chrome-bg);
 }
 
 .railButton {
