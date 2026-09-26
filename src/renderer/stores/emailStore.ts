@@ -186,10 +186,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         anodex.email.getUnreadThreadCount(accountId)
       ])
       if (revision !== loadRevision) return
+      const updatedStatusResult =
+        !threadsResult.ok || !unreadCountResult.ok ? await anodex.email.getStatus() : null
+      if (revision !== loadRevision) return
 
       const threads = threadsResult.ok ? threadsResult.value : []
       set({
-        status,
+        status: updatedStatusResult?.ok ? updatedStatusResult.value : status,
         activeAccountId,
         threads,
         // A full page back means there is probably another one; a short page
@@ -239,7 +242,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     const result = await anodex.email.getUnreadThreadCount(get().activeAccountId ?? undefined)
     // Silent on failure — this is a background poll, and a transient server
     // hiccup should not raise a toast the user did nothing to provoke.
-    if (result.ok) set({ unreadCount: result.value })
+    if (result.ok) {
+      set({ unreadCount: result.value })
+    } else {
+      // An authentication rejection changes the account status in the main
+      // process. Show "Needs reconnect" on this poll rather than five minutes later.
+      const updated = await anodex.email.getStatus()
+      if (updated.ok) set({ status: updated.value })
+    }
   },
 
   selectAccount: async (accountId) => {

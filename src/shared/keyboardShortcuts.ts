@@ -10,7 +10,7 @@ export interface KeyboardShortcutDefinition {
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutMap = {
   newChat: 'Ctrl+N',
   newProject: 'Ctrl+Shift+N',
-  // Ctrl+1..5 follow the sidebar's own nav order (see Sidebar.tsx), so the
+  // Ctrl+1..5 follow the rail's nav order (see SidebarRail.tsx), so the
   // number matches what the user counts down the rail.
   goChat: 'Ctrl+1',
   goScheduler: 'Ctrl+2',

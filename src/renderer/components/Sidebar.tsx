@@ -7,7 +7,6 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
-import type { NavigationBadgeCounts } from '../lib/navigationBadges'
 import { Icon } from './Icon'
 import { useCreateProject } from '../hooks/useCreateProject'
 import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
@@ -16,10 +15,15 @@ import { SidebarSection } from './sidebar/SidebarSection'
 import { ProjectRow } from './sidebar/ProjectRow'
 import { ChatRow } from './sidebar/ChatRow'
 import { ChatsActionsMenu, type ChatSortMode } from './sidebar/ChatsActionsMenu'
-import { SidebarProfile } from './sidebar/SidebarProfile'
 import { ModelStatusMenu } from './sidebar/ModelStatusMenu'
-import { NavigationCount } from './sidebar/NavigationCount'
+import { SidebarModeSwitcher } from './sidebar/SidebarModeSwitcher'
 import { ConfirmDialog } from './ui/ConfirmDialog'
+import { useSidebarCollapse } from '../stores/sidebarCollapseStore'
+import {
+  resolveSidebarMode,
+  useSidebarModeStore,
+  type SidebarMode
+} from '../stores/sidebarModeStore'
 import { matchesQuery, useBodyMatches } from './sidebar/conversationSearch'
 import styles from './Sidebar.module.css'
 
@@ -28,15 +32,12 @@ interface FilteredProject {
   conversations: Conversation[]
 }
 
-interface SidebarProps {
-  counts: NavigationBadgeCounts
-}
-
-/** Primary sidebar: top actions, collapsible project/chat trees, and profile footer. */
-export function Sidebar({ counts }: SidebarProps): JSX.Element {
-  const view = useUiStore((s) => s.view)
+/** Project and chat panel beside the persistent navigation rail. */
+export function Sidebar(): JSX.Element {
   const setView = useUiStore((s) => s.setView)
-  const openSettings = useUiStore((s) => s.openSettings)
+  const searchFocusPending = useSidebarCollapse((s) => s.searchFocusPending)
+  const clearSearchFocus = useSidebarCollapse((s) => s.clearSearchFocus)
+  const closeOverlay = useSidebarCollapse((s) => s.setOverlayOpen)
   const readConversationAt = useUiStore((s) => s.readConversationAt)
   const markConversationUnread = useUiStore((s) => s.markConversationUnread)
 
@@ -53,6 +54,9 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
 
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const savedMode = useSidebarModeStore((s) => s.mode)
+  const setMode = useSidebarModeStore((s) => s.setMode)
+  const mode = resolveSidebarMode(savedMode, activeProjectId)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const updateProject = useProjectStore((s) => s.update)
   const openProjectFolder = useProjectStore((s) => s.openFolder)
@@ -64,9 +68,16 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const newChatShortcut =
     useSettingsStore((s) => s.settings?.keyboard.shortcuts.newChat) ??
     DEFAULT_KEYBOARD_SHORTCUTS.newChat
+  const newProjectShortcut =
+    useSettingsStore((s) => s.settings?.keyboard.shortcuts.newProject) ??
+    DEFAULT_KEYBOARD_SHORTCUTS.newProject
   const handleCreateProject = useCreateProject()
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQueries, setSearchQueries] = useState<Record<SidebarMode, string>>({
+    chats: '',
+    workspace: ''
+  })
+  const searchQuery = searchQueries[mode]
   const [workspaceExpanded, setWorkspaceExpanded] = useState(true)
   const [chatsExpanded, setChatsExpanded] = useState(true)
   const [chatSortMode, setChatSortMode] = useState<ChatSortMode>('recent')
@@ -77,7 +88,7 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const searching = searchQuery.trim().length > 0
   const bodyMatches = useBodyMatches(searchQuery)
 
-  const { filteredProjects, generalChats, searchEmpty, matchExcerpts } = useMemo(() => {
+  const { filteredProjects, generalChats, matchExcerpts } = useMemo(() => {
     const query = searchQuery.trim()
     const projectChats = new Map<string, Conversation[]>()
     const general: Conversation[] = []
@@ -134,7 +145,6 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
     return {
       filteredProjects: filtered,
       generalChats: general,
-      searchEmpty: query.length > 0 && filtered.length === 0 && general.length === 0,
       matchExcerpts: bodyMatches.excerpts
     }
   }, [bodyMatches, chatSortMode, conversations, projects, searchQuery])
@@ -150,6 +160,8 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
   const workspaceProjects = activeProjectEntry
     ? [activeProjectEntry, ...remainingProjects]
     : remainingProjects
+  const searchEmpty =
+    searching && (mode === 'workspace' ? workspaceProjects.length === 0 : generalChats.length === 0)
 
   const isProjectExpanded = (projectId: string): boolean =>
     searching || expandedProjectIds[projectId] !== false
@@ -164,15 +176,19 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
     // workspace files, and project memory to whatever project was active
     // before, leaking it into a chat the user intends to be project-free.
     void setActiveProject(projectId ?? null)
+    setMode(projectId ? 'workspace' : 'chats')
     newConversation(projectId ?? null)
     setView('chat')
+    closeOverlay(false)
   }
 
   const handleSelectConversation = (id: string): void => {
     const conversation = conversations.find((c) => c.id === id)
     void setActiveProject(conversation?.projectId ?? null)
+    setMode(conversation?.projectId ? 'workspace' : 'chats')
     void selectConversation(id)
     setView('chat')
+    closeOverlay(false)
   }
 
   const handleDeleteConversation = (id: string): void => {
@@ -222,15 +238,34 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
 
   return (
     <aside className={styles.sidebar}>
+      <SidebarModeSwitcher mode={mode} onChange={setMode} />
       <div className={styles.actions}>
-        <button type="button" className={styles.newChatButton} onClick={() => handleNewChat()}>
-          <Icon name="plus" size={14} className={styles.newChatIcon} />
-          <span className={styles.newChatLabel}>New chat</span>
-          {newChatShortcut && (
-            <kbd className={styles.newChatShortcut}>{newChatShortcut.replace(/\+/g, ' ')}</kbd>
+        <button
+          type="button"
+          className={styles.primaryButton}
+          onClick={() => (mode === 'workspace' ? void handleCreateProject() : handleNewChat())}
+        >
+          <Icon
+            name={mode === 'workspace' ? 'folder-plus' : 'plus'}
+            size={14}
+            className={styles.primaryIcon}
+          />
+          <span className={styles.primaryLabel}>
+            {mode === 'workspace' ? 'New project' : 'New chat'}
+          </span>
+          {(mode === 'workspace' ? newProjectShortcut : newChatShortcut) && (
+            <kbd className={styles.primaryShortcut}>
+              {(mode === 'workspace' ? newProjectShortcut : newChatShortcut).replace(/\+/g, ' ')}
+            </kbd>
           )}
         </button>
-        <SidebarSearch value={searchQuery} onChange={setSearchQuery} shortcut={searchShortcut} />
+        <SidebarSearch
+          value={searchQuery}
+          onChange={(value) => setSearchQueries((queries) => ({ ...queries, [mode]: value }))}
+          shortcut={searchShortcut}
+          focusRequested={searchFocusPending}
+          onFocusRequestHandled={clearSearchFocus}
+        />
       </div>
 
       <div className={styles.scroll}>
@@ -239,188 +274,113 @@ export function Sidebar({ counts }: SidebarProps): JSX.Element {
             <Icon name="search" size={20} />
             <p>No results for &quot;{searchQuery}&quot;</p>
           </div>
+        ) : mode === 'workspace' ? (
+          <SidebarSection
+            title="Projects"
+            icon="folder"
+            count={workspaceProjects.length}
+            expanded={searching || workspaceExpanded}
+            onToggle={() => setWorkspaceExpanded((v) => !v)}
+            actions={
+              <div className={styles.headerActions}>
+                <button
+                  type="button"
+                  className={styles.headerIcon}
+                  onClick={
+                    hasExpandedProjects ? handleCollapseAllProjects : handleExpandAllProjects
+                  }
+                  aria-label={hasExpandedProjects ? 'Collapse all projects' : 'Expand all projects'}
+                  title={hasExpandedProjects ? 'Collapse all' : 'Expand all'}
+                >
+                  <Icon name={hasExpandedProjects ? 'chevrons-up' : 'chevron-down'} size={14} />
+                </button>
+              </div>
+            }
+          >
+            {workspaceProjects.length === 0 ? (
+              <div className={styles.sectionEmpty}>
+                <p>No projects yet</p>
+              </div>
+            ) : (
+              workspaceProjects.map(({ project, conversations: projectConversations }) => (
+                <ProjectRow
+                  key={project.id}
+                  project={project}
+                  conversations={projectConversations}
+                  active={project.id === activeProjectId}
+                  expanded={isProjectExpanded(project.id)}
+                  activeConversationId={activeConversationId}
+                  running={projectConversations.some(isConversationRunning)}
+                  unread={projectConversations.some(isConversationUnread)}
+                  readConversationAt={readConversationAt}
+                  matchExcerpts={matchExcerpts}
+                  onToggle={() => toggleProject(project.id)}
+                  onNewChat={handleNewChat}
+                  onSelectConversation={handleSelectConversation}
+                  onRenameConversation={(id, title) => void renameConversation(id, title)}
+                  onMarkConversationUnread={(id, updatedAt) =>
+                    markConversationUnread(id, updatedAt)
+                  }
+                  onDeleteConversation={handleDeleteConversation}
+                  onOpenProjectFolder={(id) => void openProjectFolder(id)}
+                  onRename={handleRenameProject}
+                  onArchive={handleArchiveProject}
+                />
+              ))
+            )}
+          </SidebarSection>
         ) : (
-          <>
-            <div className={styles.globalNav}>
-              <button
-                type="button"
-                className={`${styles.navItem} ${view === 'scheduler' ? styles.navItemActive : ''}`}
-                onClick={() => setView('scheduler')}
-                aria-current={view === 'scheduler' ? 'page' : undefined}
-                aria-label={`Scheduler${counts.scheduler > 0 ? `, ${counts.scheduler} new result${counts.scheduler === 1 ? '' : 's'}` : ''}`}
-              >
-                <Icon name="clock" size={14} className={styles.navItemIcon} />
-                <span className={styles.navItemLabel}>Scheduler</span>
-                <NavigationCount count={counts.scheduler} />
-              </button>
-
-              <button
-                type="button"
-                className={`${styles.navItem} ${view === 'agent' ? styles.navItemActive : ''}`}
-                onClick={() => setView('agent')}
-                aria-current={view === 'agent' ? 'page' : undefined}
-                aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
-              >
-                <Icon name="bot" size={14} className={styles.navItemIcon} />
-                <span className={styles.navItemLabel}>Agent</span>
-                <NavigationCount count={counts.agent} />
-              </button>
-
-              <button
-                type="button"
-                className={`${styles.navItem} ${
-                  view === 'critical-thinking' ? styles.navItemActive : ''
-                }`}
-                onClick={() => setView('critical-thinking')}
-                aria-current={view === 'critical-thinking' ? 'page' : undefined}
-                aria-label={`Critical Thinking${counts.criticalThinking > 0 ? `, ${counts.criticalThinking} notification${counts.criticalThinking === 1 ? '' : 's'}` : ''}`}
-              >
-                <Icon name="insight" size={14} className={styles.navItemIcon} />
-                <span className={styles.navItemLabel}>Critical Thinking</span>
-                <NavigationCount count={counts.criticalThinking} />
-              </button>
-
-              <button
-                type="button"
-                className={`${styles.navItem} ${view === 'email' ? styles.navItemActive : ''}`}
-                onClick={() => setView('email')}
-                aria-current={view === 'email' ? 'page' : undefined}
-                aria-label={`Email${counts.email > 0 ? `, ${counts.email} unread thread${counts.email === 1 ? '' : 's'}` : ''}`}
-              >
-                <Icon name="mail" size={14} className={styles.navItemIcon} />
-                <span className={styles.navItemLabel}>Email</span>
-                <NavigationCount count={counts.email} />
-              </button>
-            </div>
-
-            <SidebarSection
-              title="Workspace"
-              icon="folder"
-              count={workspaceProjects.length}
-              expanded={searching || workspaceExpanded}
-              onToggle={() => setWorkspaceExpanded((v) => !v)}
-              actions={
-                <div className={styles.headerActions}>
-                  {hasExpandedProjects && (
-                    <button
-                      type="button"
-                      className={styles.headerIcon}
-                      onClick={handleCollapseAllProjects}
-                      aria-label="Collapse all projects"
-                      title="Collapse all"
-                    >
-                      <Icon name="chevrons-up" size={14} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={styles.headerIcon}
-                    onClick={() => void handleCreateProject()}
-                    aria-label="New project"
-                    title="New project"
-                  >
-                    <Icon name="folder-plus" size={14} />
-                  </button>
-                </div>
-              }
-            >
-              {workspaceProjects.length === 0 ? (
-                <div className={styles.sectionEmpty}>
-                  <p>No projects yet</p>
-                </div>
-              ) : (
-                workspaceProjects.map(({ project, conversations: projectConversations }) => (
-                  <ProjectRow
-                    key={project.id}
-                    project={project}
-                    conversations={projectConversations}
-                    active={project.id === activeProjectId}
-                    expanded={isProjectExpanded(project.id)}
-                    activeConversationId={activeConversationId}
-                    running={projectConversations.some(isConversationRunning)}
-                    unread={projectConversations.some(isConversationUnread)}
-                    readConversationAt={readConversationAt}
-                    matchExcerpts={matchExcerpts}
-                    onToggle={() => toggleProject(project.id)}
-                    onNewChat={handleNewChat}
-                    onSelectConversation={handleSelectConversation}
-                    onRenameConversation={(id, title) => void renameConversation(id, title)}
-                    onMarkConversationUnread={(id, updatedAt) =>
-                      markConversationUnread(id, updatedAt)
+          <SidebarSection
+            title="Chats"
+            icon="chat"
+            count={generalChats.length}
+            expanded={searching || chatsExpanded}
+            onToggle={() => setChatsExpanded((v) => !v)}
+            actions={
+              <div className={styles.headerActions}>
+                <ChatsActionsMenu
+                  chatCount={generalChats.length}
+                  sortMode={chatSortMode}
+                  onSortModeChange={setChatSortMode}
+                  onArchiveAll={() => {
+                    if (!confirmDestructive) {
+                      void archiveAllGeneralChats()
+                      return
                     }
-                    onDeleteConversation={handleDeleteConversation}
-                    onOpenProjectFolder={(id) => void openProjectFolder(id)}
-                    onRename={handleRenameProject}
-                    onArchive={handleArchiveProject}
-                  />
-                ))
-              )}
-            </SidebarSection>
-
-            <SidebarSection
-              title="Chats"
-              icon="chat"
-              count={generalChats.length}
-              expanded={searching || chatsExpanded}
-              onToggle={() => setChatsExpanded((v) => !v)}
-              actions={
-                <div className={styles.headerActions}>
-                  <ChatsActionsMenu
-                    chatCount={generalChats.length}
-                    sortMode={chatSortMode}
-                    onSortModeChange={setChatSortMode}
-                    onArchiveAll={() => {
-                      if (!confirmDestructive) {
-                        void archiveAllGeneralChats()
-                        return
-                      }
-                      setConfirmingArchiveChats(true)
-                    }}
-                    onExpandProjects={handleExpandAllProjects}
-                    onCollapseProjects={handleCollapseAllProjects}
-                  />
-                  <button
-                    type="button"
-                    className={styles.headerIcon}
-                    onClick={() => handleNewChat()}
-                    aria-label="New chat"
-                    title="New chat"
-                  >
-                    <Icon name="plus" size={14} />
-                  </button>
-                </div>
-              }
-            >
-              {generalChats.length === 0 ? (
-                <div className={styles.sectionEmpty}>
-                  <p>No general chats yet</p>
-                </div>
-              ) : (
-                generalChats.map((conversation) => (
-                  <ChatRow
-                    key={conversation.id}
-                    conversation={conversation}
-                    active={conversation.id === activeConversationId}
-                    running={isConversationRunning(conversation)}
-                    unread={isConversationUnread(conversation)}
-                    excerpt={matchExcerpts.get(conversation.id)}
-                    onClick={() => void handleSelectConversation(conversation.id)}
-                    onRename={(title) => void renameConversation(conversation.id, title)}
-                    onMarkUnread={() =>
-                      markConversationUnread(conversation.id, conversation.updatedAt)
-                    }
-                    onDelete={() => handleDeleteConversation(conversation.id)}
-                  />
-                ))
-              )}
-            </SidebarSection>
-          </>
+                    setConfirmingArchiveChats(true)
+                  }}
+                />
+              </div>
+            }
+          >
+            {generalChats.length === 0 ? (
+              <div className={styles.sectionEmpty}>
+                <p>No general chats yet</p>
+              </div>
+            ) : (
+              generalChats.map((conversation) => (
+                <ChatRow
+                  key={conversation.id}
+                  conversation={conversation}
+                  active={conversation.id === activeConversationId}
+                  running={isConversationRunning(conversation)}
+                  unread={isConversationUnread(conversation)}
+                  excerpt={matchExcerpts.get(conversation.id)}
+                  onClick={() => void handleSelectConversation(conversation.id)}
+                  onRename={(title) => void renameConversation(conversation.id, title)}
+                  onMarkUnread={() =>
+                    markConversationUnread(conversation.id, conversation.updatedAt)
+                  }
+                  onDelete={() => handleDeleteConversation(conversation.id)}
+                />
+              ))
+            )}
+          </SidebarSection>
         )}
       </div>
 
       <footer className={styles.footer}>
         <ModelStatusMenu />
-        <SidebarProfile active={view === 'settings'} onClick={() => openSettings()} />
       </footer>
 
       {archivingProject && (

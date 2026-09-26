@@ -90,6 +90,7 @@ class SchedulerStore {
       enabledTools: request.enabledTools,
       enabled: true,
       conversationId: null,
+      ...(request.continuesSeriesId ? { continuesSeriesId: request.continuesSeriesId } : {}),
       createdAt: now,
       updatedAt: now,
       nextRunAt: computeNextRunAt(recurrence, now, false),

@@ -169,8 +169,8 @@ Keep `registry.ts`, `TOOL_CATALOG`, `README.md`, and the tool tests in sync.
 drift away from the Settings/docs surface.
 
 `inspect_visual` is registered only when `ToolRuntimeContext.visualInputs` is
-present. Cloud providers and `LlamaVisionService` own that per-generation,
-four-image queue and inject drained images into the next provider round.
+present. Cloud providers and `LlamaVisionService` own a per-generation budget
+of eight inspected images, injected in batches of at most four per provider round.
 Text-only `LlamaService` must not expose the tool. Its `ToolCallPreview`
 contains an ephemeral image data URL plus a sandboxed
 `ConversationAssetStore` reference. `chatSanitizer.ts` must preserve the live

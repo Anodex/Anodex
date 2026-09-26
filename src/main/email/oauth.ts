@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { runLoopbackAuthorization } from '../oauth/loopbackServer'
 
+/** Give the user two minutes to finish the browser authorization flow. */
 const AUTH_TIMEOUT_MS = 120_000
 /**
  * How long a token exchange or refresh waits. Far shorter than the

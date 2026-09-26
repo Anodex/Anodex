@@ -24,7 +24,9 @@ export interface ModelToolResultBudgetInput {
   fixedTokens: number
 }
 
+/** Leave room for a useful answer after a tool result enters the model's context. */
 const MIN_REPLY_RESERVE_TOKENS = 1_024
+/** Keep a result useful when any post-reply-reserve room remains. */
 const MIN_RESULT_TOKENS = 256
 /**
  * Fraction of the remaining exchange room (after the reply reserve) one

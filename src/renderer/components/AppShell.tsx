@@ -6,7 +6,11 @@ import { useProjectStore } from '../stores/projectStore'
 import { useChatStore } from '../stores/chatStore'
 import { conversationsRelevantlyEqual } from '../lib/conversationEquality'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
-import { useSidebarCollapse, SIDEBAR_COLLAPSE_BREAKPOINT } from '../stores/sidebarCollapseStore'
+import {
+  useSidebarCollapse,
+  SIDEBAR_COLLAPSE_BREAKPOINT,
+  SIDEBAR_RAIL_WIDTH
+} from '../stores/sidebarCollapseStore'
 import { useTheme } from '../hooks/useTheme'
 import { useNavigationBadgeCounts } from '../hooks/useNavigationBadgeCounts'
 import { useGlobalKeyboardShortcuts } from '../hooks/useGlobalKeyboardShortcuts'
@@ -39,12 +43,7 @@ const RESIZE_STEP = 16
 const RESIZE_STEP_LARGE = 48
 // Below this window width there isn't room for sidebar + main + dock side by
 // side without crushing the chat, so the dock floats over main instead.
-const NARROW_BREAKPOINT = 960
-// Narrower still — even the minimum sidebar width starts crowding out the
-// chat, so it collapses to an icon rail; the full sidebar becomes a
-// temporary overlay instead. Shared with the title-bar toggle button, which
-// needs to know whether "expand" can dock the sidebar back open or has to
-// fall back to a temporary overlay.
+const NARROW_BREAKPOINT = 1012
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
   if (view === 'scheduler') return 'Scheduled tasks'
@@ -161,34 +160,40 @@ export function AppShell(): JSX.Element {
 
   const clampSidebarWidth = useCallback(
     (value: number, currentDockWidth = dockWidth): number => {
-      const reservedDock = dockVisible ? currentDockWidth : 0
+      const reservedDock = dockVisible && !isNarrow ? currentDockWidth : 0
       const dynamicMax = Math.max(
         MIN_SIDEBAR,
-        Math.min(MAX_SIDEBAR, window.innerWidth - reservedDock - MIN_MAIN)
+        Math.min(MAX_SIDEBAR, window.innerWidth - SIDEBAR_RAIL_WIDTH - reservedDock - MIN_MAIN)
       )
       return Math.min(dynamicMax, Math.max(MIN_SIDEBAR, value))
     },
-    [dockVisible, dockWidth]
+    [dockVisible, dockWidth, isNarrow]
   )
 
   const clampDockWidth = useCallback(
-    (value: number, currentSidebarWidth = sidebarWidth): number => {
+    (value: number, currentSidebarWidth = isSidebarCollapsed ? 0 : sidebarWidth): number => {
       const dynamicMax = Math.max(
         MIN_DOCK,
-        Math.min(MAX_DOCK, window.innerWidth - currentSidebarWidth - MIN_MAIN)
+        Math.min(MAX_DOCK, window.innerWidth - SIDEBAR_RAIL_WIDTH - currentSidebarWidth - MIN_MAIN)
       )
       return Math.min(dynamicMax, Math.max(MIN_DOCK, value))
     },
-    [sidebarWidth]
+    [isSidebarCollapsed, sidebarWidth]
   )
 
   const sidebarDynamicMax = Math.max(
     MIN_SIDEBAR,
-    Math.min(MAX_SIDEBAR, window.innerWidth - (dockVisible ? dockWidth : 0) - MIN_MAIN)
+    Math.min(
+      MAX_SIDEBAR,
+      window.innerWidth - SIDEBAR_RAIL_WIDTH - (dockVisible && !isNarrow ? dockWidth : 0) - MIN_MAIN
+    )
   )
   const dockDynamicMax = Math.max(
     MIN_DOCK,
-    Math.min(MAX_DOCK, window.innerWidth - sidebarWidth - MIN_MAIN)
+    Math.min(
+      MAX_DOCK,
+      window.innerWidth - SIDEBAR_RAIL_WIDTH - (isSidebarCollapsed ? 0 : sidebarWidth) - MIN_MAIN
+    )
   )
 
   const handleSidebarKeyDown = useCallback(
@@ -286,10 +291,13 @@ export function AppShell(): JSX.Element {
 
   return (
     <div
-      className={`${styles.shell} ${isSidebarCollapsed ? styles.shellSidebarCollapsed : ''} ${isResizingLive ? styles.shellResizing : ''}`}
+      className={`${styles.shell} ${isResizingLive ? styles.shellResizing : ''}`}
       style={
         {
-          '--sidebar-width': `${sidebarWidth}px`,
+          '--sidebar-rail-width': `${SIDEBAR_RAIL_WIDTH}px`,
+          '--sidebar-width': `${SIDEBAR_RAIL_WIDTH + (isSidebarCollapsed ? 0 : sidebarWidth)}px`,
+          '--sidebar-panel-width': `${isSidebarCollapsed ? 0 : sidebarWidth}px`,
+          '--sidebar-expanded-width': `${sidebarWidth}px`,
           '--dock-width': `${dockColumnWidth}px`
         } as React.CSSProperties
       }
@@ -299,15 +307,16 @@ export function AppShell(): JSX.Element {
           <TitleBar />
         </ErrorBoundary>
       </div>
-      <div className={styles.sidebar}>
-        {isSidebarCollapsed ? (
-          <ErrorBoundary label="Sidebar rail">
-            <SidebarRail counts={navigationBadges} />
-          </ErrorBoundary>
-        ) : (
+      <div className={styles.sidebarRail}>
+        <ErrorBoundary label="Sidebar rail">
+          <SidebarRail counts={navigationBadges} />
+        </ErrorBoundary>
+      </div>
+      <div className={styles.sidebarPanel} id="project-chat-sidebar">
+        {!isSidebarCollapsed && (
           <>
-            <ErrorBoundary label="Sidebar">
-              <Sidebar counts={navigationBadges} />
+            <ErrorBoundary label="Project and chat sidebar">
+              <Sidebar />
             </ErrorBoundary>
             <div
               className={styles.resizeHandle}
@@ -328,12 +337,15 @@ export function AppShell(): JSX.Element {
         <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
       </main>
       {isSidebarCollapsed && sidebarOverlayOpen && (
-        <div className={styles.dockBackdrop} onClick={() => setSidebarOverlayOpen(false)} />
+        <div
+          className={`${styles.dockBackdrop} ${styles.sidebarBackdrop}`}
+          onClick={() => setSidebarOverlayOpen(false)}
+        />
       )}
       {isSidebarCollapsed && sidebarOverlayOpen && (
-        <div className={styles.sidebarOverlay}>
-          <ErrorBoundary label="Sidebar">
-            <Sidebar counts={navigationBadges} />
+        <div className={styles.sidebarOverlay} id="project-chat-sidebar-overlay">
+          <ErrorBoundary label="Project and chat sidebar">
+            <Sidebar />
           </ErrorBoundary>
         </div>
       )}

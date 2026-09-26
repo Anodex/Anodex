@@ -5,6 +5,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useProjectStore } from '../stores/projectStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSidebarCollapse } from '../stores/sidebarCollapseStore'
+import { useSidebarModeStore } from '../stores/sidebarModeStore'
 import { useUiStore, type AppView } from '../stores/uiStore'
 import { useWorkspaceDock } from '../features/workspace-dock/useWorkspaceDock'
 import { useCreateProject } from './useCreateProject'
@@ -30,6 +31,8 @@ export function useGlobalKeyboardShortcuts(): void {
   const setShortcutHelpOpen = useUiStore((s) => s.setShortcutHelpOpen)
   const newConversation = useChatStore((s) => s.newConversation)
   const toggleSidebar = useSidebarCollapse((s) => s.toggle)
+  const requestSidebarSearch = useSidebarCollapse((s) => s.requestSearch)
+  const setSidebarMode = useSidebarModeStore((s) => s.setMode)
   const setDockOpen = useWorkspaceDock((s) => s.setOpen)
   const createProject = useCreateProject()
 
@@ -52,6 +55,12 @@ export function useGlobalKeyboardShortcuts(): void {
       if (matchesShortcut(event, activeShortcuts.showShortcutHelp)) {
         event.preventDefault()
         setShortcutHelpOpen(true)
+        return
+      }
+
+      if (matchesShortcut(event, activeShortcuts.searchSidebar)) {
+        event.preventDefault()
+        requestSidebarSearch()
         return
       }
 
@@ -87,7 +96,9 @@ export function useGlobalKeyboardShortcuts(): void {
 
       if (matchesShortcut(event, activeShortcuts.newChat)) {
         event.preventDefault()
-        newConversation(useProjectStore.getState().activeProjectId ?? null)
+        const projectId = useProjectStore.getState().activeProjectId
+        setSidebarMode(projectId ? 'workspace' : 'chats')
+        newConversation(projectId)
         setView('chat')
         return
       }
@@ -125,7 +136,9 @@ export function useGlobalKeyboardShortcuts(): void {
     createProject,
     newConversation,
     openSettings,
+    requestSidebarSearch,
     setDockOpen,
+    setSidebarMode,
     setShortcutHelpOpen,
     setView,
     shortcuts,

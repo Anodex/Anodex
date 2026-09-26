@@ -36,7 +36,9 @@ interface IssueCollector {
   coverage: string[]
 }
 
+/** Require enough passage text to count as usable evidence in the initial packet. */
 const MIN_INITIAL_PASSAGE_TEXT_CHARS = 32
+/** Bound each added passage line so one source cannot crowd out the rest. */
 const MAX_EXTRA_PASSAGE_LINE_CHARS = 360
 
 /**

@@ -4,8 +4,11 @@ import type { ChatAttachment, ChatHistoryTurn, ChatImageInput } from '@shared/ch
 
 /** Bound image decoding, IPC payloads, and provider requests to a predictable size. */
 export const MAX_VISION_IMAGE_BYTES = 15 * 1024 * 1024
-/** One user turn or visual tool loop may expose at most this many images to a model. */
+/** Maximum image inputs in one user turn or one visual inspection batch. */
 export const MAX_VISION_IMAGES = 4
+
+/** Tool inspections may continue in later provider rounds of the same response. */
+export const MAX_VISION_INSPECTIONS_PER_RESPONSE = 8
 export const CLOUD_VISION_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -267,7 +270,7 @@ export interface VisualInputQueue {
 }
 
 export function createVisualInputQueue(
-  limit = MAX_VISION_IMAGES,
+  limit = MAX_VISION_INSPECTIONS_PER_RESPONSE,
   acceptedMimeTypes?: ReadonlySet<string>
 ): VisualInputQueue {
   return { current: [], acceptedCount: 0, limit, acceptedMimeTypes }
@@ -282,6 +285,11 @@ export function enqueueVisualInput(queue: VisualInputQueue, image: ChatImageInpu
   if (queue.acceptedCount >= queue.limit) {
     throw new Error(
       `Visual inspection limit reached (${queue.limit} images per response). Summarize what you saw before continuing in a new message.`
+    )
+  }
+  if (queue.current.length >= MAX_VISION_IMAGES) {
+    throw new Error(
+      `Visual inspection batch is full (${MAX_VISION_IMAGES} images). Process these images in the next model round before inspecting more.`
     )
   }
   queue.current.push(image)

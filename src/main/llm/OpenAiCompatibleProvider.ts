@@ -44,12 +44,14 @@ import {
   createVisualInputQueue,
   drainVisualInputs,
   MAX_VISION_IMAGES,
+  MAX_VISION_INSPECTIONS_PER_RESPONSE,
   reopenPinnedHistoryImages,
   selectCurrentVisionImages
 } from '../vision/imageInputs'
 
 const log = createLogger('cloud-provider')
 
+/** Default response ceiling when the user has not set a generation token limit. */
 const DEFAULT_MAX_TOKENS = 4096
 /**
  * Cap on tool-use round trips within a single generation, matching every
@@ -152,7 +154,10 @@ export async function runChatCompletionsLoop(
   providerId: CloudProvider,
   imageGeneration?: { provider: 'google' }
 ): Promise<GenerateOutcome> {
-  const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
+  const visualInputs = createVisualInputQueue(
+    MAX_VISION_INSPECTIONS_PER_RESPONSE,
+    CLOUD_VISION_MIME_TYPES
+  )
   const contextWindowTokens = cloudContextWindowTokens(providerId, model)
   const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
   const toolLoopAbort = createToolLoopAbortState()

@@ -6,6 +6,7 @@ import { SKIP_DIRS } from '../tools/fileTools'
 import { toWorkspaceRelative } from '../tools/workspace'
 import { projectMemoryStore } from '../projects/ProjectMemoryStore'
 
+/** Bound the Files-panel tree walk so a huge project cannot freeze the renderer. */
 const MAX_FILES = 500
 
 /**

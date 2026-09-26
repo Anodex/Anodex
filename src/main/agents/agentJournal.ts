@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, appendFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentRun } from '@shared/agentRun.types'
 import { seriesIdOf } from '@shared/agentRun.types'
@@ -64,6 +64,32 @@ export function readJournal(seriesId: string): string | null {
     // degrades the agent; refusing to start removes it.
     log.warn('Could not read the journal for series', seriesId, String(error))
     return null
+  }
+}
+
+/**
+ * Remove a series' journal once nothing is left that would read it.
+ *
+ * Deleting a run used to discard its attachments and leave the journal behind,
+ * so a userData folder accumulated the written history of every series the
+ * user had ever deleted, with nothing in the app able to show it again.
+ *
+ * Keyed on the series rather than the run, because that is what the file
+ * belongs to: deleting one run of a five-run series must leave the other four
+ * their shared history. The caller passes what remains, and an empty answer is
+ * the only thing that removes anything.
+ */
+export function discardJournalIfSeriesGone(seriesId: string, remainingRuns: AgentRun[]): void {
+  if (remainingRuns.some((run) => seriesIdOf(run) === seriesId)) return
+  try {
+    rmSync(join(app.getPath('userData'), 'agent-series', seriesId), {
+      recursive: true,
+      force: true
+    })
+  } catch (error) {
+    // Same reasoning as the read and the write: a journal that will not delete
+    // is untidy, and taking the delete down over it would be worse.
+    log.warn('Could not remove the journal for series', seriesId, String(error))
   }
 }
 

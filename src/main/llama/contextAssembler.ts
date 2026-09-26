@@ -4,6 +4,7 @@ import { currentLedgerRevision, type ConversationContext } from '@shared/context
 import type { ToolCall } from '@shared/tools.types'
 import { sanitizeHistoryTurn } from '@shared/chatSanitizer'
 import { MAX_MODEL_TOOL_RESULT_CHARS } from '@shared/contextBudget'
+import { boundAssistantHistoryReplay } from '@shared/historyReplay'
 import { APPROX_CHARS_PER_TOKEN } from '@shared/contextProjection'
 import {
   buildCompactionSystemPrompt,
@@ -631,8 +632,10 @@ export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryT
   const { repeated, staleAfterWrite } = supersededReadIds(history)
   return history.map((rawTurn) => {
     const turn = sanitizeHistoryTurn(rawTurn)
-    if (turn.role !== 'assistant' || !turn.toolCalls?.length) return turn
-    return {
+    if (turn.role !== 'assistant' || !turn.toolCalls?.length) {
+      return boundAssistantHistoryReplay(turn)
+    }
+    return boundAssistantHistoryReplay({
       ...turn,
       toolCalls: turn.toolCalls.map((call) => {
         if (staleAfterWrite.has(call.id)) {
@@ -641,7 +644,7 @@ export function projectHistoryForModel(history: ChatHistoryTurn[]): ChatHistoryT
         if (repeated.has(call.id)) return supersededReadMarker(call, SUPERSEDED_READ_NOTICE)
         return projectToolCallForModel(call)
       })
-    }
+    })
   })
 }
 

@@ -32,6 +32,7 @@ import { EditMessageDialog } from './EditMessageDialog'
 import { RegenerateDialog } from './RegenerateDialog'
 import type { RegenerateTarget } from './messageEdit'
 import { MessageAttachments } from './MessageAttachments'
+import { ReplyImages } from './ReplyImages'
 import {
   buildRenderSegments,
   foldSettledTimeline,
@@ -372,6 +373,9 @@ function MessageBubbleImpl({
                 )
               })}
             </div>
+          )}
+          {!isUser && !message.streaming && message.toolCalls && (
+            <ReplyImages calls={message.toolCalls} />
           )}
           {tailActivityLabel && (
             <div className={styles.tailActivity}>

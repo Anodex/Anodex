@@ -1,0 +1,23 @@
+{
+  "goal": "You are building Deepdown in first person — a raycast view of a roguelike engine that is already finished. Read SPEC-3D.md first, then FEATURES-3D.md.\n\n`engine.py` works and is not yours to change. Neither are `main.py`, `check.py` or `tests.py` — the terminal view has to keep running. Your work goes in new files: `render3d.py` for the maths and `view3d.py` for the window.\n\npygame is installed and imports as `pygame`. Do not try to install anything.\n\n**The checklist may be behind the code.** An earlier run may have built more than it ticked. So before anything else: check each unticked feature against what the code actually does, and tick every one that already works. One pass, cheaply, without rewriting anything.\n\nThen implement the first feature that genuinely does not work yet — exactly one — and tick it.\n\n**Do not break a feature that already works.** Everything ticked is checked again after this run, the engine included, and breaking an earlier feature costs more than adding this one gains. Read the code you are about to change first.\n\nKeep your own regression file, `tests3d.py`: one check per finished feature, runnable with `python tests3d.py`, printing a line per check and a failure count. It must not need a display — set `SDL_VIDEODRIVER=dummy` and drive `View` through `frame()` and `key()` rather than opening a window. Add a check for whatever you build this run, and **run the whole file before you finish**. If something you did not touch has started failing, fix that first.\n\nRun `python check3d.py` and `python check.py` too. Code that will not import scores nothing at all.\n\nKeep throwaway scripts out of the project: use `python -c` for one-offs, or put them in `scratch/`. Do not leave copies of engine.py or the checklists lying around.\n\nWhen the feature works and its box is ticked, call finish_goal saying which feature you did, which boxes you ticked for work that was already there, and anything you had to change in what existed.",
+  "project": "Roguelike",
+  "projectPath": "C:/Users/Owner/Desktop/Sandbox/Roguelike",
+  "enabledTools": [
+    "list_directory",
+    "read_file",
+    "read_file_range",
+    "read_multiple_files",
+    "search_files",
+    "find_files",
+    "write_file",
+    "edit_file",
+    "run_command"
+  ],
+  "provider": "local",
+  "requirePlan": false,
+  "maxTurns": 45,
+  "maxTokens": 600000,
+  "maxDurationMinutes": 75,
+  "contextSize": 65536,
+  "parallelJobs": 1
+}

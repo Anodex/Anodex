@@ -7,6 +7,7 @@ import { diffOrUndefined } from './mutationTools'
 /** A real, visible, user-editable file in the workspace root — not an app-internal store. */
 export const PROJECT_NOTES_FILENAME = 'ANODEX.md'
 
+/** Keep each persistent project note short enough to be useful in later prompts. */
 const MAX_NOTE_CHARS = 500
 
 const HEADER =

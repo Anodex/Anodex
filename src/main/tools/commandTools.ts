@@ -9,10 +9,14 @@ import {
   describeEmptySearchResult
 } from './commandGuidance'
 import { isKnownMutatingCommand, isObservationalCommand } from './commandEffect'
+import { availableTools } from './toolAvailability'
 
+/** Default and caller-selectable ceiling for a shell command that does not exit. */
 const COMMAND_TIMEOUT_MS = 60_000
 const MAX_COMMAND_TIMEOUT_MS = 5 * 60_000
+/** Kill a command that floods stdout or stderr before it consumes unbounded memory. */
 const MAX_OUTPUT_BYTES = 1024 * 1024
+/** Keep long command payloads out of transcript titles; approval details retain the full command. */
 const MAX_COMMAND_TITLE_CHARS = 360
 const COMMAND_TITLE_OMISSION = ' [long command payload omitted]'
 
@@ -111,7 +115,12 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // pattern", and reading it as the former is what sent the driving
           // incident chasing elements that were present all along.
           const emptySearchNote =
-            describeEmptySearchResult(args.command, combined, Boolean(terminated)) ?? ''
+            describeEmptySearchResult(
+              args.command,
+              combined,
+              Boolean(terminated),
+              availableTools(ctx, ['search_files', 'code_outline'])
+            ) ?? ''
           // No truncation here: `runGuardedTool`'s own MAX_MODEL_RESULT_CHARS
           // cap already applies to every guarded tool's result uniformly, the
           // same way `runReadTool`'s does for read tools. This tool used to

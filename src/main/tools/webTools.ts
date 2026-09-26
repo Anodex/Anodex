@@ -9,7 +9,9 @@ import { recordToolArtifact } from './types'
 import { runReadTool } from './helpers'
 import { extractPdfText } from './pdfText'
 
+/** Stop slow public-page requests rather than holding an AI turn indefinitely. */
 const FETCH_TIMEOUT_MS = 30_000
+/** HTML can be truncated and still yield useful text; this bounds response memory. */
 const MAX_FETCH_BYTES = 1_000_000
 /**
  * PDFs get their own, much larger budget because they cannot be read in part.
@@ -27,8 +29,10 @@ const MAX_FETCH_BYTES = 1_000_000
  * hard bound, and the bytes are transient -- only the extracted text is kept.
  */
 const MAX_PDF_FETCH_BYTES = 16_000_000
+/** Give the model focused evidence rather than an entire fetched page. */
 const MAX_PASSAGES = 8
 const MAX_PASSAGE_CHARS = 900
+/** Bound untrusted metadata before it enters prompts, artifacts, or the UI. */
 const MAX_TITLE_CHARS = 300
 const MAX_URL_CHARS = 4_096
 
@@ -176,6 +180,7 @@ export async function fetchUrlEvidence(
   }
 }
 
+/** Revalidate each redirect and stop pages that never settle on a final URL. */
 const MAX_REDIRECTS = 10
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
