@@ -15,6 +15,7 @@ export type SettingsSection =
   | 'appearance'
   | 'keyboard'
   | 'projects'
+  | 'autonomy'
   | 'tools-skills'
   | 'archive'
   | 'memory'
