@@ -4,11 +4,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore, type AppView } from '../../stores/uiStore'
 import { useSidebarCollapse } from '../../stores/sidebarCollapseStore'
-import {
-  resolveSidebarMode,
-  useSidebarModeStore,
-  type SidebarMode
-} from '../../stores/sidebarModeStore'
+import { useSidebarModeStore } from '../../stores/sidebarModeStore'
 import { useCreateProject } from '../../hooks/useCreateProject'
 import { isChatReady } from '../../lib/chatReadiness'
 import type { NavigationBadgeCounts } from '../../lib/navigationBadges'
@@ -28,10 +24,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
   const openSettings = useUiStore((s) => s.openSettings)
   const newConversation = useChatStore((s) => s.newConversation)
   const setActiveProject = useProjectStore((s) => s.setActive)
-  const activeProjectId = useProjectStore((s) => s.activeProjectId)
-  const savedMode = useSidebarModeStore((s) => s.mode)
   const setMode = useSidebarModeStore((s) => s.setMode)
-  const mode = resolveSidebarMode(savedMode, activeProjectId)
   const settings = useSettingsStore((s) => s.settings)
   const engineStatus = useModelStore((s) => s.engine.status)
   const ready = isChatReady(settings, engineStatus)
@@ -47,9 +40,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
     setOverlayOpen(false)
   }
 
-  const handleMode = (nextMode: SidebarMode): void => {
-    if (view !== 'chat' || mode !== nextMode) {
-      setMode(nextMode)
+  const handleChat = (): void => {
+    if (view !== 'chat') {
       navigate('chat')
       expandSidebar()
     } else if (overlayOpen) {
@@ -76,23 +68,13 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
     <div className={styles.rail}>
       <button
         type="button"
-        className={`${styles.railButton} ${view === 'chat' && mode === 'chats' ? styles.railButtonActive : ''}`}
-        onClick={() => handleMode('chats')}
-        aria-label="Chats view"
-        aria-current={view === 'chat' && mode === 'chats' ? 'page' : undefined}
-        title="Chats"
+        className={`${styles.railButton} ${view === 'chat' ? styles.railButtonActive : ''}`}
+        onClick={handleChat}
+        aria-label="Chat"
+        aria-current={view === 'chat' ? 'page' : undefined}
+        title="Chat"
       >
         <Icon name="chat" size={16} />
-      </button>
-      <button
-        type="button"
-        className={`${styles.railButton} ${view === 'chat' && mode === 'workspace' ? styles.railButtonActive : ''}`}
-        onClick={() => handleMode('workspace')}
-        aria-label="Workspace view"
-        aria-current={view === 'chat' && mode === 'workspace' ? 'page' : undefined}
-        title="Workspace"
-      >
-        <Icon name="folder" size={16} />
       </button>
       <button
         type="button"

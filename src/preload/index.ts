@@ -223,6 +223,7 @@ const api: AnodexApi = {
   },
   updates: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Updates.getStatus),
+    getReleaseNotes: () => ipcRenderer.invoke(IpcChannel.Updates.getReleaseNotes),
     check: () => ipcRenderer.invoke(IpcChannel.Updates.check),
     download: () => ipcRenderer.invoke(IpcChannel.Updates.download),
     installAndRestart: () => ipcRenderer.invoke(IpcChannel.Updates.installAndRestart),

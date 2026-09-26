@@ -179,6 +179,7 @@ Key capabilities:
 - Create project conversations.
 - Keep general chats separate from project chats.
 - Switch the sidebar between general Chats and project-based Workspace conversations.
+- Switch between Chats and Workspace from the title bar using icon tabs.
 - Search within the selected sidebar view.
 - Mark conversations unread.
 - Archive all active general chats.
@@ -747,6 +748,8 @@ Diagnostics capabilities:
 Update capabilities:
 
 - Check for packaged app updates.
+- Open the current version's GitHub release notes from the title bar and dismiss the
+  prompt until the next installed version.
 - Download updates only after user action.
 - Restart to install only after user action.
 - Avoid automatic disruptive restarts.

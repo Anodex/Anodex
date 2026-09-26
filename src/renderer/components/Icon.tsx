@@ -6,6 +6,7 @@ import type { ReactNode, SVGProps } from 'react'
  */
 export type IconName =
   | 'chat'
+  | 'code'
   | 'models'
   | 'settings'
   | 'plus'
@@ -93,6 +94,7 @@ export type IconName =
 const GLYPHS: Record<IconName, ReactNode> = {
   /* Speech bubble with the system's signature 45° facet on the top-right corner. */
   chat: <path d="M3 5a2 2 0 0 1 2-2h11l5 5v7a2 2 0 0 1-2 2H7l-4 4V5z" />,
+  code: <path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18" />,
   /* Hexagonal cell that reads as an isometric cube — package semantics, brand geometry. */
   models: (
     <>
