@@ -696,6 +696,7 @@ Key capabilities:
 - Configure web search providers.
 - Supported search provider settings include SearXNG, Brave, Tavily, and Google.
 - Require approval before web searches when configured.
+- Set approvals and per-turn work limits together in Settings → Autonomy; choose the search provider in Settings → Tools.
 - Use web search in chat, agent runs, scheduled tasks, and Critical Thinking.
 
 Why it is good:
