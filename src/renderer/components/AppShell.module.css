@@ -1,7 +1,8 @@
 /* Keep all four tracks present so the rail never moves and panel/dock widths
    can animate without swapping grid templates. */
 .shell {
-  --shell-chrome-bg: color-mix(in srgb, var(--bg-surface) 94%, var(--text) 6%);
+  /* Use Anodex's existing sidebar surface at the curves, not a new chrome tint. */
+  --shell-chrome-bg: var(--bg-surface);
   display: grid;
   grid-template-rows: var(--titlebar-height) 1fr;
   grid-template-columns:
