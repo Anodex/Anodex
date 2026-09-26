@@ -137,7 +137,7 @@ export function ToolsSkillsSettings(): JSX.Element {
         />
         <SettingRow
           label="Confirm destructive actions"
-          description="Show a confirmation before delete, overwrite, reset, or destructive tool operations."
+          description="Confirm destructive actions in the app. AI tool approvals follow the permission mode above."
           control={
             <ToggleControl
               checked={settings.general.confirmDestructive}

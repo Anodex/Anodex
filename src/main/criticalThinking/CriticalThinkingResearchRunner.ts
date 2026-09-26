@@ -56,6 +56,7 @@ import { canonicalResearchUrl } from './criticalThinkingUrl'
  */
 const QUERY_OUTPUT_TOKENS = 1_536
 const ASSESSMENT_OUTPUT_TOKENS = 3_072
+/** Bound status text and prior-round context so each isolated phase stays focused. */
 const MAX_ACTIVITY_LABEL_CHARS = 100
 const MAX_ACTIVITY_DETAIL_CHARS = 180
 const MAX_PRIOR_QUERY_CHARS = 2_400
@@ -63,6 +64,7 @@ const MAX_GAP_PROMPT_CHARS = 2_000
 const MAX_PRIOR_FINDING_ITEMS = 12
 const MAX_PRIOR_QUERY_ITEMS = 24
 const MAX_GAP_ITEMS = 12
+/** Stop spending search rounds when repeated rounds find no usable evidence. */
 const MAX_EMPTY_ROUNDS = 2
 
 export interface CriticalThinkingRunUsage {

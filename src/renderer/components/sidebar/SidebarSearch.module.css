@@ -1,7 +1,7 @@
 /* A ghost row at rest — no fill, no border — that settles into a proper
    input on hover or focus. Less chrome sitting there before you need it.
 
-   Geometry is kept in lockstep with Sidebar's .newChatButton — same 34px row,
+   Geometry is kept in lockstep with Sidebar's .primaryButton — same 34px row,
    same padding, same trailing keycap — so the two form one matched pair.
    Vertical spacing belongs to .actions' gap, not a margin here. */
 .search {

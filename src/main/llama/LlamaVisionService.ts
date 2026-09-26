@@ -74,11 +74,13 @@ import {
   isValidVisionImageInput,
   LOCAL_VISION_MIME_TYPES,
   MAX_VISION_IMAGES,
+  MAX_VISION_INSPECTIONS_PER_RESPONSE,
   reopenChatImage,
   type VisualInputQueue
 } from '../vision/imageInputs'
 
 const log = createLogger('llama:vision')
+/** Default response ceiling when the user has not set a generation token limit. */
 const DEFAULT_MAX_TOKENS = 4096
 const MAX_TOOL_ROUNDS = 20
 /** Memory kept clear of the context limit, mirroring the text path's reserve. */
@@ -428,7 +430,10 @@ export class LlamaVisionService {
       timeout: 15 * 60_000,
       maxRetries: 0
     })
-    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, LOCAL_VISION_MIME_TYPES)
+    const visualInputs = createVisualInputQueue(
+      MAX_VISION_INSPECTIONS_PER_RESPONSE,
+      LOCAL_VISION_MIME_TYPES
+    )
     const currentModel = this.getCurrentModel?.()
     let hadAnyToolAttempt = false
     // Recomputed from this round's real measurement below, exactly as the text
@@ -522,23 +527,6 @@ export class LlamaVisionService {
         break
       }
 
-      // Once a write or long inline shell payload has completed, its durable
-      // effect (the file or command result) is the source of truth. Keeping
-      // it in every following request makes a long build pay for the same
-      // bytes twice. Keep the two newest file edits intact so the model can
-      // still see immediate work; long shell bodies can be dropped right away
-      // because their completed result remains paired with the call.
-      const proactivelyCompactedPayloads = reclaimExecutedToolArguments(messages, {
-        keepChars: 0,
-        protectRecent: PROTECTED_RECENT_TOOL_RESULTS
-      })
-      if (proactivelyCompactedPayloads > 0) {
-        log.debug('Compacted completed tool payloads before measuring the next round', {
-          round,
-          compacted: proactivelyCompactedPayloads
-        })
-      }
-
       // Sized against what this round's prompt actually leaves room for. When
       // the runtime can't tokenize, `measured` stays null and the configured
       // ceiling is used unchanged — the pre-measurement behavior — because
@@ -555,6 +543,26 @@ export class LlamaVisionService {
         needsBoundedWriteHeadroom(Object.keys(toolFunctions ?? {}))
       )
       const headroom = epochHeadroomTokens(this.contextSize, toolFunctions != null)
+      const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
+      // Rewriting an earlier tool call invalidates llama-server's cached suffix.
+      // On a long turn that can turn a subsecond append into a reread of tens of
+      // thousands of tokens. Keep completed arguments verbatim while they fit;
+      // reclaim them once the prompt approaches its context checkpoint. If the
+      // tokenizer is unavailable, keep the old conservative behavior.
+      if (!measured || measured.fixedTokens >= proactiveLimitTokens) {
+        const compacted = reclaimExecutedToolArguments(messages, {
+          keepChars: 0,
+          protectRecent: PROTECTED_RECENT_TOOL_RESULTS
+        })
+        if (compacted > 0) {
+          measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
+          log.debug('Compacted completed tool payloads near the context checkpoint', {
+            round,
+            compacted,
+            fixedTokens: measured?.fixedTokens ?? null
+          })
+        }
+      }
       // Nothing else bounds growth *within* a turn. History is compacted once,
       // upstream, before the first round; from there every call and every
       // result is appended and never removed, so a long tool-using turn walks
@@ -601,7 +609,6 @@ export class LlamaVisionService {
       // safe boundary while the newest tool result is complete. The bounded
       // chat runner can now summarize this cycle and start a fresh stateless
       // epoch instead of waiting until the next model call is truncated.
-      const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
       // Round-zero preflight for a rebuilt epoch. A rebuild is supposed to
       // arrive smaller than the exchange it replaced; when it does not, the
       // system prompt, routed schemas, pinned images and handoff are themselves

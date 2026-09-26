@@ -3,6 +3,7 @@ import { createLogger } from '../utils/logger'
 
 const log = createLogger('email:autoconfig')
 
+/** Let account setup continue when the external provider database is slow or unavailable. */
 const ISPDB_TIMEOUT_MS = 6_000
 
 /**

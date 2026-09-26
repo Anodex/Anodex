@@ -360,6 +360,11 @@ export const editFileTool: WorkspaceToolFactory = (define, ctx) =>
             )
           }
           const updated = original.replace(oldText, newText)
+          if (updated === original) {
+            throw new Error(
+              'The replacement leaves the file unchanged. Choose a different edit or move on; repeating this edit cannot improve the file.'
+            )
+          }
           return {
             confirmDetail: `In ${args.path}, replace:\n\n${describeOldText(args.oldText)}\n\n-> with:\n\n${preview(args.newText)}`,
             confirmDiff: diffOrUndefined(relativePath, original, updated),
@@ -545,6 +550,11 @@ export const replaceLinesTool: WorkspaceToolFactory = (define, ctx) =>
             ...replacement,
             ...lines.slice(clampedEnd)
           ].join('\n')
+          if (updated === original) {
+            throw new Error(
+              'The replacement leaves the file unchanged. Choose a different edit or move on; repeating this edit cannot improve the file.'
+            )
+          }
           const replacedCount = clampedEnd - effectiveStart + 1
           return {
             confirmDetail:

@@ -37,6 +37,9 @@ vi.mock('../providers/MicrosoftAdapter', () => ({ MicrosoftAdapter: class {} }))
 vi.mock('../providers/ImapSmtpAdapter', () => ({
   ImapSmtpAdapter: class {
     provider = 'imap'
+    needsReconnect(): boolean {
+      return false
+    }
     getThreadMessages(target: EmailAccount, id: string): Promise<EmailMessage[]> {
       return getThreadMessages(target, id)
     }

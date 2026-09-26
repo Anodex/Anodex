@@ -70,10 +70,12 @@ function missingSearchPath(requested: string | undefined, verb: 'searched' | 'sc
 const MAX_FILE_BYTES = 60 * 1024
 /** Reserved out of the per-result char budget for read_file_range's own header/continuation line. */
 const RANGE_HEADER_RESERVE_CHARS = 200
+/** Directory and search listings stop at readable result counts; the search walker also stops early. */
 const MAX_LIST_ENTRIES = 300
 const MAX_FIND_RESULTS = 200
 const MAX_SEARCH_RESULTS = 100
 const SEARCH_HARD_CAP = 200
+/** A line or multi-file request is bounded before the measured model-context cap is applied. */
 const MAX_RANGE_LINES = 200
 const MAX_FILES_BATCH = 20
 const MAX_BATCH_TOTAL_BYTES = 200 * 1024

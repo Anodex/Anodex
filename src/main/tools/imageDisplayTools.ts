@@ -12,7 +12,7 @@ import { saveVisualPreviewAsset } from './visualPreviewAssets'
 export const showImageTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Display an existing workspace PNG/JPEG/GIF/BMP image directly in your reply. Use when the user asks to see, show, open, or attach a visual result. This displays the file to the user but does not inspect its pixels.',
+      'Display a selected existing workspace PNG/JPEG/GIF/BMP image directly beside your final reply. Use when the user asks to see, show, open, or attach a visual result. Choose only current, relevant images after inspecting them; do not show every image you inspected. Images inspected with inspect_visual stay in the work log unless you select them with show_image. This tool does not provide its pixels to you. For a visual description, assessment, or comparison, call inspect_visual on the relevant files as well.',
     params: {
       type: 'object',
       properties: {
@@ -35,7 +35,7 @@ export const showImageTool: WorkspaceToolFactory = (define, ctx) =>
           const image = await readVisionImage(file, basename(file))
           const asset = await saveVisualPreviewAsset(ctx, image)
           return {
-            modelResult: `Displayed "${args.path}" in the conversation. The user can open, copy, or save the attached image.`,
+            modelResult: `Displayed "${args.path}" in the conversation. The user can open, copy, or save it. This call did not provide image pixels to you; use inspect_visual before describing or comparing its appearance.`,
             detail: 'image shown in conversation',
             preview: {
               kind: 'image',

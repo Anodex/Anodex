@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: var(--sidebar-width);
+  width: 100%;
   padding: var(--space-3);
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
@@ -16,16 +16,9 @@
   margin-bottom: var(--space-3);
 }
 
-/* Primary action: starting a new chat is the thing people reach for most, so
-   it gets a real button up top rather than a small + in a section header.
-
-   It is deliberately NOT accent-filled. This button is on screen every second
-   the app is open, and a saturated slab here outshouts the conversation it
-   sits next to. Instead it matches SidebarSearch's geometry exactly — same
-   34px row, same padding, same trailing keycap — so the two read as one pair
-   of controls rather than a loud button above a quiet row. The accent survives
-   on the + glyph alone, which is enough to mark it as the primary action. */
-.newChatButton {
+/* The primary action follows the selected collection. Match SidebarSearch's
+   34px row, padding, and keycap so the two controls read as a pair. */
+.primaryButton {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -45,26 +38,26 @@
     border-color var(--transition-fast);
 }
 
-.newChatButton:hover {
+.primaryButton:hover {
   background: var(--bg-elevated);
   border-color: var(--border-strong);
 }
 
-.newChatButton svg {
+.primaryButton svg {
   flex-shrink: 0;
 }
 
-.newChatIcon {
+.primaryIcon {
   color: var(--accent);
 }
 
-.newChatLabel {
+.primaryLabel {
   flex: 1;
   min-width: 0;
 }
 
-/* Mirrors SidebarSearch's .shortcut so Ctrl+N and Ctrl+K sit identically. */
-.newChatShortcut {
+/* Mirrors SidebarSearch's .shortcut so action and search hints sit identically. */
+.primaryShortcut {
   flex-shrink: 0;
   padding: 1px var(--space-1);
   font-family: inherit;
@@ -84,67 +77,6 @@
   overflow-x: hidden;
   margin-right: calc(var(--space-3) * -1);
   padding-right: var(--space-3);
-}
-
-.globalNav {
-  padding-bottom: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.navItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: calc(100% - var(--space-2));
-  min-width: 0;
-  margin: 0 var(--space-1) var(--space-1);
-  min-height: 26px;
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 450;
-  color: var(--text-muted);
-  text-transform: none;
-  letter-spacing: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    background var(--transition-fast);
-}
-
-.navItem:hover {
-  color: var(--text);
-  background: var(--bg-surface-2);
-}
-
-/* Active view carries an accent tint + accent icon, so "where you are" reads
-   differently from a plain hover and speaks the same language as a selected
-   chat. */
-.navItemActive {
-  color: var(--text);
-  background: var(--accent-soft);
-}
-
-.navItemIcon {
-  flex-shrink: 0;
-  color: var(--text-faint);
-}
-
-.navItemLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navItem:hover .navItemIcon {
-  color: var(--text-muted);
-}
-
-.navItemActive .navItemIcon {
-  color: var(--accent);
 }
 
 .headerIcon {

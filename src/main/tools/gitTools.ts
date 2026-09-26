@@ -3,6 +3,7 @@ import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace } from './workspace'
 import { runReadTool } from './helpers'
 
+/** Prevent a stalled Git read from blocking the agent indefinitely. */
 const GIT_TIMEOUT_MS = 30_000
 
 interface GitResult {

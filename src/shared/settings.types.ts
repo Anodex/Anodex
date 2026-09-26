@@ -174,7 +174,7 @@ export interface GeneralSettings {
   permissionMode: PermissionMode
   /** Show desktop notifications for long-running tasks. */
   desktopNotifications: boolean
-  /** Show a confirmation dialog before destructive actions. */
+  /** Show confirmation for destructive UI actions; AI tool approvals use permissionMode. */
   confirmDestructive: boolean
   /** Default shell used by the run_command tool. */
   defaultShell: string

@@ -3,6 +3,7 @@ import { buildIndex, search } from '../skills/skillSearch'
 import { runReadTool } from './helpers'
 import type { ToolFactory } from './types'
 
+/** Return a small set of skill matches the model can inspect before choosing one. */
 const DEFAULT_LIMIT = 5
 
 /**

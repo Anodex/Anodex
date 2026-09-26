@@ -6,8 +6,10 @@ import { runReadTool } from './helpers'
 import { SKIP_DIRS } from './fileTools'
 import { availableTools } from './toolAvailability'
 
+/** An outline is orientation, so bound the files scanned and each source file read. */
 const MAX_OUTLINE_FILES = 40
 const MAX_FILE_BYTES = 180 * 1024
+/** Keep the extension summary short enough to remain useful in model context. */
 const MAX_LISTED_EXTENSIONS = 6
 const CODE_FILE_EXT = /\.(tsx?|jsx?|mjs|cjs)$/i
 const IMPORT_RE = /^\s*import(?:\s+type)?(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm

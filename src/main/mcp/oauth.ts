@@ -18,6 +18,7 @@ import { mcpAuthStore } from './McpAuthStore'
  */
 const MCP_OAUTH_REDIRECT_PORT = 53129
 const MCP_OAUTH_REDIRECT_URI = `http://127.0.0.1:${MCP_OAUTH_REDIRECT_PORT}/callback`
+/** Close the temporary OAuth callback listener if authorization is not completed. */
 const MCP_OAUTH_TIMEOUT_MS = 180_000
 
 /**

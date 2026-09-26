@@ -37,12 +37,14 @@ import {
   createVisualInputQueue,
   drainVisualInputs,
   MAX_VISION_IMAGES,
+  MAX_VISION_INSPECTIONS_PER_RESPONSE,
   reopenPinnedHistoryImages,
   selectCurrentVisionImages
 } from '../vision/imageInputs'
 
 const log = createLogger('anthropic')
 
+/** Default response ceiling when the user has not set a generation token limit. */
 const DEFAULT_MAX_TOKENS = 4096
 /**
  * Cap on tool-use round trips within a single generation, mirroring the local
@@ -80,7 +82,10 @@ class AnthropicProvider implements LlmProvider {
 
     const client = new Anthropic({ apiKey })
     const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
-    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, CLOUD_VISION_MIME_TYPES)
+    const visualInputs = createVisualInputQueue(
+      MAX_VISION_INSPECTIONS_PER_RESPONSE,
+      CLOUD_VISION_MIME_TYPES
+    )
     const contextWindowTokens = cloudContextWindowTokens('anthropic', model)
     const modelResultBudgetBox: { current: ModelToolResultBudget | null } = { current: null }
     const toolLoopAbort = createToolLoopAbortState()

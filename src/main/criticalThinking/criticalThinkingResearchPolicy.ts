@@ -7,6 +7,7 @@ import { MAX_COMPACT_SOURCES } from './criticalThinkingSources'
 import { criticalThinkingSourceAuthorityScore } from './criticalThinkingSourceAuthority'
 import { canonicalResearchUrl } from './criticalThinkingUrl'
 
+/** Default attempt budgets for direct research I/O; the verified-source cap persists across Resume. */
 export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
   maxRoundsPerStep: 3,
   maxQueriesPerRound: 3,
@@ -21,7 +22,9 @@ export const DEFAULT_CRITICAL_THINKING_RESEARCH_POLICY = {
   maxRoundsPerRun: 21,
   maxSearchesPerRun: 63,
   maxFetchesPerRun: 84,
+  // This lifetime cap prevents Resume from accumulating unbounded evidence.
   maxVerifiedSourcesPerRun: MAX_COMPACT_SOURCES,
+  // Stop cloud research after an hour; local providers receive a larger wall-clock budget below.
   maxRunMs: 60 * 60_000
 } as const
 

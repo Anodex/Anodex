@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { matchesShortcut } from '@shared/keyboardShortcuts'
 import { Icon } from '../Icon'
 import styles from './SidebarSearch.module.css'
 
@@ -7,24 +6,25 @@ interface SidebarSearchProps {
   value: string
   onChange: (value: string) => void
   shortcut?: string
+  focusRequested?: boolean
+  onFocusRequestHandled?: () => void
 }
 
 /** Compact search input for filtering sidebar content. */
-export function SidebarSearch({ value, onChange, shortcut }: SidebarSearchProps): JSX.Element {
+export function SidebarSearch({
+  value,
+  onChange,
+  shortcut,
+  focusRequested = false,
+  onFocusRequestHandled
+}: SidebarSearchProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (!shortcut) return
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!matchesShortcut(event, shortcut)) return
-      event.preventDefault()
-      inputRef.current?.focus()
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [shortcut])
+    if (!focusRequested) return
+    inputRef.current?.focus()
+    onFocusRequestHandled?.()
+  }, [focusRequested, onFocusRequestHandled])
 
   return (
     <div className={styles.search}>

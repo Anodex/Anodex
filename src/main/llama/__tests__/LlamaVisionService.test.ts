@@ -858,7 +858,7 @@ describe('LlamaVisionService.generate', () => {
     expect(first - second).toBeGreaterThan(1_500)
   })
 
-  it('reclaims a completed long shell-command payload before the next vision round', async () => {
+  it('keeps a completed command in the cached prompt while there is room', async () => {
     mocks.toolFunctions = {
       run_command: {
         description: 'Run a command.',
@@ -866,13 +866,37 @@ describe('LlamaVisionService.generate', () => {
         handler: () => Promise.resolve('Exit code 0')
       }
     }
-    const argumentsText = JSON.stringify({
-      command: `Add-Content output.html @"\n${'x'.repeat(6_000)}\n"@`
-    })
+    const command = `Add-Content output.html @"\n${'x'.repeat(6_000)}\n"@`
+    const argumentsText = JSON.stringify({ command })
     mocks.rounds.push({ chunks: [toolCallChunk('run_command', argumentsText)] })
     mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
 
     await (await service(32_768)).generate(params({ tools: withTools }))
+
+    const secondRequest = mocks.requests[1].messages as Array<{
+      tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>
+    }>
+    const commandCall = secondRequest
+      .flatMap((message) => message.tool_calls ?? [])
+      .find((call) => call.function?.name === 'run_command')
+    const compacted = JSON.parse(commandCall?.function?.arguments ?? '{}') as { command?: string }
+    expect(compacted.command).toBe(command)
+  })
+
+  it('reclaims a completed command when the prompt reaches the context checkpoint', async () => {
+    mocks.toolFunctions = {
+      run_command: {
+        description: 'Run a command.',
+        params: { type: 'object' },
+        handler: () => Promise.resolve('Exit code 0')
+      }
+    }
+    mocks.countTokens = (text) => Math.ceil(text.length / 4)
+    const argumentsText = JSON.stringify({ command: 'x'.repeat(28_000) })
+    mocks.rounds.push({ chunks: [toolCallChunk('run_command', argumentsText)] })
+    mocks.rounds.push({ chunks: [textChunk('Done.', 'stop')] })
+
+    await (await service(8_192)).generate(params({ tools: withTools }))
 
     const secondRequest = mocks.requests[1].messages as Array<{
       tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>
