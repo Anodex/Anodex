@@ -67,6 +67,7 @@ export interface SearchAbortScope {
   dispose: () => void
 }
 
+/** Bound untrusted search metadata before it enters stored evidence or model prompts. */
 const MAX_SEARCH_TITLE_CHARS = 300
 const MAX_SEARCH_URL_CHARS = 4_096
 const MAX_SEARCH_SNIPPET_CHARS = 500

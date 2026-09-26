@@ -76,10 +76,11 @@ const MAX_EMAIL_RESULTS = 200
 const DRAFT_TTL_MS = 60 * 60 * 1000
 const MAX_RETAINED_DRAFTS = 50
 
+const imapAdapter = new ImapSmtpAdapter()
 const ADAPTERS: Record<EmailProvider, EmailProviderAdapter> = {
   gmail: new GmailAdapter(),
   microsoft: new MicrosoftAdapter(),
-  imap: new ImapSmtpAdapter()
+  imap: imapAdapter
 }
 
 /**
@@ -125,17 +126,23 @@ class EmailService {
   getStatus(): EmailConnectionStatus {
     const accounts = emailAccountStore.list()
     const primary = emailAccountStore.primary()
-    const statuses = accounts.map((account) => ({
-      id: account.id,
-      provider: account.provider,
-      address: account.address,
-      displayName: account.displayName,
-      connected: emailAuthStore.hasCredentials(account.id),
-      isPrimary: account.id === primary?.id,
-      reason: emailAuthStore.hasCredentials(account.id)
-        ? undefined
-        : 'Credentials are missing — reconnect this account.'
-    }))
+    const statuses = accounts.map((account) => {
+      const hasCredentials = emailAuthStore.hasCredentials(account.id)
+      const rejected = account.provider === 'imap' && imapAdapter.needsReconnect(account.id)
+      return {
+        id: account.id,
+        provider: account.provider,
+        address: account.address,
+        displayName: account.displayName,
+        connected: hasCredentials && !rejected,
+        isPrimary: account.id === primary?.id,
+        reason: !hasCredentials
+          ? 'Credentials are missing — reconnect this account.'
+          : rejected
+            ? 'The mail server rejected the saved password. Reconnect this account.'
+            : undefined
+      }
+    })
 
     const primaryStatus = statuses.find((status) => status.isPrimary)
     return {
@@ -232,27 +239,38 @@ class EmailService {
     if (!address) throw new Error('An email address is required.')
     if (!request.password) throw new Error('A password is required.')
 
-    const account = emailAccountStore.add({
+    const existing = emailAccountStore
+      .list()
+      .find(
+        (account) =>
+          account.provider === 'imap' && account.address.toLowerCase() === address.toLowerCase()
+      )
+    const account: EmailAccount = {
+      id: existing?.id ?? randomUUID(),
       provider: 'imap',
       address,
       displayName: request.displayName?.trim() || address,
       authKind: 'password',
       syncMode: 'metadata',
       imap: request.imap,
-      smtp: request.smtp
-    })
-    emailAuthStore.setPassword(account.id, request.password)
+      smtp: request.smtp,
+      createdAt: existing?.createdAt ?? Date.now()
+    }
 
     try {
-      await ADAPTERS.imap.verify(account)
-      log.info(`Connected IMAP account ${address}.`)
-      diagnosticsReporter.resolved('email')
+      await imapAdapter.verifyPassword(account, request.password)
     } catch (error) {
-      emailAccountStore.remove(account.id)
       throw new Error(
         `Could not sign in to ${request.imap.host}: ${error instanceof Error ? error.message : String(error)}`
       )
     }
+
+    emailAuthStore.setPassword(account.id, request.password)
+    imapAdapter.disconnect(account.id)
+    emailAccountStore.add(account)
+    imapAdapter.clearAuthenticationFailure(account.id)
+    log.info(`Connected IMAP account ${address}.`)
+    diagnosticsReporter.resolved('email')
 
     return this.getStatus()
   }
@@ -809,6 +827,11 @@ class EmailService {
     if (!emailAuthStore.hasCredentials(account.id)) {
       throw new Error(
         `${account.address} is linked but has no stored credentials. Reconnect it in Settings -> Email.`
+      )
+    }
+    if (account.provider === 'imap' && imapAdapter.needsReconnect(account.id)) {
+      throw new Error(
+        `${account.address}'s saved password was rejected by the mail server. Reconnect it in Settings -> Email.`
       )
     }
     return { account, adapter: ADAPTERS[account.provider] }

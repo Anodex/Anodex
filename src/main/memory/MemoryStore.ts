@@ -18,6 +18,7 @@ import { writeJsonAtomic } from '../utils/atomicWrite'
 
 const log = createLogger('memory-store')
 
+/** Keep each personal or project memory scope bounded; oldest unpinned facts are evicted. */
 const MAX_ENTRIES_PER_SCOPE = 200
 /**
  * Separate, meaningfully smaller cap on *pinned* entries specifically.
@@ -26,6 +27,7 @@ const MAX_ENTRIES_PER_SCOPE = 200
  * never be evicted, silently defeating `MAX_ENTRIES_PER_SCOPE` altogether.
  */
 export const MAX_PINNED_PER_SCOPE = 50
+/** One saved fact stays short enough to be useful when retrieved into a prompt. */
 export const MAX_MEMORY_TEXT_CHARS = 400
 const GLOBAL_KEY = 'global'
 const SAFE_SCOPE_KEY = /^[A-Za-z0-9_-]+$/

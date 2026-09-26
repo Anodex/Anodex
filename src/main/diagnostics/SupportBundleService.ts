@@ -10,6 +10,7 @@ import { getHardware } from '../ipc/system.handlers'
 import { diagnosticsReporter } from './DiagnosticsReporter'
 import { getLogFileInfo } from './logFile'
 
+/** Limit exported diagnostics and log tails so a support bundle stays manageable. */
 const MAX_DIAGNOSTICS = 50
 const MAX_LOG_CHARS = 64 * 1024
 

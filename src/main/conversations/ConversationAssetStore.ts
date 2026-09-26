@@ -17,9 +17,12 @@ import {
 import { createLogger } from '../utils/logger'
 
 const log = createLogger('conversation-assets')
+/** Asset IDs become filenames, so accept only generated identifier characters and known image types. */
 const SAFE_ID = /^[A-Za-z0-9_-]+$/
 const SAFE_ASSET_ID = /^[A-Za-z0-9_-]+\.(?:png|jpg|jpeg|gif|bmp)$/
+/** Oldest visual previews are evicted when this global disk budget is exceeded. */
 export const MAX_VISUAL_PREVIEW_STORAGE_BYTES = 256 * 1024 * 1024
+/** One conversation cannot crowd every other conversation's previews off disk. */
 export const MAX_CONVERSATION_PREVIEW_STORAGE_BYTES = 64 * 1024 * 1024
 
 interface ConversationAssetStoreLimits {

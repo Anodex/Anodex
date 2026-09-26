@@ -62,6 +62,7 @@ interface PooledConnection {
 
 export class ImapSmtpAdapter implements EmailProviderAdapter {
   readonly provider = 'imap' as const
+  private authenticationFailures = new Set<string>()
 
   /**
    * Live connections by account id, stored as the in-flight promise so
@@ -75,6 +76,26 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     // so the one the user typed is the only one there is.
     await this.withMailbox(account, 'INBOX', () => Promise.resolve(undefined))
     return { address: account.address, displayName: account.displayName }
+  }
+
+  /** Verify replacement credentials on a fresh socket, never the account's pooled session. */
+  async verifyPassword(account: EmailAccount, password: string): Promise<EmailIdentity> {
+    const connection = await this.connect(account, password)
+    try {
+      const lock = await connection.client.getMailboxLock('INBOX')
+      lock.release()
+      return { address: account.address, displayName: account.displayName }
+    } finally {
+      await connection.client.logout().catch(() => connection.client.close())
+    }
+  }
+
+  needsReconnect(accountId: string): boolean {
+    return this.authenticationFailures.has(accountId)
+  }
+
+  clearAuthenticationFailure(accountId: string): void {
+    this.authenticationFailures.delete(accountId)
   }
 
   async listThreads(
@@ -830,14 +851,17 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       return connection
     } catch (error) {
       // A failed connect must not poison the pool for the next attempt.
-      this.connections.delete(account.id)
+      if (this.connections.get(account.id) === pending) this.connections.delete(account.id)
       throw error
     }
   }
 
-  private async connect(account: EmailAccount): Promise<PooledConnection> {
+  private async connect(
+    account: EmailAccount,
+    replacementPassword?: string
+  ): Promise<PooledConnection> {
     const imap = requireEndpoint(account.imap, account, 'IMAP')
-    const password = requirePassword(account)
+    const password = replacementPassword ?? requirePassword(account)
 
     const client = new ImapFlow({
       host: imap.host,
@@ -853,8 +877,17 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     client.on('error', (error) => log.warn(`IMAP error for ${account.address}:`, error))
     client.on('close', () => this.discard(account.id, client))
 
-    await client.connect()
-    return { client, inUse: 0, idleTimer: undefined }
+    try {
+      await client.connect()
+      if (replacementPassword === undefined) this.authenticationFailures.delete(account.id)
+      return { client, inUse: 0, idleTimer: undefined }
+    } catch (error) {
+      if (replacementPassword === undefined && isAuthenticationFailure(error)) {
+        this.authenticationFailures.add(account.id)
+      }
+      client.close()
+      throw error
+    }
   }
 
   /** Marks an operation finished and starts the idle countdown when none remain. */
@@ -868,7 +901,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
         if (connection.inUse > 0 || connection.idleTimer) return
 
         connection.idleTimer = setTimeout(() => {
-          this.connections.delete(accountId)
+          if (this.connections.get(accountId) === pending) this.connections.delete(accountId)
           void connection.client.logout().catch(() => connection.client.close())
         }, IDLE_CONNECTION_MS)
         // A pending logout must never hold the process open at quit.
@@ -882,6 +915,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
   /** Closes the pooled connection for an account being unlinked. */
   disconnect(accountId: string): void {
     this.discard(accountId)
+    this.authenticationFailures.delete(accountId)
   }
 
   /** Forgets a pooled connection, optionally only if it is the one given. */
@@ -889,17 +923,28 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     const pending = this.connections.get(accountId)
     if (!pending) return
 
+    // Stop new calls from borrowing the old socket before its close runs.
+    if (!only) this.connections.delete(accountId)
+
     void pending
       .then((connection) => {
         if (only && connection.client !== only) return
         if (connection.idleTimer) clearTimeout(connection.idleTimer)
-        this.connections.delete(accountId)
+        if (only && this.connections.get(accountId) === pending) this.connections.delete(accountId)
         connection.client.close()
       })
       .catch(() => {
-        this.connections.delete(accountId)
+        if (only && this.connections.get(accountId) === pending) this.connections.delete(accountId)
       })
   }
+}
+
+function isAuthenticationFailure(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const failure = error as { authenticationFailed?: boolean; serverResponseCode?: string }
+  return (
+    failure.authenticationFailed === true || failure.serverResponseCode === 'AUTHENTICATIONFAILED'
+  )
 }
 
 const IMAP_FLAGS: Record<string, { add: string[]; remove: string[] }> = {

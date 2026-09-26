@@ -4,6 +4,7 @@ import { canonicalResearchUrl } from './criticalThinkingUrl'
 
 const SEARCH_RESULT_PATTERN =
   /^\d+\.\s+\*\*(.+?)\*\*\s+[\u2013\u2014-]\s+(https?:\/\/\S+)\r?\n([^\r\n]*)/gm
+/** Lifetime cap on verified sources included in a research run's compact evidence set. */
 export const MAX_COMPACT_SOURCES = 100
 const VALID_SOURCE_ID_PATTERN = /^S([1-9]\d*)$/
 

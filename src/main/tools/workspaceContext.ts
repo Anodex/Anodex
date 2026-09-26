@@ -20,9 +20,12 @@ import { PROJECT_NOTES_FILENAME } from './projectNotesTool'
  * context budget — the model still uses tools to read actual file contents.
  */
 
+/** Only a short project sketch is injected automatically; tools can read more on demand. */
 const MAX_TREE_ENTRIES = 60
 const README_LINES = 8
+/** Refresh the cached sketch as the workspace changes without rebuilding it every turn. */
 const CACHE_TTL_MS = 30_000
+/** Recent activity is sampled so it does not crowd out the user's current request. */
 const MAX_ACTIVITY_FILES = 8
 const MAX_ACTIVITY_SUMMARIES = 3
 

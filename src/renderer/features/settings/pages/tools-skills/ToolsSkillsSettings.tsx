@@ -16,12 +16,6 @@ import { VisualPreviewStorage } from './VisualPreviewStorage'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ToolsSkillsSettings.module.css'
 
-const PERMISSION_OPTIONS = [
-  { label: 'Ask every time', value: 'ask' },
-  { label: 'Edits: allow file edits and checks, ask commands', value: 'full' },
-  { label: 'Untethered', value: 'untethered' }
-]
-
 const WEB_SEARCH_OPTIONS = [
   { label: 'Disabled', value: 'none' },
   { label: 'SearXNG (self-hosted)', value: 'searxng' },
@@ -103,48 +97,13 @@ export function ToolsSkillsSettings(): JSX.Element {
         <p className={pageStyles.pageKicker}>Assistant</p>
         <h1 className={pageStyles.pageTitle}>Tools</h1>
         <p className={pageStyles.pageDesc}>
-          Control assistant access, terminal behavior, tool availability, and web search.
+          Choose available tools, terminal behavior, and web search providers. Set approvals in
+          Autonomy.
         </p>
       </header>
 
       <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Permissions</h2>
-        <p className={pageStyles.sectionDesc}>How much autonomy tools have over your machine.</p>
-        <SettingRow
-          label="Permission mode"
-          description={permissionHint(settings.general.permissionMode)}
-          control={
-            <SelectControl
-              value={settings.general.permissionMode}
-              options={PERMISSION_OPTIONS}
-              onChange={(value) =>
-                void update({
-                  general: { permissionMode: value as typeof settings.general.permissionMode }
-                })
-              }
-            />
-          }
-        />
-        <SettingRow
-          label="Check before finishing"
-          description="When a chat in a project changes files, ask it to check its work (run the tests or a build, a syntax check, or look at the page) before it gives its final answer."
-          control={
-            <ToggleControl
-              checked={settings.tools.checkBeforeFinishing !== false}
-              onChange={(value) => void update({ tools: { checkBeforeFinishing: value } })}
-            />
-          }
-        />
-        <SettingRow
-          label="Confirm destructive actions"
-          description="Show a confirmation before delete, overwrite, reset, or destructive tool operations."
-          control={
-            <ToggleControl
-              checked={settings.general.confirmDestructive}
-              onChange={(value) => void update({ general: { confirmDestructive: value } })}
-            />
-          }
-        />
+        <h2 className={pageStyles.sectionTitle}>Tool setup</h2>
         <SettingRow
           label="Default shell"
           description="Shell used by the run_command tool."
@@ -178,11 +137,6 @@ export function ToolsSkillsSettings(): JSX.Element {
           Tools read and change files only inside an open project folder. Workspace access comes
           from the active project selected in the sidebar.
         </p>
-        <SettingRow
-          label="Active workspace"
-          description={settings.workspace.root ?? 'No project open'}
-          control={null}
-        />
         <SettingRow
           label="Enable tools"
           description="Master switch for all assistant tools."
@@ -346,29 +300,9 @@ export function ToolsSkillsSettings(): JSX.Element {
                 />
               }
             />
-            <SettingRow
-              label="Require approval"
-              description="Ask before each web search query."
-              control={
-                <ToggleControl
-                  checked={settings.webSearch.requireApproval}
-                  onChange={(value) => void update({ webSearch: { requireApproval: value } })}
-                />
-              }
-            />
           </>
         )}
       </section>
     </div>
   )
-}
-
-function permissionHint(mode: 'ask' | 'full' | 'untethered'): string {
-  if (mode === 'ask') return 'Prompt before writes and shell commands.'
-  if (mode === 'full')
-    return (
-      'Edit files and run read-only checks (listing, reading, git status, node --check) ' +
-      'without asking, once a turn has started. Still asks before any other command.'
-    )
-  return 'Allow safe and sensitive operations; destructive actions still require confirmation.'
 }

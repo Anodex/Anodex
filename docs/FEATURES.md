@@ -178,7 +178,8 @@ Key capabilities:
 - Create, rename, archive, restore, and delete projects.
 - Create project conversations.
 - Keep general chats separate from project chats.
-- Search chats from the sidebar.
+- Switch the sidebar between general Chats and project-based Workspace conversations.
+- Search within the selected sidebar view.
 - Mark conversations unread.
 - Archive all active general chats.
 - Store project instructions.
@@ -695,6 +696,7 @@ Key capabilities:
 - Configure web search providers.
 - Supported search provider settings include SearXNG, Brave, Tavily, and Google.
 - Require approval before web searches when configured.
+- Set approvals and per-turn work limits together in Settings → Autonomy; choose the search provider in Settings → Tools.
 - Use web search in chat, agent runs, scheduled tasks, and Critical Thinking.
 
 Why it is good:

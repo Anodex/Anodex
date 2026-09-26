@@ -40,6 +40,17 @@ vi.mock('../../projects/ProjectStore', () => ({
   }
 }))
 
+// These persistence stores import Electron's app API. This suite tests the
+// chat runner's decisions, so keep their side effects out of the module graph
+// (and let the Windows CI runner test without an installed Electron binary).
+vi.mock('../../models/ModelReliabilityStore', () => ({
+  modelReliabilityStore: { recordFabrication: vi.fn() }
+}))
+
+vi.mock('../../memory/MemoryStore', () => ({
+  memoryStore: { create: vi.fn() }
+}))
+
 // A real workspace so `findUnverifiedPathClaims` (see `pathClaimVerification.ts`)
 // has genuine disk state to check the final reply against — one real file,
 // so a test can prove a path that WAS actually read is never flagged.

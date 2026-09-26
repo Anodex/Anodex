@@ -128,6 +128,7 @@ const log = createLogger('critical-thinking-service')
  */
 const SECTION_EVIDENCE_SHARE = 0.5
 
+/** Reject oversized questions and edited plans before they enter persisted research state. */
 const MAX_QUESTION_CHARS = 8_000
 const MAX_PLAN_STEPS = 12
 const MAX_PLAN_STEP_CHARS = 240
@@ -147,6 +148,7 @@ const MAX_PLAN_STEP_CHARS = 240
  * phase.
  */
 const PLANNING_OUTPUT_TOKENS = 3_072
+/** Keep the live activity trail bounded while the evidence and rounds remain persisted. */
 const MAX_ACTIVITIES = 240
 /**
  * How the run's time budget is split. Synthesis is several bounded model
@@ -154,8 +156,10 @@ const MAX_ACTIVITIES = 240
  * overview — so on a local model it needs real minutes, not leftovers.
  */
 const SYNTHESIS_BUDGET_SHARE = 0.3
+/** Reserve real time for both evidence gathering and writing the final report. */
 const MIN_SYNTHESIS_WINDOW_MS = 8 * 60_000
 const MIN_RESEARCH_WINDOW_MS = 5 * 60_000
+/** Final synthesis cannot call tools; it must use the verified evidence packet. */
 const SYNTHESIS_BUDGET = { ...CRITICAL_THINKING_STEP_BUDGET, maxTools: 0 }
 
 /**

@@ -26,6 +26,7 @@ import {
 } from '../tools/evidenceStore'
 import { createTaskLedger } from '../tools/taskLedger'
 import { createLogger } from '../utils/logger'
+import { describeStall, SILENCE_LIMIT_MS, watchForStall } from './streamStall'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
@@ -73,11 +74,13 @@ import {
   isValidVisionImageInput,
   LOCAL_VISION_MIME_TYPES,
   MAX_VISION_IMAGES,
+  MAX_VISION_INSPECTIONS_PER_RESPONSE,
   reopenChatImage,
   type VisualInputQueue
 } from '../vision/imageInputs'
 
 const log = createLogger('llama:vision')
+/** Default response ceiling when the user has not set a generation token limit. */
 const DEFAULT_MAX_TOKENS = 4096
 const MAX_TOOL_ROUNDS = 20
 /** Memory kept clear of the context limit, mirroring the text path's reserve. */
@@ -427,7 +430,10 @@ export class LlamaVisionService {
       timeout: 15 * 60_000,
       maxRetries: 0
     })
-    const visualInputs = createVisualInputQueue(MAX_VISION_IMAGES, LOCAL_VISION_MIME_TYPES)
+    const visualInputs = createVisualInputQueue(
+      MAX_VISION_INSPECTIONS_PER_RESPONSE,
+      LOCAL_VISION_MIME_TYPES
+    )
     const currentModel = this.getCurrentModel?.()
     let hadAnyToolAttempt = false
     // Recomputed from this round's real measurement below, exactly as the text
@@ -479,6 +485,8 @@ export class LlamaVisionService {
     let toolCallsTruncated = false
     /** Set when the runtime failed a tool-call parse without having generated. */
     let staleParseFailure = false
+    /** The runtime went silent mid-stream — see `streamStall.ts`. */
+    let runtimeStalled = false
     /** Set when a round failed outright after earlier ones had produced work. */
     let providerError: string | null = null
     /**
@@ -519,23 +527,6 @@ export class LlamaVisionService {
         break
       }
 
-      // Once a write or long inline shell payload has completed, its durable
-      // effect (the file or command result) is the source of truth. Keeping
-      // it in every following request makes a long build pay for the same
-      // bytes twice. Keep the two newest file edits intact so the model can
-      // still see immediate work; long shell bodies can be dropped right away
-      // because their completed result remains paired with the call.
-      const proactivelyCompactedPayloads = reclaimExecutedToolArguments(messages, {
-        keepChars: 0,
-        protectRecent: PROTECTED_RECENT_TOOL_RESULTS
-      })
-      if (proactivelyCompactedPayloads > 0) {
-        log.debug('Compacted completed tool payloads before measuring the next round', {
-          round,
-          compacted: proactivelyCompactedPayloads
-        })
-      }
-
       // Sized against what this round's prompt actually leaves room for. When
       // the runtime can't tokenize, `measured` stays null and the configured
       // ceiling is used unchanged — the pre-measurement behavior — because
@@ -552,6 +543,26 @@ export class LlamaVisionService {
         needsBoundedWriteHeadroom(Object.keys(toolFunctions ?? {}))
       )
       const headroom = epochHeadroomTokens(this.contextSize, toolFunctions != null)
+      const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
+      // Rewriting an earlier tool call invalidates llama-server's cached suffix.
+      // On a long turn that can turn a subsecond append into a reread of tens of
+      // thousands of tokens. Keep completed arguments verbatim while they fit;
+      // reclaim them once the prompt approaches its context checkpoint. If the
+      // tokenizer is unavailable, keep the old conservative behavior.
+      if (!measured || measured.fixedTokens >= proactiveLimitTokens) {
+        const compacted = reclaimExecutedToolArguments(messages, {
+          keepChars: 0,
+          protectRecent: PROTECTED_RECENT_TOOL_RESULTS
+        })
+        if (compacted > 0) {
+          measured = await this.measureInput(messages, tools, params.prompt, promptUsageCorrection)
+          log.debug('Compacted completed tool payloads near the context checkpoint', {
+            round,
+            compacted,
+            fixedTokens: measured?.fixedTokens ?? null
+          })
+        }
+      }
       // Nothing else bounds growth *within* a turn. History is compacted once,
       // upstream, before the first round; from there every call and every
       // result is appended and never removed, so a long tool-using turn walks
@@ -598,7 +609,6 @@ export class LlamaVisionService {
       // safe boundary while the newest tool result is complete. The bounded
       // chat runner can now summarize this cycle and start a fresh stateless
       // epoch instead of waiting until the next model call is truncated.
-      const proactiveLimitTokens = Math.max(0, inputLimitTokens - minimumOutput - headroom)
       // Round-zero preflight for a rebuilt epoch. A rebuild is supposed to
       // arrive smaller than the exchange it replaced; when it does not, the
       // system prompt, routed schemas, pinned images and handoff are themselves
@@ -789,6 +799,7 @@ export class LlamaVisionService {
       const visibleText = createBudgetMessageFilter()
       /** llama-server's own timing for this round — see `roundTimings.ts`. */
       let roundTimings: RoundTimings | null = null
+      const stallWatch = watchForStall(params.signal)
       try {
         const stream = await client.chat.completions.create(
           {
@@ -816,10 +827,13 @@ export class LlamaVisionService {
                 } as unknown as Record<string, never>)
               : {})
           },
-          { signal: params.signal }
+          { signal: stallWatch.signal }
         )
 
         for await (const chunk of stream) {
+          // Every chunk restarts the silence clock. A long reply keeps
+          // resetting it; only a runtime that has stopped talking runs it out.
+          stallWatch.heard()
           const reading = promptProgressOf(chunk)
           if (reading) params.onPromptProgress?.(reading)
           roundTimings = roundTimingsOf(chunk) ?? roundTimings
@@ -867,6 +881,7 @@ export class LlamaVisionService {
         // token chat request measured 6,817 ms cold against 90 ms warm — and
         // until this line the log recorded the prompt's size but never which
         // of those two had just happened. See `roundTimings.ts`.
+        stallWatch.done()
         if (roundTimings) {
           log.info('Vision round timings', {
             round,
@@ -875,6 +890,7 @@ export class LlamaVisionService {
           })
         }
       } catch (error) {
+        stallWatch.done()
         roundContent += visibleText.flush()
         // Folded before anything below reads `content`. While streaming wrote
         // straight into `content`, a round that produced text before failing
@@ -884,6 +900,18 @@ export class LlamaVisionService {
         // transports fold in their own catch for exactly this reason.
         content = appendRoundText(content, roundContent)
         roundContent = ''
+        // A stall aborts the request the same way a user would, so it has to
+        // be read first or a wedged runtime is reported as "you stopped it"
+        // and nothing in the log says otherwise.
+        if (stallWatch.stalled) {
+          runtimeStalled = true
+          log.error('The local runtime went silent mid-stream; abandoning the request', {
+            round,
+            silentForMs: SILENCE_LIMIT_MS,
+            roundMs: Date.now() - roundStartedAt
+          })
+          break
+        }
         if (params.signal?.aborted || error instanceof APIUserAbortError) {
           stopped = true
           break
@@ -1124,6 +1152,12 @@ export class LlamaVisionService {
     // unattributed to any message. A late runtime fault is a reason to end the
     // turn, never a reason to throw away what it accomplished; `runtime-stalled`
     // reports it just as plainly with the content kept.
+    // Same rule as the parse-failure case below: only throw when the turn has
+    // nothing to lose. A stall that arrives after real work is a reason to end
+    // the turn, not to discard what it already did.
+    if (runtimeStalled && !content && !hadAnyToolAttempt) {
+      throw new Error(describeStall())
+    }
     if (staleParseFailure && !content && !hadAnyToolAttempt) {
       throw new Error(
         'The local runtime stopped running the model and returned the same tool-call parse ' +
@@ -1163,6 +1197,7 @@ export class LlamaVisionService {
       }),
       stopped:
         stopped ||
+        runtimeStalled ||
         roundsExhausted ||
         tokenLimit ||
         toolCallsTruncated ||
@@ -1174,7 +1209,7 @@ export class LlamaVisionService {
       // an exhausted context are all diagnoses the coarser reasons would hide.
       stopReason: providerError
         ? 'provider-error'
-        : staleParseFailure
+        : runtimeStalled || staleParseFailure
           ? 'runtime-stalled'
           : contextExhausted === 'fixed'
             ? 'fixed-context-limit'

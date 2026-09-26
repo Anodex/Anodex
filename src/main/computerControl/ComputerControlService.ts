@@ -12,12 +12,16 @@ import type {
 import { conversationAssetStore } from '../conversations/ConversationAssetStore'
 import type { ComputerControlTarget } from './ComputerControlTarget'
 
+/** End a visible control session before an AI can keep acting indefinitely. */
 export const COMPUTER_CONTROL_ACTION_LIMIT = 25
+/** Wall-clock backstop for the same session, even when actions are slow. */
 export const COMPUTER_CONTROL_TIME_LIMIT_MS = 5 * 60_000
+/** Per-action bounds keep one model instruction small and interruptible. */
 const MAX_WAIT_MS = 5_000
 const MAX_DRAG_DURATION_MS = 2_000
 const MAX_SCROLL_DELTA = 2_000
 const MAX_TYPED_CHARS = 2_000
+/** Stop retrying the same failed action when the target does not respond as expected. */
 export const COMPUTER_CONTROL_REPEATED_FAILURE_LIMIT = 3
 
 interface ActiveSession {

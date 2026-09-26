@@ -3,6 +3,7 @@ import type { Plan, PlanStep, PlanStepStatus } from '@shared/plan.types'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
 
+/** Bound plan size and step titles so plans remain usable in the UI and prompts. */
 const MAX_STEPS = 30
 const MAX_TITLE_CHARS = 200
 

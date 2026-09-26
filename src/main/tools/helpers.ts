@@ -263,6 +263,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       provesChange
     } = await spec.run()
     ctx.ledger.recordOutcome({
+      name: spec.name,
       kind: effectiveToolKind(spec, 'read'),
       madeProgress,
       provesChange
@@ -422,6 +423,7 @@ function reviewRepeat(
         ''
       )
   ctx.ledger.recordOutcome({
+    name: spec.name,
     kind: effectiveToolKind(spec, 'read'),
     madeProgress: false,
     refusedByLedger: true
@@ -593,6 +595,7 @@ export async function runGuardedTool(
       provesChange
     } = await spec.run()
     ctx.ledger.recordOutcome({
+      name: spec.name,
       kind: effectiveToolKind(spec, 'read'),
       madeProgress,
       provesChange

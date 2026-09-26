@@ -3,7 +3,9 @@ import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace } from './workspace'
 import { runReadTool } from './helpers'
 
+/** Prevent Git summaries from holding a tool call indefinitely. */
 const GIT_TIMEOUT_MS = 30_000
+/** Keep diff stats small enough to fit the commit-message prompt. */
 const MAX_DIFF_STAT_CHARS = 4000
 
 interface GitCommitSummaryArgs {

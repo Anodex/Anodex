@@ -184,6 +184,32 @@ describe('estimateProjectedContextUsage', () => {
     )
   })
 
+  it('shows the bounded cost of a long prior assistant turn', () => {
+    const usage = estimateProjectedContextUsage({
+      conversation: conversation([
+        { id: 'm1', role: 'user', content: 'Build the model.', createdAt: 1 },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'x'.repeat(47_000),
+          createdAt: 2,
+          toolCalls: Array.from({ length: 137 }, (_, index) => ({
+            id: `t${index}`,
+            name: 'run_command',
+            kind: 'command' as const,
+            title: `Check step ${index}`,
+            status: 'success' as const,
+            result: 'a'.repeat(1_100)
+          }))
+        }
+      ]),
+      contextSize: 65_536
+    })
+
+    expect(usage.historyTokens).toBeLessThan(8_000)
+    expect(usage.recentTurns).toBe(2)
+  })
+
   it('mirrors the engine recall-window cap on the projected history budget', () => {
     const usage = estimateProjectedContextUsage({
       conversation: conversation([

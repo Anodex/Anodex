@@ -4,9 +4,12 @@ import type { WorkspaceToolFactory } from './types'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { runReadTool } from './helpers'
 import { SKIP_DIRS } from './fileTools'
+import { availableTools } from './toolAvailability'
 
+/** An outline is orientation, so bound the files scanned and each source file read. */
 const MAX_OUTLINE_FILES = 40
 const MAX_FILE_BYTES = 180 * 1024
+/** Keep the extension summary short enough to remain useful in model context. */
 const MAX_LISTED_EXTENSIONS = 6
 const CODE_FILE_EXT = /\.(tsx?|jsx?|mjs|cjs)$/i
 const IMPORT_RE = /^\s*import(?:\s+type)?(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm
@@ -67,7 +70,10 @@ export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
           )
           const body = outlines.length
             ? outlines.map(formatOutline).join('\n\n')
-            : describeNothingToOutline(scan.others)
+            : describeNothingToOutline(
+                scan.others,
+                availableTools(ctx, ['search_files', 'read_file_range'])
+              )
           return {
             modelResult: body,
             detail: `${outlines.length} file${outlines.length === 1 ? '' : 's'}`
@@ -94,7 +100,21 @@ export const codeOutlineTool: WorkspaceToolFactory = (define, ctx) =>
  * exactly that is how this failed in the first place; a plain count of what was
  * passed over is true in any language and needs no maintenance.
  */
-function describeNothingToOutline(others: Map<string, number>): string {
+/** Name only the tools this run has; see `toolAvailability.ts`. */
+function describeInsteadUse(insteadUse: readonly string[]): string {
+  const uses: Record<string, string> = {
+    search_files: 'search_files to locate a symbol in them',
+    read_file_range: 'read_file_range to read one'
+  }
+  const named = insteadUse.map((name) => uses[name]).filter(Boolean)
+  return named.length > 0 ? `Use ${named.join(', or ')}.` : ''
+}
+
+function describeNothingToOutline(
+  others: Map<string, number>,
+  /** Tools this run can actually reach these files with; may be empty. */
+  insteadUse: readonly string[]
+): string {
   if (others.size === 0) return 'No source files found.'
   const listed = [...others.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -104,7 +124,7 @@ function describeNothingToOutline(others: Map<string, number>): string {
   return (
     'No JavaScript or TypeScript files here, and code_outline maps only those. ' +
     `There are other files present (${listed}), so this location is not empty. ` +
-    'Use search_files to locate a symbol in them, or read_file_range to read one.'
+    describeInsteadUse(insteadUse)
   )
 }
 

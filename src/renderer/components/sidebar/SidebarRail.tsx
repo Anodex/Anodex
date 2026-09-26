@@ -2,8 +2,13 @@ import { useChatStore } from '../../stores/chatStore'
 import { useModelStore } from '../../stores/modelStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useUiStore } from '../../stores/uiStore'
+import { useUiStore, type AppView } from '../../stores/uiStore'
 import { useSidebarCollapse } from '../../stores/sidebarCollapseStore'
+import {
+  resolveSidebarMode,
+  useSidebarModeStore,
+  type SidebarMode
+} from '../../stores/sidebarModeStore'
 import { useCreateProject } from '../../hooks/useCreateProject'
 import { isChatReady } from '../../lib/chatReadiness'
 import type { NavigationBadgeCounts } from '../../lib/navigationBadges'
@@ -16,9 +21,7 @@ interface SidebarRailProps {
   counts: NavigationBadgeCounts
 }
 
-/** Icon-only sidebar for narrow windows. Global nav still navigates directly;
- *  anything that needs the project/chat list opens the full sidebar as a
- *  temporary overlay instead of permanently squeezing the chat area. */
+/** Persistent navigation rail. The project/chat panel opens beside it. */
 export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
   const view = useUiStore((s) => s.view)
   const setView = useUiStore((s) => s.setView)
@@ -26,26 +29,86 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
   const newConversation = useChatStore((s) => s.newConversation)
   const setActiveProject = useProjectStore((s) => s.setActive)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
-  const projects = useProjectStore((s) => s.projects)
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
+  const savedMode = useSidebarModeStore((s) => s.mode)
+  const setMode = useSidebarModeStore((s) => s.setMode)
+  const mode = resolveSidebarMode(savedMode, activeProjectId)
   const settings = useSettingsStore((s) => s.settings)
   const engineStatus = useModelStore((s) => s.engine.status)
   const ready = isChatReady(settings, engineStatus)
   const expandSidebar = useSidebarCollapse((s) => s.expand)
+  const toggleSidebar = useSidebarCollapse((s) => s.toggle)
+  const overlayOpen = useSidebarCollapse((s) => s.overlayOpen)
+  const setOverlayOpen = useSidebarCollapse((s) => s.setOverlayOpen)
+  const requestSearch = useSidebarCollapse((s) => s.requestSearch)
   const handleCreateProject = useCreateProject()
+
+  const navigate = (nextView: AppView): void => {
+    setView(nextView)
+    setOverlayOpen(false)
+  }
+
+  const handleMode = (nextMode: SidebarMode): void => {
+    if (view !== 'chat' || mode !== nextMode) {
+      setMode(nextMode)
+      navigate('chat')
+      expandSidebar()
+    } else if (overlayOpen) {
+      setOverlayOpen(false)
+    } else {
+      toggleSidebar()
+    }
+  }
 
   const handleNewChat = (): void => {
     void setActiveProject(null)
+    setMode('chats')
     newConversation(null)
-    setView('chat')
+    navigate('chat')
+  }
+
+  const handleNewProject = (): void => {
+    setMode('workspace')
+    expandSidebar()
+    void handleCreateProject()
   }
 
   return (
     <div className={styles.rail}>
       <button
         type="button"
+        className={`${styles.railButton} ${view === 'chat' && mode === 'chats' ? styles.railButtonActive : ''}`}
+        onClick={() => handleMode('chats')}
+        aria-label="Chats view"
+        aria-current={view === 'chat' && mode === 'chats' ? 'page' : undefined}
+        title="Chats"
+      >
+        <Icon name="chat" size={16} />
+      </button>
+      <button
+        type="button"
+        className={`${styles.railButton} ${view === 'chat' && mode === 'workspace' ? styles.railButtonActive : ''}`}
+        onClick={() => handleMode('workspace')}
+        aria-label="Workspace view"
+        aria-current={view === 'chat' && mode === 'workspace' ? 'page' : undefined}
+        title="Workspace"
+      >
+        <Icon name="folder" size={16} />
+      </button>
+      <button
+        type="button"
+        className={styles.railButton}
+        onClick={requestSearch}
+        aria-label="Search chats and projects"
+        title="Search chats and projects"
+      >
+        <Icon name="search" size={16} />
+      </button>
+      <div className={styles.railDivider} />
+      <button
+        type="button"
         className={`${styles.railButton} ${view === 'scheduler' ? styles.railButtonActive : ''}`}
-        onClick={() => setView('scheduler')}
+        onClick={() => navigate('scheduler')}
+        aria-current={view === 'scheduler' ? 'page' : undefined}
         aria-label={`Scheduler${counts.scheduler > 0 ? `, ${counts.scheduler} new result${counts.scheduler === 1 ? '' : 's'}` : ''}`}
         title={`Scheduler${counts.scheduler > 0 ? ` (${counts.scheduler})` : ''}`}
       >
@@ -55,7 +118,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
       <button
         type="button"
         className={`${styles.railButton} ${view === 'agent' ? styles.railButtonActive : ''}`}
-        onClick={() => setView('agent')}
+        onClick={() => navigate('agent')}
+        aria-current={view === 'agent' ? 'page' : undefined}
         aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
         title={`Agent${counts.agent > 0 ? ` (${counts.agent})` : ''}`}
       >
@@ -65,7 +129,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
       <button
         type="button"
         className={`${styles.railButton} ${view === 'critical-thinking' ? styles.railButtonActive : ''}`}
-        onClick={() => setView('critical-thinking')}
+        onClick={() => navigate('critical-thinking')}
+        aria-current={view === 'critical-thinking' ? 'page' : undefined}
         aria-label={`Critical Thinking${counts.criticalThinking > 0 ? `, ${counts.criticalThinking} notification${counts.criticalThinking === 1 ? '' : 's'}` : ''}`}
         title={`Critical Thinking${counts.criticalThinking > 0 ? ` (${counts.criticalThinking})` : ''}`}
       >
@@ -75,7 +140,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
       <button
         type="button"
         className={`${styles.railButton} ${view === 'email' ? styles.railButtonActive : ''}`}
-        onClick={() => setView('email')}
+        onClick={() => navigate('email')}
+        aria-current={view === 'email' ? 'page' : undefined}
         aria-label={`Email${counts.email > 0 ? `, ${counts.email} unread thread${counts.email === 1 ? '' : 's'}` : ''}`}
         title={`Email${counts.email > 0 ? ` (${counts.email})` : ''}`}
       >
@@ -83,24 +149,12 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         <NavigationCount count={counts.email} rail />
       </button>
 
-      {activeProject && (
-        <button
-          type="button"
-          className={styles.railButton}
-          onClick={expandSidebar}
-          aria-label={`Current project: ${activeProject.name}`}
-          title={activeProject.name}
-        >
-          <Icon name="folder" size={16} />
-        </button>
-      )}
-
       <div className={styles.railSpacer} />
 
       <button
         type="button"
         className={styles.railButton}
-        onClick={() => void handleCreateProject()}
+        onClick={handleNewProject}
         aria-label="New project"
         title="New project"
       >
@@ -120,7 +174,10 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
       <button
         type="button"
         className={styles.railButton}
-        onClick={() => openSettings('ai-models')}
+        onClick={() => {
+          setOverlayOpen(false)
+          openSettings('ai-models')
+        }}
         aria-label="Model status"
         title={ready ? 'Model ready' : 'No model loaded'}
       >
@@ -130,11 +187,18 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
       <button
         type="button"
         className={`${styles.railButton} ${view === 'settings' ? styles.railButtonActive : ''}`}
-        onClick={() => openSettings()}
-        aria-label="Settings"
-        title="Settings"
+        onClick={() => {
+          setOverlayOpen(false)
+          openSettings()
+        }}
+        aria-label="Profile and settings"
+        title="Profile and settings"
       >
-        <Icon name="user" size={16} />
+        {settings?.profile.avatarBase64 ? (
+          <img src={settings.profile.avatarBase64} alt="" className={styles.profileImage} />
+        ) : (
+          <Icon name="user" size={16} />
+        )}
       </button>
     </div>
   )

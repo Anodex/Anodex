@@ -248,7 +248,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'inspect_visual',
     kind: 'read',
     description:
-      'Capture a workspace image or up to three primary HTML sections; pass a section id to inspect one named page section precisely. To compare, inspect the same path, edit that file in place, then inspect it again — never rename or copy it to make a "before".',
+      'Inspect up to eight workspace images or HTML screenshots per response in batches of four. Capture up to three primary HTML sections at once; pass a section id to inspect one named page section precisely. To compare, inspect the same path, edit that file in place, then inspect it again — never rename or copy it to make a "before".',
     requiresProject: true
   },
   {
@@ -261,7 +261,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     name: 'show_image',
     kind: 'read',
-    description: 'Display an existing workspace image directly in the assistant reply.',
+    description: 'Display a workspace image in the reply without giving its pixels to the model.',
     requiresProject: true
   },
   {

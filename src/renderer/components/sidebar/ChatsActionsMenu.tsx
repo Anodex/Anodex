@@ -13,33 +13,24 @@ interface ChatsActionsMenuProps {
   sortMode: ChatSortMode
   onSortModeChange: (mode: ChatSortMode) => void
   onArchiveAll: () => void
-  onExpandProjects: () => void
-  onCollapseProjects: () => void
 }
 
 export function ChatsActionsMenu({
   chatCount,
   sortMode,
   onSortModeChange,
-  onArchiveAll,
-  onExpandProjects,
-  onCollapseProjects
+  onArchiveAll
 }: ChatsActionsMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [organizeOpen, setOrganizeOpen] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
-  const [organizeRect, setOrganizeRect] = useState<DOMRect | null>(null)
   const [sortRect, setSortRect] = useState<DOMRect | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const flyoutRef = useRef<HTMLDivElement>(null)
-  // One flyout is open at a time, so one measured placement serves both. Beside
-  // the row it belongs to, flipping to its other side and riding up off the
-  // bottom edge rather than being cut off by it.
-  const flyoutStyle = useAnchoredPosition(
-    organizeOpen ? organizeRect : sortOpen ? sortRect : null,
-    flyoutRef,
-    { side: 'right', gap: 6 }
-  )
+  // Keep the sort flyout beside its row, flipping it within the window bounds.
+  const flyoutStyle = useAnchoredPosition(sortOpen ? sortRect : null, flyoutRef, {
+    side: 'right',
+    gap: 6
+  })
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
@@ -48,9 +39,7 @@ export function ChatsActionsMenu({
       const inFlyout = flyoutRef.current?.contains(target) ?? false
       if (!inMenu && !inFlyout) {
         setOpen(false)
-        setOrganizeOpen(false)
         setSortOpen(false)
-        setOrganizeRect(null)
         setSortRect(null)
       }
     }
@@ -60,9 +49,7 @@ export function ChatsActionsMenu({
 
   const close = (): void => {
     setOpen(false)
-    setOrganizeOpen(false)
     setSortOpen(false)
-    setOrganizeRect(null)
     setSortRect(null)
   }
 
@@ -81,7 +68,6 @@ export function ChatsActionsMenu({
           setOpen((value) => {
             const next = !value
             if (!next) {
-              setOrganizeOpen(false)
               setSortOpen(false)
             }
             return next
@@ -113,26 +99,7 @@ export function ChatsActionsMenu({
               type="button"
               className={styles.item}
               onClick={(event) => {
-                setOrganizeOpen((value) => !value)
-                setSortOpen(false)
-                setSortRect(null)
-                setOrganizeRect(event.currentTarget.getBoundingClientRect())
-              }}
-            >
-              <Icon name="sliders" size={14} />
-              <span>Organize sidebar</span>
-              <Icon name="chevron-right" size={13} className={styles.chevron} />
-            </button>
-          </div>
-
-          <div className={styles.flyoutGroup}>
-            <button
-              type="button"
-              className={styles.item}
-              onClick={(event) => {
                 setSortOpen((value) => !value)
-                setOrganizeOpen(false)
-                setOrganizeRect(null)
                 setSortRect(event.currentTarget.getBoundingClientRect())
               }}
             >
@@ -143,41 +110,6 @@ export function ChatsActionsMenu({
           </div>
         </div>
       )}
-
-      {organizeOpen &&
-        organizeRect &&
-        createPortal(
-          <div
-            ref={flyoutRef}
-            className={styles.flyout}
-            style={{ ...flyoutStyle, width: FLYOUT_WIDTH }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className={styles.item}
-              onClick={() => {
-                onExpandProjects()
-                close()
-              }}
-            >
-              <Icon name="chevron-down" size={14} />
-              <span>Expand projects</span>
-            </button>
-            <button
-              type="button"
-              className={styles.item}
-              onClick={() => {
-                onCollapseProjects()
-                close()
-              }}
-            >
-              <Icon name="chevrons-up" size={14} />
-              <span>Collapse projects</span>
-            </button>
-          </div>,
-          document.body
-        )}
 
       {sortOpen &&
         sortRect &&

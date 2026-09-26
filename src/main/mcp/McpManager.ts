@@ -22,6 +22,7 @@ import { McpOAuthProvider } from './oauth'
 import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 
 const log = createLogger('mcp')
+/** Bound a server connection and an individual external tool call separately. */
 const MCP_CONNECT_TIMEOUT_MS = 20_000
 const MCP_TOOL_TIMEOUT_MS = 60_000
 /** `McpError.code` is a plain `number`, so the enum member is widened to compare against it. */

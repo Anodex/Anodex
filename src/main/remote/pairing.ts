@@ -116,8 +116,10 @@ export const PAIRING_WINDOW_MS = 3 * 60 * 1000
  * endpoint, which without a cap is free, silent and unbounded.
  */
 export const MAX_PAIRING_ATTEMPTS = 5
+/** Pause new pairing guesses after repeated failures against a visible pairing window. */
 export const PAIRING_LOCKOUT_MS = 60 * 1000
 
+/** Rate-limit authentication attempts made with a paired device key. */
 export const MAX_AUTH_ATTEMPTS = 10
 export const AUTH_LOCKOUT_MS = 5 * 60 * 1000
 

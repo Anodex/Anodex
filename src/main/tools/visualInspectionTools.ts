@@ -7,7 +7,13 @@ import type { VisualPreviewSection } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
 import { runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
-import { enqueueVisualInput, MAX_VISION_IMAGE_BYTES, readVisionImage } from '../vision/imageInputs'
+import {
+  enqueueVisualInput,
+  MAX_VISION_IMAGE_BYTES,
+  MAX_VISION_IMAGES,
+  MAX_VISION_INSPECTIONS_PER_RESPONSE,
+  readVisionImage
+} from '../vision/imageInputs'
 import { saveVisualPreviewAsset } from './visualPreviewAssets'
 import { createExternalAssetPolicy } from './externalAssetPolicy'
 import { startInspectionServer } from './inspectionServer'
@@ -59,8 +65,7 @@ interface CaptureTarget {
  */
 export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
   define({
-    description:
-      'Capture and inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or HTML page. An initial HTML inspection captures up to three primary named page sections and leaves capacity for one focused follow-up. If a specific section needs another look, call inspect_visual again with its HTML sectionId (for example, "solar-system") so its full viewport is captured. For a visual before/after comparison, call inspect_visual on a path, edit that same file in place, then call inspect_visual on the same path again — those two screenshots of one unchanged path form the comparison. "Before" and "after" are the same file at two moments, not two files: never rename, copy, or duplicate it to keep a separate "before" version, or the comparison will not appear. Do not substitute preview_html. Visual inspection is bounded per response.',
+    description: `Capture and inspect the actual pixels of a workspace PNG/JPEG/GIF/BMP image or HTML page. Up to ${MAX_VISION_INSPECTIONS_PER_RESPONSE} images can be inspected per response, in batches of at most ${MAX_VISION_IMAGES} per model round. For a comparison, inspect the current source image first rather than an older collage, then inspect the references. An initial HTML inspection captures up to three primary named page sections and leaves capacity in its batch for one focused follow-up. If a specific section needs another look, call inspect_visual again with its HTML sectionId (for example, "solar-system") so its full viewport is captured. For a visual before/after comparison, call inspect_visual on a path, edit that same file in place, then call inspect_visual on the same path again — those two screenshots of one unchanged path form the comparison. "Before" and "after" are the same file at two moments, not two files: never rename, copy, or duplicate it to keep a separate "before" version, or the comparison will not appear. Do not substitute preview_html. Visual inspection is bounded per response.`,
     params: {
       type: 'object',
       properties: {
@@ -93,7 +98,13 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
           const remainingImageSlots = ctx.visualInputs.limit - ctx.visualInputs.acceptedCount
           if (remainingImageSlots <= 0) {
             throw new Error(
-              `Visual inspection limit reached (${ctx.visualInputs.limit} images per response). Summarize what you saw before continuing in a new message.`
+              `Visual inspection limit reached (${ctx.visualInputs.limit} images per response). "${args.path}" was not inspected. Do not describe its current appearance or claim a comparison including it is complete; ask for a new message to inspect it.`
+            )
+          }
+          const remainingBatchSlots = MAX_VISION_IMAGES - ctx.visualInputs.current.length
+          if (remainingBatchSlots <= 0) {
+            throw new Error(
+              `Visual inspection batch is full (${MAX_VISION_IMAGES} images). "${args.path}" was not inspected. Process the current batch, then retry this image in the next model round.`
             )
           }
 
@@ -101,7 +112,13 @@ export const inspectVisualTool: WorkspaceToolFactory = (define, ctx) =>
             ? await captureHtmlPreviews(
                 ctx.workspaceRoot,
                 args.path,
-                sectionId ? 1 : Math.min(remainingImageSlots, MAX_INITIAL_VISION_IMAGE_SECTIONS),
+                sectionId
+                  ? 1
+                  : Math.min(
+                      remainingImageSlots,
+                      remainingBatchSlots,
+                      MAX_INITIAL_VISION_IMAGE_SECTIONS
+                    ),
                 ctx.signal,
                 sectionId
               )
@@ -304,7 +321,7 @@ const INSPECTION_SCROLLBAR_CSS = `<style data-anodex-inspection="scrollbars">
 ::-webkit-scrollbar-corner { background: transparent; }
 </style>`
 
-/** Initial page inspection leaves one of the four vision slots for a focused re-inspection. */
+/** Initial page inspection leaves one slot in its batch for a focused re-inspection. */
 const MAX_INITIAL_VISION_IMAGE_SECTIONS = 3
 
 function createPreviewSections(
