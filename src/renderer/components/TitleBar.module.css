@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  background: var(--bg-app);
+  background: var(--shell-chrome-bg);
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
