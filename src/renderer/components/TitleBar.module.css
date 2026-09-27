@@ -7,7 +7,10 @@
   -webkit-app-region: drag;
 }
 
-.modeSwitcher {
+.navigationControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin-left: var(--space-6);
   -webkit-app-region: no-drag;
 }

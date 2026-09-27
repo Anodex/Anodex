@@ -106,19 +106,19 @@ export function TitleBar(): JSX.Element {
         <span className={styles.title}>
           Anode<span className={styles.titleAccent}>x</span>
         </span>
-        <div className={styles.modeSwitcher}>
+        <div className={styles.navigationControls}>
           <SidebarModeSwitcher mode={mode} onChange={selectMode} />
+          <IconButton
+            label={sidebarToggleLabel}
+            icon={<Icon name="panel-left" size={18} />}
+            size="sm"
+            className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
+            onClick={toggleSidebar}
+          />
         </div>
       </div>
       <div className={styles.actions}>
         <WhatsNew />
-        <IconButton
-          label={sidebarToggleLabel}
-          icon={<Icon name="panel-left" size={18} />}
-          size="sm"
-          className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
-          onClick={toggleSidebar}
-        />
         <WorkspaceDockButton />
         <IconButton
           label="Settings"
