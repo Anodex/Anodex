@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join, resolve, delimiter } from 'node:path'
+import { homedir } from 'node:os'
 import { Readable } from 'node:stream'
 import { settingsStore } from '../settings/SettingsStore'
 
@@ -169,9 +170,10 @@ export class PocketSpeechService {
 
   private async launch(runtime: { root: string; python: string }): Promise<void> {
     const token = randomBytes(32).toString('hex')
+    const dataDir = this.dataDirectory()
     const child = spawn(
       runtime.python,
-      ['-m', 'voice_engine', '--backend', 'pocket', 'serve', '--port', '0'],
+      ['-m', 'voice_engine', '--data-dir', dataDir, '--backend', 'pocket', 'serve', '--port', '0'],
       {
         cwd: runtime.root,
         windowsHide: true,
@@ -240,5 +242,22 @@ export class PocketSpeechService {
       if (child.exitCode === null) child.kill()
       throw error
     }
+  }
+
+  private dataDirectory(): string {
+    if (process.env.ANODEX_VOICE_DATA_DIR) return resolve(process.env.ANODEX_VOICE_DATA_DIR)
+    if (process.platform === 'win32') {
+      return join(
+        process.env.LOCALAPPDATA || process.env.APPDATA || join(homedir(), 'AppData', 'Local'),
+        'AnodexVoiceEngine'
+      )
+    }
+    if (process.platform === 'darwin') {
+      return join(homedir(), 'Library', 'Application Support', 'AnodexVoiceEngine')
+    }
+    return join(
+      process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'),
+      'anodex-voice-engine'
+    )
   }
 }
