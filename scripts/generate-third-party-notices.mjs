@@ -72,6 +72,47 @@ const DEV_DEPENDENCIES_HANDLED_ELSEWHERE = ['electron']
  */
 const BUNDLED_COMPONENTS = [
   {
+    name: 'qwentts.cpp',
+    version:
+      'commit 6a3e91283220197bad2ae1eb40ae1c1392bfd820 (pinned in scripts/prepare-speech-runtime.mjs)',
+    license: 'MIT',
+    source: 'https://github.com/ServeurpersoCom/qwentts.cpp',
+    licenseFile: 'resources/speech-runtime/LICENSE-qwentts.txt',
+    note: 'CPU speech runtime, built from source for each packaging platform. Anodex adds a random bearer-key check to its loopback HTTP server.'
+  },
+  {
+    name: 'ggml speech backend',
+    version: 'pinned as a qwentts.cpp submodule',
+    license: 'MIT',
+    source: 'https://github.com/ServeurpersoCom/ggml',
+    licenseFile: 'resources/speech-runtime/LICENSE-ggml.txt',
+    note: 'CPU tensor and model runtime linked into the local speech server.'
+  },
+  {
+    name: 'cpp-httplib',
+    version: 'pinned by qwentts.cpp',
+    license: 'MIT',
+    source: 'https://github.com/yhirose/cpp-httplib',
+    licenseFile: 'resources/speech-runtime/LICENSE-httplib.txt',
+    note: 'HTTP server library linked into the local speech runtime.'
+  },
+  {
+    name: 'yyjson',
+    version: 'pinned by qwentts.cpp',
+    license: 'MIT',
+    source: 'https://github.com/ibireme/yyjson',
+    licenseFile: 'resources/speech-runtime/LICENSE-yyjson.txt',
+    note: 'JSON parser and writer linked into the local speech runtime.'
+  },
+  {
+    name: 'Qwen3-TTS 0.6B Base and CustomVoice GGUF model weights',
+    version: 'Q8_0 talker and 12 Hz tokenizer, downloaded on user request',
+    license: 'Apache-2.0',
+    source: 'https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF',
+    licenseFile: 'resources/speech-runtime/LICENSE-Qwen3-TTS.txt',
+    note: 'The selected talker and shared tokenizer are downloaded on request, integrity checked, and stored in the user data directory; they are not embedded in the installer. These desktop speech models are not shipped in Anodex Mobile.'
+  },
+  {
     name: 'llama.cpp / ggml',
     version: 'release b10549 (pinned in scripts/prepare-llama-server.mjs)',
     license: 'MIT',

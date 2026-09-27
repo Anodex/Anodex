@@ -10,6 +10,13 @@ dist/
 /models/
 /resources/llama-server/*
 !/resources/llama-server/README.md
+/resources/speech-runtime/*
+!/resources/speech-runtime/README.md
+!/resources/speech-runtime/LICENSE-qwentts.txt
+!/resources/speech-runtime/LICENSE-ggml.txt
+!/resources/speech-runtime/LICENSE-httplib.txt
+!/resources/speech-runtime/LICENSE-yyjson.txt
+!/resources/speech-runtime/LICENSE-Qwen3-TTS.txt
 # Exception: llama.cpp's MIT notice. The upstream release archives ship the
 # binaries without it, so Anodex supplies the text and prepare-llama-server.mjs
 # copies it in beside them. Ignoring it would quietly break compliance.

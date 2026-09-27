@@ -98,6 +98,11 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     computerControl: {
       desktopControlEnabled: false
     },
+    speech: {
+      enabled: false,
+      voice: 'default',
+      speed: 1
+    },
     provider: {
       active: 'local',
       // Off by default: see LocalProviderSettings.maxResponseTokens. The
