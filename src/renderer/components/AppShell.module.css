@@ -1,8 +1,9 @@
 /* Keep all four tracks present so the rail never moves and panel/dock widths
    can animate without swapping grid templates. */
 .shell {
-  /* Use Anodex's existing sidebar surface at the curves, not a new chrome tint. */
-  --shell-chrome-bg: var(--bg-surface);
+  /* The title bar and navigation rail share Anodex's app surface. The deeper
+     base tone peeks through the rounded panel corners to keep their curve visible. */
+  --shell-chrome-bg: var(--bg-app);
   display: grid;
   grid-template-rows: var(--titlebar-height) 1fr;
   grid-template-columns:
@@ -10,7 +11,7 @@
     var(--dock-width, 0px);
   height: 100%;
   overflow: hidden;
-  background: var(--shell-chrome-bg);
+  background: var(--bg-base);
   transition:
     grid-template-columns var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease)),
     grid-template-rows var(--motion-medium, 220ms) var(--ease-emphasized, var(--ease));
