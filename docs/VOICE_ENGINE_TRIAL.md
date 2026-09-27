@@ -11,8 +11,10 @@ folder named `Voice Engine`. Alternatively set `ANODEX_VOICE_ENGINE_HOME` to its
 absolute directory before starting Anodex. The prototype must have its own
 `.venv` with Pocket installed. On Windows, macOS, and Linux the adapter looks for
 the virtual environment's Python executable in the platform's normal location.
-The Pocket weights and enrolled voices remain in the prototype's local data and
-model caches. The user must accept the model's access terms and sign in locally
+The Pocket weights remain in the model cache. Enrolled voices for Anodex stay in
+its local `voice-engine` user-data directory. Existing prototype voices may be
+copied there for the trial; the original files remain untouched. The user must
+accept the model's access terms and sign in locally
 for custom voice weights; Anodex does not handle that onboarding yet.
 
 Open **Settings → Voice**, choose **Pocket (local trial)**, select a built-in or
