@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join, resolve, delimiter } from 'node:path'
-import { homedir } from 'node:os'
 import { Readable } from 'node:stream'
 import { settingsStore } from '../settings/SettingsStore'
 
@@ -246,18 +245,6 @@ export class PocketSpeechService {
 
   private dataDirectory(): string {
     if (process.env.ANODEX_VOICE_DATA_DIR) return resolve(process.env.ANODEX_VOICE_DATA_DIR)
-    if (process.platform === 'win32') {
-      return join(
-        process.env.LOCALAPPDATA || process.env.APPDATA || join(homedir(), 'AppData', 'Local'),
-        'AnodexVoiceEngine'
-      )
-    }
-    if (process.platform === 'darwin') {
-      return join(homedir(), 'Library', 'Application Support', 'AnodexVoiceEngine')
-    }
-    return join(
-      process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'),
-      'anodex-voice-engine'
-    )
+    return join(app.getPath('userData'), 'voice-engine')
   }
 }
