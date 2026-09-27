@@ -1,12 +1,12 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { err, ok, type Result } from '@shared/result'
-import { SpeechService } from './SpeechService'
+import { SpeechRouter } from './SpeechRouter'
 import { createLogger } from '../utils/logger'
 import { settingsStore } from '../settings/SettingsStore'
 
 const log = createLogger('speech')
-export const speechService = new SpeechService()
+export const speechService = new SpeechRouter()
 let download: Promise<void> | null = null
 
 function errorResult<T>(code: string, message: string, error: unknown): Result<T> {
@@ -17,6 +17,16 @@ function errorResult<T>(code: string, message: string, error: unknown): Result<T
 
 export function registerSpeechHandlers(): void {
   ipcMain.handle(IpcChannel.Speech.status, () => speechService.status())
+  ipcMain.handle(
+    IpcChannel.Speech.listVoices,
+    async (): Promise<Result<Awaited<ReturnType<SpeechRouter['listVoices']>>>> => {
+      try {
+        return ok(await speechService.listVoices())
+      } catch (error) {
+        return errorResult('speech.voices-failed', 'Could not list local voices.', error)
+      }
+    }
+  )
   ipcMain.handle(IpcChannel.Speech.getTranscript, () => speechService.getTranscript())
   ipcMain.handle(
     IpcChannel.Speech.setTranscript,
@@ -94,9 +104,9 @@ export function registerSpeechHandlers(): void {
     if (!settingsStore.get().speech.enabled)
       return err('speech.disabled', 'Enable read aloud in Settings first.')
     try {
-      await speechService.speak(requestId, text, (id, pcm) => {
+      await speechService.speak(requestId, text, (id, pcm, sampleRate) => {
         if (!event.sender.isDestroyed())
-          event.sender.send(IpcChannel.Speech.audio, { requestId: id, pcm })
+          event.sender.send(IpcChannel.Speech.audio, { requestId: id, pcm, sampleRate })
       })
       return ok(undefined)
     } catch (error) {

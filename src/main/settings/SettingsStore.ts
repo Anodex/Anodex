@@ -693,6 +693,16 @@ function assertKnownKeys(
 export function validatePatch(patch: SettingsPatch): void {
   assertKnownKeys(patch, createDefaultSettings('') as unknown as Record<string, unknown>)
 
+  if (patch.speech?.engine !== undefined && !['qwen', 'pocket'].includes(patch.speech.engine))
+    throw new Error('speech.engine must be an available engine')
+  if (
+    patch.speech?.pocketVoice !== undefined &&
+    (typeof patch.speech.pocketVoice !== 'string' ||
+      patch.speech.pocketVoice.length < 1 ||
+      patch.speech.pocketVoice.length > 100)
+  )
+    throw new Error('speech.pocketVoice must be an available voice ID')
+
   if (
     patch.speech?.voice !== undefined &&
     ![

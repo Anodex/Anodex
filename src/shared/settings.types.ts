@@ -212,7 +212,9 @@ export interface ComputerControlSettings {
 /** Local speech playback preferences. Voice audio never leaves this computer. */
 export interface SpeechSettings {
   enabled: boolean
+  engine: 'qwen' | 'pocket'
   voice: SpeechVoice
+  pocketVoice: string
   speed: number
 }
 

@@ -29,6 +29,7 @@ import type { RemoteStatus } from '@shared/remote.types'
 const api: AnodexApi = {
   speech: {
     status: () => ipcRenderer.invoke(IpcChannel.Speech.status),
+    listVoices: () => ipcRenderer.invoke(IpcChannel.Speech.listVoices),
     getTranscript: () => ipcRenderer.invoke(IpcChannel.Speech.getTranscript),
     setTranscript: (text) => ipcRenderer.invoke(IpcChannel.Speech.setTranscript, text),
     download: () => ipcRenderer.invoke(IpcChannel.Speech.download),
@@ -45,7 +46,10 @@ const api: AnodexApi = {
     speak: (requestId, text) => ipcRenderer.invoke(IpcChannel.Speech.speak, requestId, text),
     stop: () => ipcRenderer.invoke(IpcChannel.Speech.stop),
     onAudio: (listener) =>
-      subscribe<{ requestId: string; pcm: Uint8Array }>(IpcChannel.Speech.audio, listener)
+      subscribe<{ requestId: string; pcm: Uint8Array; sampleRate: number }>(
+        IpcChannel.Speech.audio,
+        listener
+      )
   },
   models: {
     list: () => ipcRenderer.invoke(IpcChannel.Models.list),
