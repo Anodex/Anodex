@@ -42,7 +42,7 @@
   overflow: hidden;
   grid-column: 2;
   grid-row: 2;
-  background: var(--bg-app);
+  background: var(--bg-surface);
   border-top-left-radius: var(--radius-lg);
 }
 
@@ -54,8 +54,7 @@
   overflow: hidden;
   grid-column: 3;
   grid-row: 2;
-  background: var(--bg-app);
-  border-top-left-radius: var(--radius-lg);
+  background: var(--bg-surface-2);
 }
 
 .dockWrap {

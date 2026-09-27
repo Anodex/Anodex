@@ -31,9 +31,12 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
   const expandSidebar = useSidebarCollapse((s) => s.expand)
   const toggleSidebar = useSidebarCollapse((s) => s.toggle)
   const overlayOpen = useSidebarCollapse((s) => s.overlayOpen)
+  const autoCollapsed = useSidebarCollapse((s) => s.autoCollapsed)
+  const manuallyCollapsed = useSidebarCollapse((s) => s.manuallyCollapsed)
   const setOverlayOpen = useSidebarCollapse((s) => s.setOverlayOpen)
   const requestSearch = useSidebarCollapse((s) => s.requestSearch)
   const handleCreateProject = useCreateProject()
+  const showCollapsedOnlyControls = (autoCollapsed || manuallyCollapsed) && !overlayOpen
 
   const navigate = (nextView: AppView): void => {
     setView(nextView)
@@ -133,38 +136,42 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
 
       <div className={styles.railSpacer} />
 
-      <button
-        type="button"
-        className={styles.railButton}
-        onClick={handleNewProject}
-        aria-label="New project"
-        title="New project"
-      >
-        <Icon name="folder-plus" size={16} />
-      </button>
+      {showCollapsedOnlyControls && (
+        <>
+          <button
+            type="button"
+            className={styles.railButton}
+            onClick={handleNewProject}
+            aria-label="New project"
+            title="New project"
+          >
+            <Icon name="folder-plus" size={16} />
+          </button>
 
-      <button
-        type="button"
-        className={styles.railButton}
-        onClick={handleNewChat}
-        aria-label="New chat"
-        title="New chat"
-      >
-        <Icon name="plus" size={16} />
-      </button>
+          <button
+            type="button"
+            className={styles.railButton}
+            onClick={handleNewChat}
+            aria-label="New chat"
+            title="New chat"
+          >
+            <Icon name="plus" size={16} />
+          </button>
 
-      <button
-        type="button"
-        className={styles.railButton}
-        onClick={() => {
-          setOverlayOpen(false)
-          openSettings('ai-models')
-        }}
-        aria-label="Model status"
-        title={ready ? 'Model ready' : 'No model loaded'}
-      >
-        <StatusDot tone={ready ? 'success' : 'neutral'} />
-      </button>
+          <button
+            type="button"
+            className={styles.railButton}
+            onClick={() => {
+              setOverlayOpen(false)
+              openSettings('ai-models')
+            }}
+            aria-label="Model status"
+            title={ready ? 'Model ready' : 'No model loaded'}
+          >
+            <StatusDot tone={ready ? 'success' : 'neutral'} />
+          </button>
+        </>
+      )}
 
       <button
         type="button"
