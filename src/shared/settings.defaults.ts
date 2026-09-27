@@ -100,7 +100,9 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     },
     speech: {
       enabled: false,
+      engine: 'qwen',
       voice: 'default',
+      pocketVoice: 'default',
       speed: 1
     },
     provider: {

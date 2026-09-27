@@ -28,6 +28,8 @@ const listeners = new Set<() => void>()
 const readinessListeners = new Set<() => void>()
 let context: AudioContext | null = null
 let nextPlayTime = 0
+let playbackGain: GainNode | null = null
+let audioStarted = false
 const sources = new Set<AudioBufferSourceNode>()
 let requestCounter = 0
 let activeRequest = ''
@@ -77,8 +79,12 @@ function audioContext(): AudioContext | null {
   return context
 }
 
-function receiveAudio(chunk: { requestId: string; pcm: Uint8Array }): void {
+function receiveAudio(chunk: { requestId: string; pcm: Uint8Array; sampleRate: number }): void {
   if (chunk.requestId !== activeRequest || !context) return
+  if (!Number.isInteger(chunk.sampleRate) || chunk.sampleRate < 8000 || chunk.sampleRate > 96000) {
+    fail('The voice engine returned an invalid sample rate.')
+    return
+  }
   const pcm = chunk.pcm instanceof Uint8Array ? chunk.pcm : new Uint8Array(chunk.pcm)
   if (state?.phase === 'preparing') publish({ ...state, phase: 'playing' })
   const count = Math.floor((pcm.length + (pendingByte === null ? 0 : 1)) / 2)
@@ -101,19 +107,29 @@ function receiveAudio(chunk: { requestId: string; pcm: Uint8Array }): void {
   }
   if (inputIndex < pcm.length) pendingByte = pcm[inputIndex]
 
-  const buffer = context.createBuffer(1, floats.length, 24_000)
+  const buffer = context.createBuffer(1, floats.length, chunk.sampleRate)
   buffer.copyToChannel(floats, 0)
   const source = context.createBufferSource()
   source.buffer = buffer
   const speed = useSettingsStore.getState().settings?.speech.speed ?? 1
   source.playbackRate.value = speed
-  source.connect(context.destination)
+  const pocket = useSettingsStore.getState().settings?.speech.engine === 'pocket'
+  if (pocket && !playbackGain) {
+    playbackGain = context.createGain()
+    playbackGain.connect(context.destination)
+  }
+  source.connect(playbackGain ?? context.destination)
   sources.add(source)
   source.onended = () => {
     sources.delete(source)
     finishIfReady()
   }
-  nextPlayTime = Math.max(nextPlayTime, context.currentTime + 0.025)
+  nextPlayTime = Math.max(nextPlayTime, context.currentTime + (pocket ? 0.1 : 0.025))
+  if (pocket && !audioStarted && playbackGain) {
+    playbackGain.gain.setValueAtTime(0, nextPlayTime)
+    playbackGain.gain.linearRampToValueAtTime(1, nextPlayTime + 0.01)
+  }
+  audioStarted = true
   source.start(nextPlayTime)
   nextPlayTime += buffer.duration / speed
 }
@@ -144,6 +160,9 @@ function stopPlayback(): void {
     source.disconnect()
   }
   sources.clear()
+  playbackGain?.disconnect()
+  playbackGain = null
+  audioStarted = false
   pendingByte = null
   nextPlayTime = context?.currentTime ?? 0
   void anodex.speech.stop()

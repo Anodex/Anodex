@@ -37,6 +37,7 @@ export function VoiceSettings(): JSX.Element {
   const update = useSettingsStore((state) => state.update)
   const [status, setStatus] = useState<{
     runtimeAvailable: boolean
+    pocketAvailable: boolean
     modelInstalled: boolean
     referenceReady: boolean
     engineReady: boolean
@@ -46,8 +47,16 @@ export function VoiceSettings(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [warming, setWarming] = useState(false)
   const [transcript, setTranscript] = useState('')
+  const [pocketVoices, setPocketVoices] = useState<Array<{ id: string; name: string }>>([])
 
-  const refresh = async (): Promise<void> => setStatus(await anodex.speech.status())
+  const refresh = async (): Promise<void> => {
+    const next = await anodex.speech.status()
+    setStatus(next)
+    if (useSettingsStore.getState().settings?.speech.engine === 'pocket' && next.runtimeAvailable) {
+      const voices = await anodex.speech.listVoices()
+      if (voices.ok) setPocketVoices(voices.value)
+    }
+  }
   useEffect(() => {
     void refresh()
     void anodex.speech.getTranscript().then(setTranscript)
@@ -160,74 +169,140 @@ export function VoiceSettings(): JSX.Element {
       </section>
 
       <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Local speech model</h2>
-        <p className={pageStyles.sectionDesc}>
-          Choose the Base model for its default voice or your recording. The CustomVoice model has
-          nine built-in speakers. Each downloads separately and shares a tokenizer; only one loads
-          into memory at a time. Speech runs on the CPU, separately from the chat model.
-        </p>
+        <h2 className={pageStyles.sectionTitle}>Speech engine</h2>
         <label className={styles.voiceChoice}>
-          <span>Model and voice</span>
+          <span>Engine</span>
           <SelectControl
-            value={speech.voice}
+            value={speech.engine}
             disabled={busy || warming}
             options={[
-              { value: 'default', label: 'Base · Default voice' },
-              ...(status?.referenceReady
-                ? [{ value: 'personal', label: 'Base · My recording' }]
-                : []),
-              ...BUILT_IN_VOICES.map(({ value, label }) => ({
-                value,
-                label: `CustomVoice · ${label}`
-              }))
+              { value: 'qwen', label: 'Qwen' },
+              ...(status?.pocketAvailable || speech.engine === 'pocket'
+                ? [{ value: 'pocket', label: 'Pocket (local trial)' }]
+                : [])
             ]}
             onChange={(value) => {
-              const voice = value as SpeechVoice
               stopReadAloud()
               void (async () => {
-                await update({ speech: { voice } })
+                await anodex.speech.release()
+                await update({ speech: { engine: value as 'qwen' | 'pocket' } })
                 forgetSpeechReadiness()
-                const selectedStatus = await anodex.speech.status()
-                setStatus(selectedStatus)
-                if (
-                  speech.enabled &&
-                  selectedStatus.modelInstalled &&
-                  selectedStatus.runtimeAvailable
-                )
+                await refresh()
+                const selected = await anodex.speech.status()
+                if (speech.enabled && selected.runtimeAvailable && selected.modelInstalled)
                   await prepare(true)
               })()
             }}
           />
         </label>
-        {!status?.runtimeAvailable && (
-          <p className={styles.note}>
-            This build is missing the local speech runtime. Rebuild Anodex after preparing it.
-          </p>
-        )}
-        {status?.modelInstalled ? (
-          <p className={styles.note}>
-            Selected speech model installed locally ({formatSize(modelBytes)}).
-          </p>
-        ) : busy ? (
-          <div className={styles.download}>
-            <progress max={100} value={progress} aria-label="Speech model download progress" />
-            <span>
-              {formatSize(received ?? 0)} of {formatSize(modelBytes)}
-            </span>
-            <Button size="sm" variant="ghost" onClick={() => void anodex.speech.cancelDownload()}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="primary"
-            disabled={!status?.runtimeAvailable}
-            onClick={() => void download()}
-          >
-            Download selected model ({formatSize(modelBytes)})
-          </Button>
-        )}
       </section>
+
+      {speech.engine === 'qwen' && (
+        <section className={pageStyles.section}>
+          <h2 className={pageStyles.sectionTitle}>Local speech model</h2>
+          <p className={pageStyles.sectionDesc}>
+            Choose the Base model for its default voice or your recording. The CustomVoice model has
+            nine built-in speakers. Each downloads separately and shares a tokenizer; only one loads
+            into memory at a time. Speech runs on the CPU, separately from the chat model.
+          </p>
+          <label className={styles.voiceChoice}>
+            <span>Model and voice</span>
+            <SelectControl
+              value={speech.voice}
+              disabled={busy || warming}
+              options={[
+                { value: 'default', label: 'Base · Default voice' },
+                ...(status?.referenceReady
+                  ? [{ value: 'personal', label: 'Base · My recording' }]
+                  : []),
+                ...BUILT_IN_VOICES.map(({ value, label }) => ({
+                  value,
+                  label: `CustomVoice · ${label}`
+                }))
+              ]}
+              onChange={(value) => {
+                const voice = value as SpeechVoice
+                stopReadAloud()
+                void (async () => {
+                  await update({ speech: { voice } })
+                  forgetSpeechReadiness()
+                  const selectedStatus = await anodex.speech.status()
+                  setStatus(selectedStatus)
+                  if (
+                    speech.enabled &&
+                    selectedStatus.modelInstalled &&
+                    selectedStatus.runtimeAvailable
+                  )
+                    await prepare(true)
+                })()
+              }}
+            />
+          </label>
+          {!status?.runtimeAvailable && (
+            <p className={styles.note}>
+              This build is missing the local speech runtime. Rebuild Anodex after preparing it.
+            </p>
+          )}
+          {status?.modelInstalled ? (
+            <p className={styles.note}>
+              Selected speech model installed locally ({formatSize(modelBytes)}).
+            </p>
+          ) : busy ? (
+            <div className={styles.download}>
+              <progress max={100} value={progress} aria-label="Speech model download progress" />
+              <span>
+                {formatSize(received ?? 0)} of {formatSize(modelBytes)}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => void anodex.speech.cancelDownload()}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={!status?.runtimeAvailable}
+              onClick={() => void download()}
+            >
+              Download selected model ({formatSize(modelBytes)})
+            </Button>
+          )}
+        </section>
+      )}
+
+      {speech.engine === 'pocket' && (
+        <section className={pageStyles.section}>
+          <h2 className={pageStyles.sectionTitle}>Pocket voice</h2>
+          <p className={pageStyles.sectionDesc}>
+            This local trial uses the separate Anodex Voice prototype. The first preparation may
+            download Pocket&apos;s model. Your saved custom voices remain on this computer.
+          </p>
+          <label className={styles.voiceChoice}>
+            <span>Voice</span>
+            <SelectControl
+              value={speech.pocketVoice}
+              disabled={warming || !status?.runtimeAvailable}
+              options={[
+                ...(!pocketVoices.some((voice) => voice.id === speech.pocketVoice)
+                  ? [{ value: speech.pocketVoice, label: 'Saved voice unavailable' }]
+                  : []),
+                ...pocketVoices.map((voice) => ({ value: voice.id, label: voice.name }))
+              ]}
+              onChange={(voice) => {
+                stopReadAloud()
+                void (async () => {
+                  await update({ speech: { pocketVoice: voice } })
+                  if (speech.enabled) await prepare(true)
+                })()
+              }}
+            />
+          </label>
+          {!status?.runtimeAvailable && (
+            <p className={styles.note}>
+              Install the Anodex Voice prototype beside this development checkout to try Pocket.
+            </p>
+          )}
+        </section>
+      )}
 
       <section className={pageStyles.section}>
         <h2 className={pageStyles.sectionTitle}>Voice</h2>
@@ -240,44 +315,48 @@ export function VoiceSettings(): JSX.Element {
           />
           <span>Speeds other than Normal also change pitch.</span>
         </label>
-        <p className={pageStyles.sectionDesc}>
-          Built-in voices need no recording. You can also add your own voice to the Base model.
-          Speech generation and recordings stay on this computer.
-        </p>
-        <p className={styles.note}>
-          {speech.voice === 'personal'
-            ? 'Your recording is selected.'
-            : status?.referenceReady
-              ? 'Your recording is saved locally. Select “My recording” above to use it.'
-              : 'No recording is needed for the built-in voices.'}
-        </p>
-        <div className={styles.reference}>
-          <div className={styles.actions}>
-            <Button size="sm" onClick={() => void chooseReference()}>
-              {status?.referenceReady ? 'Replace my recording' : 'Use my own voice'}
-            </Button>
-            {status?.referenceReady && (
-              <Button size="sm" variant="ghost" onClick={() => void removeReference()}>
-                Remove my recording
-              </Button>
-            )}
-          </div>
-        </div>
-        {status?.referenceReady && (
+        {speech.engine === 'qwen' && (
           <>
-            <label className={styles.transcript}>
-              <span>Words in the recording (optional)</span>
-              <textarea
-                value={transcript}
-                maxLength={1000}
-                rows={3}
-                placeholder="Type the exact words spoken in the recording for a closer voice match."
-                onChange={(event) => setTranscript(event.currentTarget.value)}
-              />
-            </label>
-            <Button size="sm" variant="ghost" onClick={() => void saveTranscript()}>
-              Save transcript
-            </Button>
+            <p className={pageStyles.sectionDesc}>
+              Built-in voices need no recording. You can also add your own voice to the Base model.
+              Speech generation and recordings stay on this computer.
+            </p>
+            <p className={styles.note}>
+              {speech.voice === 'personal'
+                ? 'Your recording is selected.'
+                : status?.referenceReady
+                  ? 'Your recording is saved locally. Select “My recording” above to use it.'
+                  : 'No recording is needed for the built-in voices.'}
+            </p>
+            <div className={styles.reference}>
+              <div className={styles.actions}>
+                <Button size="sm" onClick={() => void chooseReference()}>
+                  {status?.referenceReady ? 'Replace my recording' : 'Use my own voice'}
+                </Button>
+                {status?.referenceReady && (
+                  <Button size="sm" variant="ghost" onClick={() => void removeReference()}>
+                    Remove my recording
+                  </Button>
+                )}
+              </div>
+            </div>
+            {status?.referenceReady && (
+              <>
+                <label className={styles.transcript}>
+                  <span>Words in the recording (optional)</span>
+                  <textarea
+                    value={transcript}
+                    maxLength={1000}
+                    rows={3}
+                    placeholder="Type the exact words spoken in the recording for a closer voice match."
+                    onChange={(event) => setTranscript(event.currentTarget.value)}
+                  />
+                </label>
+                <Button size="sm" variant="ghost" onClick={() => void saveTranscript()}>
+                  Save transcript
+                </Button>
+              </>
+            )}
           </>
         )}
         {status?.modelInstalled && (

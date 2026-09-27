@@ -151,6 +151,7 @@ import type {
 export const IpcChannel = {
   Speech: {
     status: 'speech:status',
+    listVoices: 'speech:list-voices',
     getTranscript: 'speech:get-transcript',
     setTranscript: 'speech:set-transcript',
     download: 'speech:download',
@@ -831,11 +832,13 @@ export interface AnodexApi {
   speech: {
     status(): Promise<{
       runtimeAvailable: boolean
+      pocketAvailable: boolean
       modelInstalled: boolean
       referenceReady: boolean
       engineReady: boolean
       downloadBytes: number
     }>
+    listVoices(): Promise<Result<Array<{ id: string; name: string; kind: string }>>>
     getTranscript(): Promise<string>
     setTranscript(text: string): Promise<Result<void>>
     download(): Promise<Result<void>>
@@ -849,7 +852,9 @@ export interface AnodexApi {
     chooseReference(): Promise<Result<boolean>>
     speak(requestId: string, text: string): Promise<Result<void>>
     stop(): Promise<void>
-    onAudio(listener: (chunk: { requestId: string; pcm: Uint8Array }) => void): () => void
+    onAudio(
+      listener: (chunk: { requestId: string; pcm: Uint8Array; sampleRate: number }) => void
+    ): () => void
   }
   models: {
     list(): Promise<Result<ModelInfo[]>>
