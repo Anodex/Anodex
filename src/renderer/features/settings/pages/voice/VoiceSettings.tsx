@@ -47,14 +47,22 @@ export function VoiceSettings(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [warming, setWarming] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const [pocketVoices, setPocketVoices] = useState<Array<{ id: string; name: string }>>([])
+  const [pocketVoices, setPocketVoices] = useState<
+    Array<{ id: string; name: string; kind: string }>
+  >([])
+  const [voiceListError, setVoiceListError] = useState<string | null>(null)
 
   const refresh = async (): Promise<void> => {
     const next = await anodex.speech.status()
     setStatus(next)
     if (useSettingsStore.getState().settings?.speech.engine === 'pocket' && next.runtimeAvailable) {
       const voices = await anodex.speech.listVoices()
-      if (voices.ok) setPocketVoices(voices.value)
+      if (voices.ok) {
+        setPocketVoices(voices.value)
+        setVoiceListError(null)
+      } else {
+        setVoiceListError(reasonFor(voices.error))
+      }
     }
   }
   useEffect(() => {
@@ -65,6 +73,9 @@ export function VoiceSettings(): JSX.Element {
 
   if (!settings) return <div className={pageStyles.page} />
   const speech = settings.speech
+  const sortedPocketVoices = [...pocketVoices].sort(
+    (left, right) => Number(right.kind === 'custom') - Number(left.kind === 'custom')
+  )
   const prepare = async (quiet = false): Promise<void> => {
     setWarming(true)
     const result = await anodex.speech.prepare()
@@ -283,9 +294,17 @@ export function VoiceSettings(): JSX.Element {
               disabled={warming || !status?.runtimeAvailable}
               options={[
                 ...(!pocketVoices.some((voice) => voice.id === speech.pocketVoice)
-                  ? [{ value: speech.pocketVoice, label: 'Saved voice unavailable' }]
+                  ? [
+                      {
+                        value: speech.pocketVoice,
+                        label: pocketVoices.length ? 'Saved voice unavailable' : 'Loading voices…'
+                      }
+                    ]
                   : []),
-                ...pocketVoices.map((voice) => ({ value: voice.id, label: voice.name }))
+                ...sortedPocketVoices.map((voice) => ({
+                  value: voice.id,
+                  label: voice.kind === 'custom' ? `My voice · ${voice.name}` : voice.name
+                }))
               ]}
               onChange={(voice) => {
                 stopReadAloud()
@@ -296,6 +315,17 @@ export function VoiceSettings(): JSX.Element {
               }}
             />
           </label>
+          {pocketVoices.some((voice) => voice.kind === 'custom') && (
+            <p className={styles.note}>Your saved custom voice is at the top of the Voice menu.</p>
+          )}
+          {voiceListError && (
+            <div className={styles.actions}>
+              <span className={styles.note}>Could not load voices: {voiceListError}</span>
+              <Button size="sm" variant="ghost" onClick={() => void refresh()}>
+                Retry
+              </Button>
+            </div>
+          )}
           {!status?.runtimeAvailable && (
             <p className={styles.note}>
               Install the Anodex Voice prototype beside this development checkout to try Pocket.
