@@ -124,10 +124,7 @@ function receiveAudio(chunk: { requestId: string; pcm: Uint8Array; sampleRate: n
     sources.delete(source)
     finishIfReady()
   }
-  // Prebuffer only the first Pocket chunk. Reapplying that lead to later chunks
-  // inserts silence whenever the already scheduled audio drops below 100 ms.
-  const lead = pocket ? (audioStarted ? 0.005 : 0.1) : 0.025
-  nextPlayTime = Math.max(nextPlayTime, context.currentTime + lead)
+  nextPlayTime = Math.max(nextPlayTime, context.currentTime + (pocket ? 0.1 : 0.025))
   if (pocket && !audioStarted && playbackGain) {
     playbackGain.gain.setValueAtTime(0, nextPlayTime)
     playbackGain.gain.linearRampToValueAtTime(1, nextPlayTime + 0.01)
