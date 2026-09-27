@@ -62,6 +62,8 @@ export interface Conversation {
   /** Archived chats are hidden from the sidebar until restored from Settings. */
   archived?: boolean
   archivedAt?: number
+  /** Read completed assistant replies aloud in this chat. Off unless explicitly enabled. */
+  readRepliesAutomatically?: boolean
   /** The assistant's current self-tracked task plan for this conversation, if any. */
   plan?: Plan | null
   /**

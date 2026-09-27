@@ -54,6 +54,11 @@
   border-color: var(--border-focus);
 }
 
+.select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /*
  * The switch, which is most of what Settings is made of — forty-five of them at
  * the last count, so it is worth the few lines.

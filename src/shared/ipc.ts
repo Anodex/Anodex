@@ -149,6 +149,21 @@ import type {
 } from './computerControl.types'
 
 export const IpcChannel = {
+  Speech: {
+    status: 'speech:status',
+    getTranscript: 'speech:get-transcript',
+    setTranscript: 'speech:set-transcript',
+    download: 'speech:download',
+    cancelDownload: 'speech:cancel-download',
+    prepare: 'speech:prepare',
+    release: 'speech:release',
+    removeReference: 'speech:remove-reference',
+    progress: 'speech:progress',
+    chooseReference: 'speech:choose-reference',
+    speak: 'speech:speak',
+    stop: 'speech:stop',
+    audio: 'speech:audio'
+  },
   Models: {
     list: 'models:list',
     add: 'models:add',
@@ -813,6 +828,29 @@ export interface ContextMenuRequest {
  * Each `on*` method returns an unsubscribe function.
  */
 export interface AnodexApi {
+  speech: {
+    status(): Promise<{
+      runtimeAvailable: boolean
+      modelInstalled: boolean
+      referenceReady: boolean
+      engineReady: boolean
+      downloadBytes: number
+    }>
+    getTranscript(): Promise<string>
+    setTranscript(text: string): Promise<Result<void>>
+    download(): Promise<Result<void>>
+    cancelDownload(): Promise<void>
+    prepare(): Promise<Result<void>>
+    release(): Promise<void>
+    removeReference(): Promise<void>
+    onProgress(
+      listener: (progress: { receivedBytes: number; totalBytes: number }) => void
+    ): () => void
+    chooseReference(): Promise<Result<boolean>>
+    speak(requestId: string, text: string): Promise<Result<void>>
+    stop(): Promise<void>
+    onAudio(listener: (chunk: { requestId: string; pcm: Uint8Array }) => void): () => void
+  }
   models: {
     list(): Promise<Result<ModelInfo[]>>
     /** Opens a file picker for a `.gguf` file; resolves `null` if cancelled. */

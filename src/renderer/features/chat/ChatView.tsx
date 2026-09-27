@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { contextCompactionHistory, type ConversationContextSnapshot } from '@shared/context.types'
 import { useChatStore } from '../../stores/chatStore'
 import { getActiveProject, useProjectStore } from '../../stores/projectStore'
@@ -8,6 +8,13 @@ import { ChatBackground } from './ChatBackground'
 import { ChatComposer } from './ChatComposer'
 import { ChatEmptyState } from './ChatEmptyState'
 import { ContextHistoryMenu } from './ContextHistoryMenu'
+import { useSettingsStore } from '../../stores/settingsStore'
+import {
+  normalizeSpeechText,
+  speechReady,
+  subscribeReadiness,
+  toggleReadAloud
+} from '../voice/readAloud'
 import styles from './ChatView.module.css'
 
 /** The chat surface: header, transcript (or empty state), and the composer. */
@@ -16,6 +23,30 @@ export function ChatView(): JSX.Element {
   const projects = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const activeProject = getActiveProject(projects, activeProjectId)
+  const speechEnabled = useSettingsStore((state) => state.settings?.speech.enabled === true)
+  const [speechAvailable, setSpeechAvailable] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const refresh = (): void => {
+      void speechReady().then((ready) => {
+        if (alive) setSpeechAvailable(ready)
+      })
+    }
+    refresh()
+    const unsubscribe = subscribeReadiness(refresh)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [])
+  const setAutoRead = useChatStore((state) => state.setReadRepliesAutomatically)
+  const [selection, setSelection] = useState('')
+  useEffect(() => {
+    const refreshSelection = (): void =>
+      setSelection(window.getSelection()?.toString().trim() ?? '')
+    document.addEventListener('selectionchange', refreshSelection)
+    return () => document.removeEventListener('selectionchange', refreshSelection)
+  }, [])
   const [compactionReveal, setCompactionReveal] = useState<{
     conversationId: string
     snapshotId: string
@@ -41,9 +72,34 @@ export function ChatView(): JSX.Element {
         title={conversation?.title ?? 'Chat'}
         eyebrow={activeProject?.name}
         actions={
-          snapshots.length > 0 ? (
-            <ContextHistoryMenu snapshots={snapshots} onSelect={revealCompactedContext} />
-          ) : undefined
+          <>
+            {speechEnabled && speechAvailable && conversation && (
+              <>
+                <button
+                  type="button"
+                  className={styles.headerAction}
+                  disabled={!selection}
+                  onClick={() => {
+                    const spoken = normalizeSpeechText(selection)
+                    if (spoken) toggleReadAloud(`selection-${conversation.id}`, spoken)
+                  }}
+                >
+                  Read selection
+                </button>
+                <label className={styles.autoRead}>
+                  <input
+                    type="checkbox"
+                    checked={conversation.readRepliesAutomatically === true}
+                    onChange={(event) => void setAutoRead(event.currentTarget.checked)}
+                  />
+                  Read replies automatically
+                </label>
+              </>
+            )}
+            {snapshots.length > 0 && (
+              <ContextHistoryMenu snapshots={snapshots} onSelect={revealCompactedContext} />
+            )}
+          </>
         }
       />
       <div className={styles.body}>

@@ -24,6 +24,7 @@ export type SettingsSection =
   | 'mcp'
   | 'remote'
   | 'ai-models'
+  | 'voice'
   | 'diagnostics'
   | 'about'
 

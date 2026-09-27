@@ -32,6 +32,8 @@ export type IconName =
   | 'sliders'
   | 'keyboard'
   | 'activity'
+  | 'speaker'
+  | 'pause'
   | 'monitor'
   | 'smartphone'
   | 'chevron-down'
@@ -139,6 +141,19 @@ const GLYPHS: Record<IconName, ReactNode> = {
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,
+  speaker: (
+    <>
+      <path d="M4 9h3.5L12 5v14l-4.5-4H4z" />
+      <path d="M15.5 8.8a4.2 4.2 0 0 1 0 6.4" />
+      <path d="M18.2 6a7.8 7.8 0 0 1 0 12" />
+    </>
+  ),
+  pause: (
+    <>
+      <rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
+      <rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3 6h18" />
