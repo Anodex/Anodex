@@ -5,6 +5,7 @@ import { anodex } from '../../../../lib/anodex'
 import { useSettingsStore } from '../../../../stores/settingsStore'
 import { notifyError } from '../../../../stores/uiStore'
 import { Button } from '../../../../components/ui/Button'
+import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { SettingRow } from '../../SettingRow'
 import { SelectControl, ToggleControl } from '../../controls'
 import { forgetSpeechReadiness, stopReadAloud } from '../../../voice/readAloud'
@@ -51,6 +52,8 @@ export function VoiceSettings(): JSX.Element {
     Array<{ id: string; name: string; kind: string }>
   >([])
   const [voiceListError, setVoiceListError] = useState<string | null>(null)
+  const [addingVoice, setAddingVoice] = useState(false)
+  const [confirmingVoiceDelete, setConfirmingVoiceDelete] = useState(false)
 
   const refresh = async (): Promise<void> => {
     const next = await anodex.speech.status()
@@ -113,6 +116,34 @@ export function VoiceSettings(): JSX.Element {
       const selectedStatus = await anodex.speech.status()
       if (selectedStatus.modelInstalled && selectedStatus.runtimeAvailable) await prepare(true)
     }
+  }
+  const selectedPocketVoice = pocketVoices.find((voice) => voice.id === speech.pocketVoice)
+  const addPocketVoice = async (): Promise<void> => {
+    stopReadAloud()
+    setAddingVoice(true)
+    const result = await anodex.speech.addVoice()
+    setAddingVoice(false)
+    if (!result.ok) {
+      notifyError('Could not make a voice from that recording', reasonFor(result.error))
+      return
+    }
+    if (!result.value) return
+    await update({ speech: { pocketVoice: result.value.id } })
+    forgetSpeechReadiness()
+    await refresh()
+    if (useSettingsStore.getState().settings?.speech.enabled) await prepare(true)
+  }
+  const deletePocketVoice = async (id: string): Promise<void> => {
+    stopReadAloud()
+    const result = await anodex.speech.deleteVoice(id)
+    if (!result.ok) {
+      notifyError('Could not delete that voice', reasonFor(result.error))
+      return
+    }
+    if (useSettingsStore.getState().settings?.speech.pocketVoice === id)
+      await update({ speech: { pocketVoice: 'default' } })
+    forgetSpeechReadiness()
+    await refresh()
   }
   const saveTranscript = async (): Promise<void> => {
     const result = await anodex.speech.setTranscript(transcript)
@@ -317,6 +348,47 @@ export function VoiceSettings(): JSX.Element {
           </label>
           {pocketVoices.some((voice) => voice.kind === 'custom') && (
             <p className={styles.note}>Your saved custom voice is at the top of the Voice menu.</p>
+          )}
+          {status?.runtimeAvailable && (
+            <>
+              <div className={styles.actions}>
+                <Button
+                  size="sm"
+                  loading={addingVoice}
+                  disabled={addingVoice || warming}
+                  onClick={() => void addPocketVoice()}
+                >
+                  Add a voice from a recording
+                </Button>
+                {selectedPocketVoice?.kind === 'custom' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={addingVoice}
+                    onClick={() => setConfirmingVoiceDelete(true)}
+                  >
+                    Delete this voice
+                  </Button>
+                )}
+              </div>
+              <p className={styles.note}>
+                Use a WAV of 6 to 30 seconds of clear speech from someone who has agreed to it. The
+                voice is made and kept on this computer, named after the file.
+              </p>
+            </>
+          )}
+          {confirmingVoiceDelete && selectedPocketVoice && (
+            <ConfirmDialog
+              title="Delete this voice?"
+              message="This removes the voice and its recording from this computer. It can't be undone."
+              detail={selectedPocketVoice.name}
+              confirmLabel="Delete voice"
+              onCancel={() => setConfirmingVoiceDelete(false)}
+              onConfirm={() => {
+                setConfirmingVoiceDelete(false)
+                void deletePocketVoice(selectedPocketVoice.id)
+              }}
+            />
           )}
           {voiceListError && (
             <div className={styles.actions}>

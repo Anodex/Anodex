@@ -152,6 +152,8 @@ export const IpcChannel = {
   Speech: {
     status: 'speech:status',
     listVoices: 'speech:list-voices',
+    addVoice: 'speech:add-voice',
+    deleteVoice: 'speech:delete-voice',
     getTranscript: 'speech:get-transcript',
     setTranscript: 'speech:set-transcript',
     download: 'speech:download',
@@ -839,6 +841,9 @@ export interface AnodexApi {
       downloadBytes: number
     }>
     listVoices(): Promise<Result<Array<{ id: string; name: string; kind: string }>>>
+    /** Opens a WAV picker and makes a local voice from it; `null` if cancelled. */
+    addVoice(): Promise<Result<{ id: string; name: string; kind: string } | null>>
+    deleteVoice(id: string): Promise<Result<void>>
     getTranscript(): Promise<string>
     setTranscript(text: string): Promise<Result<void>>
     download(): Promise<Result<void>>

@@ -1,8 +1,9 @@
-import { app } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join, resolve, delimiter } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
+import { basename, delimiter, extname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { settingsStore } from '../settings/SettingsStore'
 
@@ -20,6 +21,9 @@ interface Launch {
   env: NodeJS.ProcessEnv
   modelPath?: string
 }
+
+// The engines accept recordings up to this size.
+const MAX_RECORDING_BYTES = 8 * 1024 * 1024
 
 // Both backends reject longer input; trimming here keeps a long reply speaking
 // its opening instead of failing outright.
@@ -135,6 +139,44 @@ export class PocketSpeechService {
     return Array.isArray(payload.voices) ? payload.voices : []
   }
 
+  /** Makes a voice from a WAV the user picks; resolves `null` if they cancel. */
+  async addVoice(): Promise<PocketVoice | null> {
+    const options = {
+      title: 'Choose a recording of the voice',
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'WAV audio', extensions: ['wav'] }]
+    }
+    const focused = BrowserWindow.getFocusedWindow()
+    const picked = focused
+      ? await dialog.showOpenDialog(focused, options)
+      : await dialog.showOpenDialog(options)
+    const path = picked.filePaths[0]
+    if (picked.canceled || !path) return null
+    if ((await stat(path)).size > MAX_RECORDING_BYTES)
+      throw new Error('Choose a WAV recording smaller than 8 MB.')
+    const audio = await readFile(path)
+    const name = basename(path, extname(path)).trim().slice(0, 80) || 'My voice'
+    this.stop()
+    await this.start()
+    // The prototype needs its model loaded first; the native runtime loads it itself.
+    if (!this.loaded) {
+      await this.request('/v1/load', {})
+      this.loaded = true
+    }
+    const response = await this.request('/v1/enroll', {
+      name,
+      audio_base64: audio.toString('base64')
+    })
+    const voice = (await response.json()) as PocketVoice
+    return { id: voice.id, name: voice.name, kind: voice.kind }
+  }
+
+  async deleteVoice(id: string): Promise<void> {
+    this.stop()
+    await this.start()
+    await this.request(`/v1/voices/${encodeURIComponent(id)}`, undefined, undefined, 'DELETE')
+  }
+
   async prepare(): Promise<void> {
     if (this.preparing) return this.preparing
     const preparing = (async () => {
@@ -209,10 +251,15 @@ export class PocketSpeechService {
     await this.starting?.catch(() => undefined)
   }
 
-  private async request(path: string, body?: object, signal?: AbortSignal): Promise<Response> {
+  private async request(
+    path: string,
+    body?: object,
+    signal?: AbortSignal,
+    method = body ? 'POST' : 'GET'
+  ): Promise<Response> {
     if (!this.origin || !this.token) throw new Error('The local voice engine is not running.')
     const response = await fetch(`${this.origin}${path}`, {
-      method: body ? 'POST' : 'GET',
+      method,
       headers: {
         Authorization: `Bearer ${this.token}`,
         ...(body ? { 'Content-Type': 'application/json' } : {})

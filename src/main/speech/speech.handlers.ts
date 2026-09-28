@@ -27,6 +27,33 @@ export function registerSpeechHandlers(): void {
       }
     }
   )
+  ipcMain.handle(
+    IpcChannel.Speech.addVoice,
+    async (): Promise<Result<Awaited<ReturnType<SpeechRouter['addVoice']>>>> => {
+      try {
+        return ok(await speechService.addVoice())
+      } catch (error) {
+        return errorResult(
+          'speech.voice-failed',
+          'Could not make a voice from that recording.',
+          error
+        )
+      }
+    }
+  )
+  ipcMain.handle(
+    IpcChannel.Speech.deleteVoice,
+    async (_event, id: unknown): Promise<Result<void>> => {
+      if (typeof id !== 'string' || !/^[0-9a-f]{32}$/.test(id))
+        return err('speech.invalid-voice', 'That voice could not be found.')
+      try {
+        await speechService.deleteVoice(id)
+        return ok(undefined)
+      } catch (error) {
+        return errorResult('speech.voice-delete-failed', 'Could not delete that voice.', error)
+      }
+    }
+  )
   ipcMain.handle(IpcChannel.Speech.getTranscript, () => speechService.getTranscript())
   ipcMain.handle(
     IpcChannel.Speech.setTranscript,

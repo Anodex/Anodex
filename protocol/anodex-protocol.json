@@ -7747,6 +7747,79 @@
       }
     },
     {
+      "channel": "speech:add-voice",
+      "kind": "invoke",
+      "api": "speech.addVoice",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "null"
+                    },
+                    {
+                      "kind": "object",
+                      "properties": {
+                        "id": {
+                          "optional": false,
+                          "type": {
+                            "kind": "string"
+                          }
+                        },
+                        "name": {
+                          "optional": false,
+                          "type": {
+                            "kind": "string"
+                          }
+                        },
+                        "kind": {
+                          "optional": false,
+                          "type": {
+                            "kind": "string"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "speech:audio",
       "kind": "event",
       "api": "speech.onAudio",
@@ -7764,6 +7837,12 @@
             "optional": false,
             "type": {
               "$ref": "Uint8Array<ArrayBufferLike>"
+            }
+          },
+          "sampleRate": {
+            "optional": false,
+            "type": {
+              "kind": "number"
             }
           }
         }
@@ -7824,6 +7903,59 @@
       }
     },
     {
+      "channel": "speech:delete-voice",
+      "kind": "invoke",
+      "api": "speech.deleteVoice",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "speech:download",
       "kind": "invoke",
       "api": "speech.download",
@@ -7875,6 +8007,74 @@
       "args": [],
       "result": {
         "kind": "string"
+      }
+    },
+    {
+      "channel": "speech:list-voices",
+      "kind": "invoke",
+      "api": "speech.listVoices",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "array",
+                  "of": {
+                    "kind": "object",
+                    "properties": {
+                      "id": {
+                        "optional": false,
+                        "type": {
+                          "kind": "string"
+                        }
+                      },
+                      "name": {
+                        "optional": false,
+                        "type": {
+                          "kind": "string"
+                        }
+                      },
+                      "kind": {
+                        "optional": false,
+                        "type": {
+                          "kind": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -8085,6 +8285,12 @@
         "kind": "object",
         "properties": {
           "runtimeAvailable": {
+            "optional": false,
+            "type": {
+              "kind": "boolean"
+            }
+          },
+          "pocketAvailable": {
             "optional": false,
             "type": {
               "kind": "boolean"
@@ -10736,7 +10942,7 @@
             "note": "not transferable"
           }
         },
-        "__@toStringTag@127": {
+        "__@toStringTag@140": {
           "optional": false,
           "type": {
             "kind": "literal",
@@ -23869,7 +24075,7 @@
             "note": "not transferable"
           }
         },
-        "__@toStringTag@127": {
+        "__@toStringTag@140": {
           "optional": false,
           "type": {
             "kind": "literal",
@@ -24111,6 +24317,22 @@
             "kind": "boolean"
           }
         },
+        "engine": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "qwen"
+              },
+              {
+                "kind": "literal",
+                "value": "pocket"
+              }
+            ]
+          }
+        },
         "voice": {
           "optional": false,
           "type": {
@@ -24161,6 +24383,12 @@
                 "value": "dylan"
               }
             ]
+          }
+        },
+        "pocketVoice": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         },
         "speed": {
@@ -25725,14 +25953,14 @@
             "note": "not transferable"
           }
         },
-        "__@iterator@125": {
+        "__@iterator@138": {
           "optional": false,
           "type": {
             "kind": "function",
             "note": "not transferable"
           }
         },
-        "__@toStringTag@127": {
+        "__@toStringTag@140": {
           "optional": false,
           "type": {
             "kind": "literal",
