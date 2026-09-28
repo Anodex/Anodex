@@ -12,6 +12,19 @@ export interface PocketVoice {
   kind: string
 }
 
+/** How to start the engine: the native runtime when built, else the Python prototype. */
+interface Launch {
+  command: string
+  args: string[]
+  cwd: string
+  env: NodeJS.ProcessEnv
+  modelPath?: string
+}
+
+// Both backends reject longer input; trimming here keeps a long reply speaking
+// its opening instead of failing outright.
+const MAX_SPEECH_CHARACTERS = 12_000
+
 /** Local trial adapter. Pocket's address and launch token never cross the preload bridge. */
 export class PocketSpeechService {
   private child?: ChildProcessWithoutNullStreams
@@ -22,19 +35,73 @@ export class PocketSpeechService {
   private loaded = false
   private active?: { id: string; controller: AbortController }
 
-  private runtime(): { root: string; python: string } | null {
+  private runtime(): Launch | null {
     if (app.isPackaged) return null
     const root = resolve(
       process.env.ANODEX_VOICE_ENGINE_HOME || join(process.cwd(), '..', 'Voice Engine')
     )
+    return this.nativeRuntime(root) ?? this.pythonRuntime(root)
+  }
+
+  /** The native C++ runtime from `runtime/`, with no Python or PyTorch. */
+  private nativeRuntime(root: string): Launch | null {
+    const runtimeRoot = join(root, 'runtime')
+    const binaryName = process.platform === 'win32' ? 'anodex-voice.exe' : 'anodex-voice'
+    const binary = [
+      join(runtimeRoot, 'build', 'bin', 'Release', binaryName),
+      join(runtimeRoot, 'build', 'bin', binaryName)
+    ].find((path) => existsSync(path))
+    const modelPath = join(runtimeRoot, 'models', 'pocket-en-f16.gguf')
+    const voices = join(runtimeRoot, 'voices')
+    if (!binary || !existsSync(voices)) return null
+    return {
+      command: binary,
+      args: [
+        'serve',
+        '--model',
+        modelPath,
+        '--voices',
+        voices,
+        '--data-dir',
+        this.dataDirectory(),
+        '--port',
+        '0',
+        // Stdin stays open while Anodex runs; the engine exits when it closes.
+        '--exit-with-stdin'
+      ],
+      cwd: runtimeRoot,
+      env: process.env,
+      modelPath
+    }
+  }
+
+  private pythonRuntime(root: string): Launch | null {
     const python = join(
       root,
       '.venv',
       process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'
     )
-    return existsSync(join(root, 'src', 'voice_engine', 'server.py')) && existsSync(python)
-      ? { root, python }
-      : null
+    if (!existsSync(join(root, 'src', 'voice_engine', 'server.py')) || !existsSync(python))
+      return null
+    return {
+      command: python,
+      args: [
+        '-m',
+        'voice_engine',
+        '--data-dir',
+        this.dataDirectory(),
+        '--backend',
+        'pocket',
+        'serve',
+        '--port',
+        '0'
+      ],
+      cwd: root,
+      env: {
+        ...process.env,
+        PYTHONPATH: [join(root, 'src'), process.env.PYTHONPATH].filter(Boolean).join(delimiter)
+      }
+    }
   }
 
   status(): {
@@ -44,10 +111,12 @@ export class PocketSpeechService {
     engineReady: boolean
     downloadBytes: number
   } {
-    const available = this.runtime() !== null
+    const runtime = this.runtime()
     return {
-      runtimeAvailable: available,
-      modelInstalled: available,
+      runtimeAvailable: runtime !== null,
+      // The Python prototype fetches its model on first load, so only the
+      // native runtime can say whether the model is actually present.
+      modelInstalled: runtime !== null && (!runtime.modelPath || existsSync(runtime.modelPath)),
       referenceReady: false,
       engineReady: this.loaded && Boolean(this.child),
       downloadBytes: 0
@@ -84,7 +153,7 @@ export class PocketSpeechService {
     text: string,
     sink: (id: string, pcm: Uint8Array, sampleRate: number) => void
   ): Promise<void> {
-    const clean = text.trim().slice(0, 16_000)
+    const clean = text.trim().slice(0, MAX_SPEECH_CHARACTERS)
     if (!clean) throw new Error('There is no reply text to read.')
     this.stop()
     const controller = new AbortController()
@@ -167,25 +236,14 @@ export class PocketSpeechService {
     }
   }
 
-  private async launch(runtime: { root: string; python: string }): Promise<void> {
+  private async launch(runtime: Launch): Promise<void> {
     const token = randomBytes(32).toString('hex')
-    const dataDir = this.dataDirectory()
-    const child = spawn(
-      runtime.python,
-      ['-m', 'voice_engine', '--data-dir', dataDir, '--backend', 'pocket', 'serve', '--port', '0'],
-      {
-        cwd: runtime.root,
-        windowsHide: true,
-        stdio: 'pipe',
-        env: {
-          ...process.env,
-          ANODEX_VOICE_TOKEN: token,
-          PYTHONPATH: [join(runtime.root, 'src'), process.env.PYTHONPATH]
-            .filter(Boolean)
-            .join(delimiter)
-        }
-      }
-    )
+    const child = spawn(runtime.command, runtime.args, {
+      cwd: runtime.cwd,
+      windowsHide: true,
+      stdio: 'pipe',
+      env: { ...runtime.env, ANODEX_VOICE_TOKEN: token }
+    })
     child.stdout.on('data', () => undefined)
     this.child = child
     this.token = token

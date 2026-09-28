@@ -4,6 +4,17 @@ This development checkout can use the separate Anodex Voice prototype as an
 optional speech engine. Qwen remains the default. This is a local quality trial,
 not a packaged or released feature.
 
+## Native runtime
+
+When the Voice Engine checkout contains a built native runtime
+(`runtime/build/bin/`, plus `runtime/models/pocket-en-f16.gguf` and
+`runtime/voices/`), the adapter starts that instead of the Python prototype.
+It is Anodex's own C++ engine running Pocket's weights on the CPU: no Python
+or PyTorch, protocol-compatible, and faster (see `runtime/README.md` there).
+A new Listen replaces the one playing, and the engine exits with Anodex.
+Saved voices carry over; adding a new voice still needs the Python prototype.
+The weights, tokenizer vocabulary and codec are still Pocket's.
+
 ## Set up
 
 Place an installed Voice Engine checkout next to this Anodex checkout, in a
