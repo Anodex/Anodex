@@ -249,6 +249,8 @@ const REACHABLE_FROM_A_PHONE = [
   'tools:pick-workspace',
   'updates:check',
   'updates:download',
+  // Read-only, public text beside the update check the phone already has.
+  'updates:get-release-notes',
   'updates:get-status',
   'updates:install-and-restart',
   'updates:status-changed',
