@@ -51,7 +51,12 @@ export class PocketSpeechService {
       join(runtimeRoot, 'build', 'bin', 'Release', binaryName),
       join(runtimeRoot, 'build', 'bin', binaryName)
     ].find((path) => existsSync(path))
-    const modelPath = join(runtimeRoot, 'models', 'pocket-en-f16.gguf')
+    // 8-bit weights are smallest and fastest on every processor; the runtime
+    // widens them itself where that is quicker. Other precisions still work.
+    const models = ['q8_0', 'f16', 'f32'].map((type) =>
+      join(runtimeRoot, 'models', `pocket-en-${type}.gguf`)
+    )
+    const modelPath = models.find((path) => existsSync(path)) ?? models[0]
     const voices = join(runtimeRoot, 'voices')
     if (!binary || !existsSync(voices)) return null
     return {
