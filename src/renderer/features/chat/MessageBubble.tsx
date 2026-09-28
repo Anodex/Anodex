@@ -243,7 +243,7 @@ function MessageBubbleImpl({
   // Two replies on the local model at once each run slower. Said here, since nothing
   // else said it. See `modelSharingNote`.
   const replyIsLocal = useSettingsStore((state) => state.settings?.provider?.active === 'local')
-  const speechEnabled = useSettingsStore((state) => state.settings?.speech.enabled === true)
+  const speechEnabled = useSettingsStore((state) => state.settings?.speech?.enabled === true)
   const sharing = useModelStore((state) =>
     message.streaming ? modelSharingNote(state.engine, replyIsLocal) : null
   )
