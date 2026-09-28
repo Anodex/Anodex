@@ -22,6 +22,16 @@ export class SpeechRouter {
     return this.usePocket ? this.pocket.listVoices() : Promise.resolve([])
   }
 
+  addVoice(): Promise<PocketVoice | null> {
+    if (!this.usePocket) throw new Error('Choose the Pocket engine to add a voice.')
+    return this.pocket.addVoice()
+  }
+
+  deleteVoice(id: string): Promise<void> {
+    if (!this.usePocket) throw new Error('Choose the Pocket engine to delete a voice.')
+    return this.pocket.deleteVoice(id)
+  }
+
   async prepare(): Promise<void> {
     if (this.usePocket) {
       await this.qwen.shutdown()

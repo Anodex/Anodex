@@ -30,6 +30,8 @@ const api: AnodexApi = {
   speech: {
     status: () => ipcRenderer.invoke(IpcChannel.Speech.status),
     listVoices: () => ipcRenderer.invoke(IpcChannel.Speech.listVoices),
+    addVoice: () => ipcRenderer.invoke(IpcChannel.Speech.addVoice),
+    deleteVoice: (id) => ipcRenderer.invoke(IpcChannel.Speech.deleteVoice, id),
     getTranscript: () => ipcRenderer.invoke(IpcChannel.Speech.getTranscript),
     setTranscript: (text) => ipcRenderer.invoke(IpcChannel.Speech.setTranscript, text),
     download: () => ipcRenderer.invoke(IpcChannel.Speech.download),
