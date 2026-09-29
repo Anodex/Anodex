@@ -20,14 +20,35 @@ interface Launch {
   cwd: string
   env: NodeJS.ProcessEnv
   modelPath?: string
+  /** Longest text one request accepts (the native runtime takes more than the prototype). */
+  maxCharacters: number
 }
 
 // The engines accept recordings up to this size.
 const MAX_RECORDING_BYTES = 8 * 1024 * 1024
 
-// Both backends reject longer input; trimming here keeps a long reply speaking
-// its opening instead of failing outright.
-const MAX_SPEECH_CHARACTERS = 12_000
+// Each backend rejects longer input; trimming here keeps a long reply speaking
+// its opening instead of failing outright. The native runtime takes 64 KB of
+// UTF-8, which 16,000 characters stay under whatever the script; the Python
+// prototype stops at 12,000 characters.
+const NATIVE_MAX_CHARACTERS = 16_000
+const PROTOTYPE_MAX_CHARACTERS = 12_000
+
+// The Python prototype answers a new request "busy" until the one being
+// stopped has wound down; the native runtime replaces it instead.
+const BUSY_RETRY_MS = 100
+const BUSY_RETRY_LIMIT_MS = 3_000
+
+/** An error the engine answered with, keeping its status and code for retries. */
+class EngineError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | undefined,
+    message: string
+  ) {
+    super(message)
+  }
+}
 
 /** Local trial adapter. Pocket's address and launch token never cross the preload bridge. */
 export class PocketSpeechService {
@@ -38,12 +59,17 @@ export class PocketSpeechService {
   private preparing?: Promise<void>
   private loaded = false
   private active?: { id: string; controller: AbortController }
+  private stopping?: Promise<unknown>
 
   private runtime(): Launch | null {
     if (app.isPackaged) return null
-    const root = resolve(
-      process.env.ANODEX_VOICE_ENGINE_HOME || join(process.cwd(), '..', 'Voice Engine')
-    )
+    // The checkout sits beside Anodex: "Voice Engine" on Windows, the
+    // repository's own name, voice-engine, where it was cloned or copied.
+    const root = process.env.ANODEX_VOICE_ENGINE_HOME
+      ? resolve(process.env.ANODEX_VOICE_ENGINE_HOME)
+      : (['Voice Engine', 'voice-engine']
+          .map((name) => resolve(process.cwd(), '..', name))
+          .find((path) => existsSync(path)) ?? resolve(process.cwd(), '..', 'Voice Engine'))
     return this.nativeRuntime(root) ?? this.pythonRuntime(root)
   }
 
@@ -55,10 +81,11 @@ export class PocketSpeechService {
       join(runtimeRoot, 'build', 'bin', 'Release', binaryName),
       join(runtimeRoot, 'build', 'bin', binaryName)
     ].find((path) => existsSync(path))
+    // A model trained by Anodex is preferred over Pocket's once it is there.
     // 8-bit weights are smallest and fastest on every processor; the runtime
     // widens them itself where that is quicker. Other precisions still work.
-    const models = ['q8_0', 'f16', 'f32'].map((type) =>
-      join(runtimeRoot, 'models', `pocket-en-${type}.gguf`)
+    const models = ['anodex-en', 'pocket-en'].flatMap((name) =>
+      ['q8_0', 'f16', 'f32'].map((type) => join(runtimeRoot, 'models', `${name}-${type}.gguf`))
     )
     const modelPath = models.find((path) => existsSync(path)) ?? models[0]
     const voices = join(runtimeRoot, 'voices')
@@ -80,7 +107,8 @@ export class PocketSpeechService {
       ],
       cwd: runtimeRoot,
       env: process.env,
-      modelPath
+      modelPath,
+      maxCharacters: NATIVE_MAX_CHARACTERS
     }
   }
 
@@ -109,7 +137,8 @@ export class PocketSpeechService {
       env: {
         ...process.env,
         PYTHONPATH: [join(root, 'src'), process.env.PYTHONPATH].filter(Boolean).join(delimiter)
-      }
+      },
+      maxCharacters: PROTOTYPE_MAX_CHARACTERS
     }
   }
 
@@ -200,19 +229,23 @@ export class PocketSpeechService {
     text: string,
     sink: (id: string, pcm: Uint8Array, sampleRate: number) => void
   ): Promise<void> {
-    const clean = text.trim().slice(0, MAX_SPEECH_CHARACTERS)
+    const clean = text.trim().slice(0, this.runtime()?.maxCharacters ?? PROTOTYPE_MAX_CHARACTERS)
     if (!clean) throw new Error('There is no reply text to read.')
     this.stop()
     const controller = new AbortController()
     const active = { id: requestId, controller }
     this.active = active
     try {
-      await this.prepare()
+      // Let the previous request's stop reach the engine before asking for more.
+      await this.stopping
+      await this.whenFree(() => this.prepare())
       if (this.active !== active) return
-      const response = await this.request(
-        '/v1/speak',
-        { text: clean, voice_id: settingsStore.get().speech.pocketVoice, request_id: requestId },
-        controller.signal
+      const response = await this.whenFree(() =>
+        this.request(
+          '/v1/speak',
+          { text: clean, voice_id: settingsStore.get().speech.pocketVoice, request_id: requestId },
+          controller.signal
+        )
       )
       if (!response.body) throw new Error('The voice engine returned no audio.')
       const sampleRate = Number(response.headers.get('X-Sample-Rate'))
@@ -236,7 +269,25 @@ export class PocketSpeechService {
     this.active = undefined
     active?.controller.abort()
     if (active && this.origin) {
-      void this.request('/v1/stop', { request_id: active.id }).catch(() => undefined)
+      const stopping = this.request('/v1/stop', { request_id: active.id }).catch(() => undefined)
+      this.stopping = stopping
+      void stopping.finally(() => {
+        if (this.stopping === stopping) this.stopping = undefined
+      })
+    }
+  }
+
+  /** Retries while the engine is still winding down a stopped request. */
+  private async whenFree<T>(attempt: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + BUSY_RETRY_LIMIT_MS
+    for (;;) {
+      try {
+        return await attempt()
+      } catch (error) {
+        const busy = error instanceof EngineError && error.status === 409 && error.code === 'busy'
+        if (!busy || Date.now() >= deadline) throw error
+        await new Promise((wake) => setTimeout(wake, BUSY_RETRY_MS))
+      }
     }
   }
 
@@ -268,8 +319,17 @@ export class PocketSpeechService {
       signal
     })
     if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as { message?: string }
-      throw new Error(detail.message || `The voice engine returned ${response.status}.`)
+      const detail = (await response.json().catch(() => ({}))) as {
+        message?: string
+        error?: string | { code?: string; message?: string }
+      }
+      const error = typeof detail.error === 'object' ? detail.error : undefined
+      const code = typeof detail.error === 'string' ? detail.error : error?.code
+      throw new EngineError(
+        response.status,
+        code,
+        detail.message || error?.message || `The voice engine returned ${response.status}.`
+      )
     }
     return response
   }
