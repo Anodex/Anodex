@@ -43,6 +43,55 @@ beforeEach(() => {
   respondConfirmation.mockResolvedValue(undefined)
 })
 
+describe('toast repeats and holding', () => {
+  it('counts a repeat instead of stacking a copy, and restarts its time', () => {
+    vi.useFakeTimers()
+    useUiStore.getState().notify({ kind: 'error', title: 'Offline', message: 'No route' })
+    vi.advanceTimersByTime(5000)
+    useUiStore.getState().notify({ kind: 'error', title: 'Offline', message: 'No route' })
+
+    const toasts = useUiStore.getState().toasts
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0].count).toBe(2)
+    vi.advanceTimersByTime(5000)
+    expect(useUiStore.getState().toasts).toHaveLength(1)
+    vi.advanceTimersByTime(2000)
+    expect(useUiStore.getState().toasts).toHaveLength(0)
+  })
+
+  it('does not chime again for a repeat', () => {
+    useUiStore.getState().notify({ kind: 'error', title: 'Offline' })
+    useUiStore.getState().notify({ kind: 'error', title: 'Offline' })
+    expect(playChime).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds every countdown while the stack is read, and resumes from where it stopped', () => {
+    vi.useFakeTimers()
+    useUiStore.getState().notify({ kind: 'success', title: 'Saved' })
+    vi.advanceTimersByTime(3000)
+
+    useUiStore.getState().holdToasts(true)
+    vi.advanceTimersByTime(60_000)
+    expect(useUiStore.getState().toasts).toHaveLength(1)
+
+    useUiStore.getState().holdToasts(false)
+    vi.advanceTimersByTime(900)
+    expect(useUiStore.getState().toasts).toHaveLength(1)
+    vi.advanceTimersByTime(100)
+    expect(useUiStore.getState().toasts).toHaveLength(0)
+  })
+
+  it('stops a dismissed toast from coming back through its timer', () => {
+    vi.useFakeTimers()
+    useUiStore.getState().notify({ kind: 'success', title: 'Saved' })
+    const { id } = useUiStore.getState().toasts[0]
+    useUiStore.getState().dismissToast(id)
+    useUiStore.getState().notify({ kind: 'success', title: 'Saved' })
+    vi.advanceTimersByTime(3999)
+    expect(useUiStore.getState().toasts).toHaveLength(1)
+  })
+})
+
 describe('toasts', () => {
   it('shows a toast and clears it once its time is up', () => {
     vi.useFakeTimers()
