@@ -341,6 +341,7 @@ function toRecommendedModel(
     visionProjectorFileName: projector
       ? `${hit.id.split('/').pop() ?? 'model'}-${projector.rfilename.split('/').pop()}`
       : undefined,
+    visionProjectorBytes: projector?.size,
     tags:
       primaryUse === 'coding'
         ? ['coding', ...(projector ? ['vision'] : []), 'community']

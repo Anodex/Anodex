@@ -85,7 +85,13 @@ export async function downloadModel(
     ): void => {
       if (active === 'model') currentModelBytes = received
       else currentProjectorBytes = received
-      const otherKnown = active === 'model' ? knownProjectorBytes : currentModelBytes
+      // While the model streams, the projector still to come counts toward the
+      // total, so the bar matches the size the card quoted and never shrinks
+      // back when the second file starts.
+      const pendingProjectorBytes =
+        projectorPath && !knownProjectorBytes ? (model.visionProjectorBytes ?? 0) : 0
+      const otherKnown =
+        active === 'model' ? knownProjectorBytes + pendingProjectorBytes : currentModelBytes
       onProgress({
         modelId: model.id,
         receivedBytes: currentModelBytes + currentProjectorBytes,

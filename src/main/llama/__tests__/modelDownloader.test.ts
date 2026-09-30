@@ -101,6 +101,32 @@ describe('downloadModel', () => {
     expect(await readFile(downloaded.visionProjectorPath!, 'utf-8')).toBe('projector')
   })
 
+  it('counts the projector still to come in the total while the model downloads', async () => {
+    const visionModel: RecommendedModel = {
+      ...MODEL,
+      id: 'test-vision-total',
+      visionProjectorUrl: 'https://example.com/models/resolve/main/mmproj-F16.gguf',
+      visionProjectorFileName: 'test-model-mmproj-F16.gguf',
+      visionProjectorBytes: 9
+    }
+    globalThis.fetch = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Map([['content-length', url.includes('mmproj') ? '9' : '11']]),
+        body: bodyStream(url.includes('mmproj') ? 'projector' : 'hello world')
+      })
+    )
+
+    const totals: Array<number | null> = []
+    await downloadModel(visionModel, dir, (p) => {
+      if (p.status === 'downloading') totals.push(p.totalBytes)
+    })
+
+    expect(totals.length).toBeGreaterThan(0)
+    expect(new Set(totals)).toEqual(new Set([20]))
+  })
+
   it('rejects and cleans up on a non-OK response', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
