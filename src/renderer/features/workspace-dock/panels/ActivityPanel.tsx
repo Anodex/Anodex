@@ -4,7 +4,7 @@ import { Spinner } from '../../../components/ui/Spinner'
 import { useChatStore } from '../../../stores/chatStore'
 import { formatClock } from '../../../lib/format'
 import { KIND_ICON, getToolCallDisplay } from '../../chat/toolCallDisplay'
-import { activityOf } from '../dockActivity'
+import { activityOf, readablePath } from '../dockActivity'
 import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import styles from './ActivityPanel.module.css'
 
@@ -55,9 +55,10 @@ function ActivityRow({ call, at }: { call: ToolCall; at: number }): JSX.Element 
       </span>
       <span className={styles.text}>
         <span className={styles.action}>{display.action}</span>
-        {display.target && <span className={styles.target}>{display.target}</span>}
+        {display.target && <span className={styles.target}>{readablePath(display.target)}</span>}
+        {display.meta && <span className={styles.detail}>{display.meta}</span>}
       </span>
-      <span className={styles.meta}>{display.meta ?? formatClock(at)}</span>
+      <span className={styles.time}>{formatClock(at)}</span>
     </li>
   )
 }
