@@ -3,20 +3,21 @@
   width: var(--dock-width, 380px);
   height: 100%;
   overflow: hidden;
-  background: var(--bg-surface);
+  background: var(--shell-chrome-bg, var(--bg-app));
 }
 
-/* The strip of panel tabs down the dock's inner edge. */
+/* The strip of panel tabs down the dock's inner edge. It is the navigation
+   rail's twin on the other side of the window, so it wears the same chrome:
+   the shell's colour, the rail's width, and the rail's buttons. */
 .tabs {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-1);
-  width: 44px;
+  width: var(--sidebar-rail-width);
   flex-shrink: 0;
-  padding-top: var(--space-2);
-  background: var(--bg-base);
-  border-right: 1px solid var(--border);
+  padding: var(--space-2) 0;
+  background: var(--shell-chrome-bg, var(--bg-app));
 }
 
 .tab {
@@ -24,8 +25,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   padding: 0;
   color: var(--text-muted);
   background: transparent;
@@ -57,7 +59,7 @@
   position: absolute;
   top: 6px;
   bottom: 6px;
-  left: -6px;
+  left: calc((36px - var(--sidebar-rail-width)) / 2);
   width: 3px;
   background: var(--accent-gradient);
   border-radius: var(--radius-pill);
@@ -78,7 +80,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-on-accent);
   background: var(--accent-gradient);
-  border: 1.5px solid var(--bg-base);
+  border: 1.5px solid var(--shell-chrome-bg, var(--bg-app));
   border-radius: var(--radius-pill);
   animation: badgeIn 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
 }
@@ -90,11 +92,15 @@
   display: flex;
 }
 
+/* Rounded into the rail the way the chat panel is on the left. */
 .main {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-top-left-radius: var(--radius-lg);
 }
 
 .header {
