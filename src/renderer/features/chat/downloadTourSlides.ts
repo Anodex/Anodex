@@ -78,7 +78,7 @@ export const SLIDES: TourSlide[] = [
     visual: 'dockPanels',
     title: 'Workspace Dock',
     body: 'In a project, this opens a panel beside the chat with the work in progress: the plan, the changes made, the files, and a terminal.',
-    tip: 'Hover the button to choose which panels show',
+    tip: 'It appears once you are working in a project',
     shortcut: 'toggleWorkspaceDock'
   },
   {
