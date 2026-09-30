@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
+import type { KeyboardShortcutMap } from '@shared/settings.types'
 import { Icon } from '../../components/Icon'
 import { ShortcutKeys } from '../../components/ShortcutKeys'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CometStatusDot } from '../../components/ui/CometStatusDot'
 import { DOCK_PANELS } from '../workspace-dock/workspaceDockTypes'
-import { SLIDES, TOUR_AREA_LABEL, type TourVisual } from './downloadTourSlides'
+import { SLIDES, TOUR_AREA_LABEL, type TourSlide, type TourVisual } from './downloadTourSlides'
 import meterStyles from './ContextMeter.module.css'
 import styles from './DownloadTour.module.css'
 
@@ -30,12 +31,6 @@ export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element
   const shortcuts = useSettingsStore((s) => s.settings?.keyboard.shortcuts)
 
   const step = (delta: number): void => setIndex((i) => (i + delta + SLIDES.length) % SLIDES.length)
-  const slide = SLIDES[index]
-  const row = SLIDES.filter((s) => s.area === slide.area && s.icon)
-  const shortcut = slide.shortcut
-    ? (shortcuts?.[slide.shortcut] ?? DEFAULT_KEYBOARD_SHORTCUTS[slide.shortcut])
-    : null
-
   return (
     <section
       className={`${styles.tour} ${paused ? styles.paused : ''}`}
@@ -63,51 +58,20 @@ export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element
         ))}
       </div>
 
-      <div
-        key={index}
-        className={styles.slide}
-        data-area={slide.area}
-        aria-roledescription="slide"
-        aria-label={`${index + 1} of ${SLIDES.length}`}
-      >
-        <div className={styles.area}>
-          <div className={styles.areaLabel}>{TOUR_AREA_LABEL[slide.area]}</div>
-          {slide.visual === 'modelStatus' ? (
-            <TourVisualView visual="modelStatus" modelName={modelName} />
-          ) : (
-            <div className={styles.row} aria-hidden="true">
-              {row.map((s) => (
-                <span
-                  key={s.id}
-                  className={[
-                    styles.control,
-                    s.detached ? styles.detached : '',
-                    s.dividerBefore ? styles.dividerBefore : '',
-                    s.id === slide.id ? styles.controlLit : ''
-                  ].join(' ')}
-                >
-                  {s.icon && <Icon name={s.icon} size={16} />}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className={styles.text}>
-          <div className={styles.meta}>
-            {index + 1} of {SLIDES.length}
-          </div>
-          <h2 className={styles.title}>{slide.title}</h2>
-          <p className={styles.body}>{slide.body}</p>
-          <div className={styles.tip}>
-            <Icon name="lightbulb" size={13} className={styles.tipIcon} />
-            <span>{slide.tip}</span>
-            {shortcut && <ShortcutKeys shortcut={shortcut} />}
-          </div>
-          {slide.visual && slide.visual !== 'modelStatus' && (
-            <TourVisualView visual={slide.visual} modelName={modelName} />
-          )}
-        </div>
+      {/* Every slide is laid into the same cell and all but the current one is
+          hidden, so the box is always as tall as the tallest slide and does not
+          change size from one control to the next, whatever the text wraps to. */}
+      <div className={styles.deck}>
+        {SLIDES.map((slide, i) => (
+          <TourSlideView
+            key={slide.id}
+            slide={slide}
+            position={i}
+            active={i === index}
+            shortcuts={shortcuts}
+            modelName={modelName}
+          />
+        ))}
       </div>
 
       <div className={styles.nav}>
@@ -124,6 +88,74 @@ export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element
         </button>
       </div>
     </section>
+  )
+}
+
+function TourSlideView({
+  slide,
+  position,
+  active,
+  shortcuts,
+  modelName
+}: {
+  slide: TourSlide
+  position: number
+  active: boolean
+  shortcuts: Partial<KeyboardShortcutMap> | undefined
+  modelName?: string
+}): JSX.Element {
+  const row = SLIDES.filter((s) => s.area === slide.area && s.icon)
+  const shortcut = slide.shortcut
+    ? (shortcuts?.[slide.shortcut] ?? DEFAULT_KEYBOARD_SHORTCUTS[slide.shortcut])
+    : null
+
+  return (
+    <div
+      className={`${styles.slide} ${active ? styles.slideActive : ''}`}
+      data-area={slide.area}
+      aria-roledescription="slide"
+      aria-label={`${position + 1} of ${SLIDES.length}`}
+      aria-hidden={active ? undefined : true}
+    >
+      <div className={styles.area}>
+        <div className={styles.areaLabel}>{TOUR_AREA_LABEL[slide.area]}</div>
+        {slide.visual === 'modelStatus' ? (
+          <TourVisualView visual="modelStatus" modelName={modelName} />
+        ) : (
+          <div className={styles.row} aria-hidden="true">
+            {row.map((s) => (
+              <span
+                key={s.id}
+                className={[
+                  styles.control,
+                  s.detached ? styles.detached : '',
+                  s.dividerBefore ? styles.dividerBefore : '',
+                  s.id === slide.id ? styles.controlLit : ''
+                ].join(' ')}
+              >
+                {s.icon && <Icon name={s.icon} size={16} />}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className={styles.text}>
+        <div className={styles.meta}>
+          {position + 1} of {SLIDES.length}
+        </div>
+        <h2 className={styles.title}>{slide.title}</h2>
+        <p className={styles.body}>{slide.body}</p>
+        <div className={styles.tip}>
+          <Icon name="lightbulb" size={13} className={styles.tipIcon} />
+          <span>{slide.tip}</span>
+          {shortcut && <ShortcutKeys shortcut={shortcut} />}
+        </div>
+        {slide.visual && slide.visual !== 'modelStatus' && (
+          <TourVisualView visual={slide.visual} modelName={modelName} />
+        )}
+      </div>
+    </div>
   )
 }
 
