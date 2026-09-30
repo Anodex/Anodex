@@ -3,47 +3,96 @@
   right: var(--space-5);
   bottom: var(--space-5);
   z-index: var(--z-popover);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  max-width: 360px;
+  width: 360px;
+  max-width: calc(100vw - 2 * var(--space-5));
+  transition: height 260ms var(--ease);
+  pointer-events: none;
+}
+
+/* Only the toasts take the pointer, so the empty space the stack reserves
+   does not block clicks on whatever is underneath it. */
+.slot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  transform-origin: bottom center;
+  pointer-events: auto;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.9, 0.3, 1.1),
+    opacity 240ms var(--ease),
+    height 260ms var(--ease);
 }
 
 .toast {
-  composes: surface from './ui/PopoverSurface.module.css';
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-3) calc(var(--space-3) + 2px);
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: toastIn 320ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+.leaving {
+  animation: toastOut 220ms var(--ease) forwards;
 }
 
 .icon {
   display: flex;
   flex-shrink: 0;
-  margin-top: 1px;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
 }
 
-.info .icon {
-  color: var(--accent);
-}
-.success .icon {
-  color: var(--success);
-}
-.error .icon {
-  color: var(--danger);
-}
+.info .icon,
 .pending .icon {
   color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.success .icon {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.error .icon {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .body {
   flex: 1;
   min-width: 0;
+  padding-top: 3px;
 }
 
 .title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-weight: 600;
   font-size: var(--text-base);
+}
+
+.count {
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-pill);
+  animation: countBump 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
 }
 
 .message {
@@ -56,13 +105,101 @@
 .close {
   display: flex;
   flex-shrink: 0;
-  padding: 2px;
+  padding: 4px;
   color: var(--text-faint);
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .close:hover {
   color: var(--text);
+  background: var(--bg-surface-2);
+}
+
+/* How long the toast has left. Paused with the store's countdown while the
+   stack is held open, so the bar and the timer agree. */
+.countdown {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  transform-origin: left;
+  animation-name: countdown;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  opacity: 0.7;
+}
+
+.expanded .countdown {
+  animation-play-state: paused;
+}
+
+.info .countdown {
+  background: var(--accent);
+}
+
+.success .countdown {
+  background: var(--success);
+}
+
+.error .countdown {
+  background: var(--danger);
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+}
+
+@keyframes toastOut {
+  to {
+    opacity: 0;
+    transform: translateX(calc(100% + var(--space-5)));
+  }
+}
+
+@keyframes countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes countBump {
+  from {
+    transform: scale(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stack,
+  .slot {
+    transition: opacity 160ms var(--ease);
+  }
+
+  .toast,
+  .count {
+    animation: none;
+  }
+
+  .leaving {
+    animation: toastFade 160ms var(--ease) forwards;
+  }
+
+  /* The toast still leaves on time; it just does not show a moving bar. */
+  .countdown {
+    display: none;
+  }
+}
+
+@keyframes toastFade {
+  to {
+    opacity: 0;
+  }
 }
