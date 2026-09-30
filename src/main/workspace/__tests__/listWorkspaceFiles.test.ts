@@ -21,6 +21,23 @@ describe('determineEditedBy', () => {
     expect(determineEditedBy('a.js', Date.now(), memory)).toBe('user')
   })
 
+  // Anodex writes a file, then reads it back to check it. Only one touch is
+  // kept per file, so the read replaced the write and the file was labelled
+  // as the user's.
+  it('keeps crediting the AI when it reads back a file it just wrote', () => {
+    const now = Date.now()
+    const memory = memoryWith([{ path: 'a.js', action: 'read', at: now, lastEditAt: now - 1000 }])
+    expect(determineEditedBy('a.js', now - 1000, memory)).toBe('ai')
+  })
+
+  it('credits the user for an edit made well after the AI last wrote', () => {
+    const editedAt = Date.now() - 60 * 60 * 1000
+    const memory = memoryWith([
+      { path: 'a.js', action: 'read', at: editedAt, lastEditAt: editedAt }
+    ])
+    expect(determineEditedBy('a.js', Date.now(), memory)).toBe('user')
+  })
+
   it('attributes to the AI when a write touch matches the file mtime', () => {
     const now = Date.now()
     const memory = memoryWith([{ path: 'a.js', action: 'write', at: now }])
