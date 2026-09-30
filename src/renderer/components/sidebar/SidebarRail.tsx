@@ -74,6 +74,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         className={`${styles.railButton} ${view === 'chat' ? styles.railButtonActive : ''}`}
         onClick={handleChat}
         aria-label="Chat"
+        data-tour="chat-view"
         aria-current={view === 'chat' ? 'page' : undefined}
         title="Chat"
       >

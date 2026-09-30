@@ -21,6 +21,38 @@ const CHROME = [
   'src/renderer/features/chat/composer/ComposerPermissionMenu.tsx'
 ].map((path) => ({ path, source: readFileSync(join(process.cwd(), path), 'utf-8') }))
 
+/**
+ * Components rendered inside another, and where: their controls take their
+ * place in the parent's order at the point they are mounted.
+ */
+const MOUNTED_IN: Record<string, { parent: string; marker: string }> = {
+  'src/renderer/components/sidebar/SidebarModeSwitcher.tsx': {
+    parent: 'src/renderer/components/TitleBar.tsx',
+    marker: '<SidebarModeSwitcher'
+  },
+  'src/renderer/features/chat/composer/ComposerPermissionMenu.tsx': {
+    parent: 'src/renderer/features/chat/ChatComposer.tsx',
+    marker: '<ComposerPermissionMenu'
+  }
+}
+
+/** Each toured control's place on screen, as [position in its host file, position within a mounted child]. */
+function screenOrder(): Map<string, [string, number, number]> {
+  const order = new Map<string, [string, number, number]>()
+  for (const { path, source } of CHROME) {
+    const mount = MOUNTED_IN[path]
+    for (const match of source.matchAll(/data-tour="([^"]+)"/g)) {
+      if (mount) {
+        const host = CHROME.find((c) => c.path === mount.parent)!.source
+        order.set(match[1], [mount.parent, host.indexOf(mount.marker), match.index])
+      } else {
+        order.set(match[1], [path, match.index, 0])
+      }
+    }
+  }
+  return order
+}
+
 function taggedControls(): Map<string, string> {
   const tags = new Map<string, string>()
   for (const { path, source } of CHROME) {
@@ -47,6 +79,26 @@ describe('DownloadTour drift', () => {
       expect(source, `${slide.id} should use the "${slide.icon}" icon`).toMatch(
         new RegExp(`['"]${slide.icon}['"]`)
       )
+    }
+  })
+})
+
+describe('DownloadTour order', () => {
+  it('walks the window in reading order: top bar, then rail, then message box', () => {
+    const areas = SLIDES.map((s) => s.area).filter((a, i, all) => a !== all[i - 1])
+    expect(areas).toEqual(['titleBar', 'rail', 'composer'])
+  })
+
+  it('tours each area in the order its controls appear in the app', () => {
+    const order = screenOrder()
+    for (const area of ['titleBar', 'rail', 'composer'] as const) {
+      const toured = SLIDES.filter((s) => s.area === area).map((s) => s.id)
+      const onScreen = [...toured].sort((a, b) => {
+        const [, aHost, aChild] = order.get(a)!
+        const [, bHost, bChild] = order.get(b)!
+        return aHost - bHost || aChild - bChild
+      })
+      expect(toured, `${area} slides should follow the app`).toEqual(onScreen)
     }
   })
 })

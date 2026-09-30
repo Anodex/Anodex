@@ -11,9 +11,10 @@ import styles from './DownloadTour.module.css'
  * That wait is minutes long and the user can do nothing else yet, which makes
  * it the one moment they will read what the controls around them are for.
  *
- * Each slide draws its control's area as a row of the real icons with its own
- * lit, rather than a picture of the window: the buttons are stable where the
- * layout and theme around them are not.
+ * Each slide draws its control's area with the real icons, arranged the way the
+ * app arranges them (a row for the top bar and message box, a column beside the
+ * text for the rail), with its own lit. That is a picture of the buttons rather
+ * than of the window: the buttons are stable where the theme around them is not.
  *
  * The segment filling across the top is the timer. A slide advances when its
  * fill animation ends, so pausing the animation on hover or focus pauses the
@@ -62,6 +63,7 @@ export function DownloadTour(): JSX.Element {
       <div
         key={index}
         className={styles.slide}
+        data-area={slide.area}
         aria-roledescription="slide"
         aria-label={`${index + 1} of ${SLIDES.length}`}
       >
@@ -74,6 +76,7 @@ export function DownloadTour(): JSX.Element {
                 className={[
                   styles.control,
                   s.detached ? styles.detached : '',
+                  s.dividerBefore ? styles.dividerBefore : '',
                   s.id === slide.id ? styles.controlLit : ''
                 ].join(' ')}
               >
