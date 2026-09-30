@@ -262,7 +262,7 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
   if (progress?.status === 'downloading') {
     return (
       <div className={styles.recommendCard}>
-        <DownloadTour />
+        <DownloadTour modelName={bestOverall.model.name} />
         <DownloadStatus
           name={bestOverall.model.name}
           progress={progress}

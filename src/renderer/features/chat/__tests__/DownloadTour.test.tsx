@@ -17,8 +17,11 @@ const CHROME = [
   'src/renderer/components/TitleBar.tsx',
   'src/renderer/components/sidebar/SidebarModeSwitcher.tsx',
   'src/renderer/components/sidebar/SidebarRail.tsx',
+  'src/renderer/features/workspace-dock/WorkspaceDockButton.tsx',
+  'src/renderer/components/sidebar/ModelStatusMenu.tsx',
   'src/renderer/features/chat/ChatComposer.tsx',
-  'src/renderer/features/chat/composer/ComposerPermissionMenu.tsx'
+  'src/renderer/features/chat/composer/ComposerPermissionMenu.tsx',
+  'src/renderer/features/chat/ContextMeter.tsx'
 ].map((path) => ({ path, source: readFileSync(join(process.cwd(), path), 'utf-8') }))
 
 /**
@@ -30,9 +33,17 @@ const MOUNTED_IN: Record<string, { parent: string; marker: string }> = {
     parent: 'src/renderer/components/TitleBar.tsx',
     marker: '<SidebarModeSwitcher'
   },
+  'src/renderer/features/workspace-dock/WorkspaceDockButton.tsx': {
+    parent: 'src/renderer/components/TitleBar.tsx',
+    marker: '<WorkspaceDockButton'
+  },
   'src/renderer/features/chat/composer/ComposerPermissionMenu.tsx': {
     parent: 'src/renderer/features/chat/ChatComposer.tsx',
     marker: '<ComposerPermissionMenu'
+  },
+  'src/renderer/features/chat/ContextMeter.tsx': {
+    parent: 'src/renderer/features/chat/ChatComposer.tsx',
+    marker: '<ContextMeter'
   }
 }
 
@@ -75,6 +86,7 @@ describe('DownloadTour drift', () => {
   it('draws each control with the icon the control itself uses', () => {
     const tags = taggedControls()
     for (const slide of SLIDES) {
+      if (!slide.icon) continue
       const source = CHROME.find((c) => c.path === tags.get(slide.id))?.source ?? ''
       expect(source, `${slide.id} should use the "${slide.icon}" icon`).toMatch(
         new RegExp(`['"]${slide.icon}['"]`)
@@ -84,14 +96,14 @@ describe('DownloadTour drift', () => {
 })
 
 describe('DownloadTour order', () => {
-  it('walks the window in reading order: top bar, then rail, then message box', () => {
+  it('walks the window in reading order: top bar, rail, sidebar foot, message box', () => {
     const areas = SLIDES.map((s) => s.area).filter((a, i, all) => a !== all[i - 1])
-    expect(areas).toEqual(['titleBar', 'rail', 'composer'])
+    expect(areas).toEqual(['titleBar', 'rail', 'sidebar', 'composer'])
   })
 
   it('tours each area in the order its controls appear in the app', () => {
     const order = screenOrder()
-    for (const area of ['titleBar', 'rail', 'composer'] as const) {
+    for (const area of ['titleBar', 'rail', 'sidebar', 'composer'] as const) {
       const toured = SLIDES.filter((s) => s.area === area).map((s) => s.id)
       const onScreen = [...toured].sort((a, b) => {
         const [, aHost, aChild] = order.get(a)!
@@ -109,6 +121,12 @@ describe('DownloadTour', () => {
     expect(html).toContain(`1 of ${SLIDES.length}`)
     expect(html).toContain(SLIDES[0].title)
     for (const slide of SLIDES) expect(html).toContain(`aria-label="${slide.title}"`)
+  })
+
+  it('lists every dock panel from the dock itself', () => {
+    const dock = SLIDES.findIndex((s) => s.id === 'dock')
+    expect(dock).toBeGreaterThan(-1)
+    expect(SLIDES[dock].visual).toBe('dockPanels')
   })
 
   it('shows the default shortcut when the user has not set one', () => {

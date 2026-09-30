@@ -3,7 +3,10 @@ import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import { Icon } from '../../components/Icon'
 import { ShortcutKeys } from '../../components/ShortcutKeys'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { SLIDES, TOUR_AREA_LABEL } from './downloadTourSlides'
+import { CometStatusDot } from '../../components/ui/CometStatusDot'
+import { DOCK_PANELS } from '../workspace-dock/workspaceDockTypes'
+import { SLIDES, TOUR_AREA_LABEL, type TourVisual } from './downloadTourSlides'
+import meterStyles from './ContextMeter.module.css'
 import styles from './DownloadTour.module.css'
 
 /**
@@ -21,14 +24,14 @@ import styles from './DownloadTour.module.css'
  * tour exactly where it was, and under reduced motion (no animation) the tour
  * waits to be stepped.
  */
-export function DownloadTour(): JSX.Element {
+export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const shortcuts = useSettingsStore((s) => s.settings?.keyboard.shortcuts)
 
   const step = (delta: number): void => setIndex((i) => (i + delta + SLIDES.length) % SLIDES.length)
   const slide = SLIDES[index]
-  const row = SLIDES.filter((s) => s.area === slide.area)
+  const row = SLIDES.filter((s) => s.area === slide.area && s.icon)
   const shortcut = slide.shortcut
     ? (shortcuts?.[slide.shortcut] ?? DEFAULT_KEYBOARD_SHORTCUTS[slide.shortcut])
     : null
@@ -69,21 +72,25 @@ export function DownloadTour(): JSX.Element {
       >
         <div className={styles.area}>
           <div className={styles.areaLabel}>{TOUR_AREA_LABEL[slide.area]}</div>
-          <div className={styles.row} aria-hidden="true">
-            {row.map((s) => (
-              <span
-                key={s.id}
-                className={[
-                  styles.control,
-                  s.detached ? styles.detached : '',
-                  s.dividerBefore ? styles.dividerBefore : '',
-                  s.id === slide.id ? styles.controlLit : ''
-                ].join(' ')}
-              >
-                <Icon name={s.icon} size={16} />
-              </span>
-            ))}
-          </div>
+          {slide.visual === 'modelStatus' ? (
+            <TourVisualView visual="modelStatus" modelName={modelName} />
+          ) : (
+            <div className={styles.row} aria-hidden="true">
+              {row.map((s) => (
+                <span
+                  key={s.id}
+                  className={[
+                    styles.control,
+                    s.detached ? styles.detached : '',
+                    s.dividerBefore ? styles.dividerBefore : '',
+                    s.id === slide.id ? styles.controlLit : ''
+                  ].join(' ')}
+                >
+                  {s.icon && <Icon name={s.icon} size={16} />}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className={styles.text}>
@@ -97,6 +104,9 @@ export function DownloadTour(): JSX.Element {
             <span>{slide.tip}</span>
             {shortcut && <ShortcutKeys shortcut={shortcut} />}
           </div>
+          {slide.visual && slide.visual !== 'modelStatus' && (
+            <TourVisualView visual={slide.visual} modelName={modelName} />
+          )}
         </div>
       </div>
 
@@ -114,5 +124,64 @@ export function DownloadTour(): JSX.Element {
         </button>
       </div>
     </section>
+  )
+}
+
+/** A slide's live example, made of the app's own parts so it follows them. */
+function TourVisualView({
+  visual,
+  modelName = 'Your model'
+}: {
+  visual: TourVisual
+  modelName?: string
+}): JSX.Element {
+  if (visual === 'dockPanels') {
+    return (
+      <div className={styles.panels} aria-label="Dock panels">
+        {DOCK_PANELS.map((panel) => (
+          <span key={panel.id} className={styles.panel}>
+            <Icon name={panel.icon} size={12} />
+            {panel.label}
+          </span>
+        ))}
+      </div>
+    )
+  }
+
+  if (visual === 'modelStatus') {
+    return (
+      <div className={styles.states} aria-label="Model status states">
+        <div className={styles.state}>
+          <CometStatusDot tone="neutral" phase="settled" />
+          <span className={styles.stateName}>No model loaded</span>
+          <span className={styles.stateNote}>Nothing to answer yet</span>
+        </div>
+        <div className={styles.state}>
+          <CometStatusDot tone="running" phase="loading" />
+          <span className={styles.stateName}>{modelName}</span>
+          <span className={styles.stateNote}>Loading</span>
+        </div>
+        <div className={styles.state}>
+          <CometStatusDot tone="success" phase="settled" />
+          <span className={styles.stateName}>{modelName}</span>
+          <span className={styles.stateNote}>Ready</span>
+        </div>
+      </div>
+    )
+  }
+
+  // The context meter's own stylesheet, so the example looks like the real one.
+  return (
+    <div className={`${meterStyles.meter} ${styles.meterExample}`} aria-hidden="true">
+      <Icon name="activity" size={12} className={meterStyles.icon} />
+      <div className={meterStyles.track}>
+        <div className={`${meterStyles.seg} ${meterStyles.segSystem}`} style={{ width: '9%' }} />
+        <div className={`${meterStyles.seg} ${meterStyles.segTools}`} style={{ width: '14%' }} />
+        <div className={`${meterStyles.seg} ${meterStyles.segHistory}`} style={{ width: '19%' }} />
+      </div>
+      <span className={meterStyles.label}>
+        ~13.4k<span className={meterStyles.labelMuted}> / 32k</span>
+      </span>
+    </div>
   )
 }
