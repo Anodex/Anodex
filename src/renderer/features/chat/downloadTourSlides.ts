@@ -15,8 +15,10 @@ export interface TourSlide {
   id: string
   icon: IconName
   area: TourArea
-  /** Set apart from the rest of its row, as the real control is (far end of the bar). */
+  /** Pushed to the far end of its area, as the real control is (right of the bar, foot of the rail). */
   detached?: boolean
+  /** Preceded by a divider, as the real control is. */
+  dividerBefore?: boolean
   title: string
   body: string
   tip: string
@@ -24,9 +26,11 @@ export interface TourSlide {
 }
 
 /**
- * One slide per control a first-time user meets. Within an area the order is
- * the order on screen, because each slide draws its area as a row of these
- * icons with its own lit — where a control sits is taught by its neighbours.
+ * One slide per control a first-time user meets, in reading order: across the
+ * top bar, down the rail, then the message box. Each slide draws its area with
+ * these icons in the same arrangement as the app (a row for the bars, a column
+ * for the rail) and its own lit, so where a control sits is taught by its
+ * neighbours. The drift test holds this order to the order in the components.
  */
 export const SLIDES: TourSlide[] = [
   {
@@ -57,6 +61,25 @@ export const SLIDES: TourSlide[] = [
     shortcut: 'toggleSidebar'
   },
   {
+    id: 'settings',
+    icon: 'settings',
+    area: 'titleBar',
+    detached: true,
+    title: 'Settings',
+    body: 'Models, tools, voice, appearance, and everything else Anodex can be tuned by.',
+    tip: 'Anything you choose now can be changed later',
+    shortcut: 'openSettings'
+  },
+  {
+    id: 'chat-view',
+    icon: 'chat',
+    area: 'rail',
+    title: 'Chat',
+    body: 'Come back to your conversations from any other screen. Click it again to hide the list beside it.',
+    tip: 'Jump here from anywhere',
+    shortcut: 'goChat'
+  },
+  {
     id: 'search',
     icon: 'search',
     area: 'rail',
@@ -69,6 +92,7 @@ export const SLIDES: TourSlide[] = [
     id: 'scheduler',
     icon: 'clock',
     area: 'rail',
+    dividerBefore: true,
     title: 'Scheduler',
     body: 'Run a prompt on a schedule and read the results when you are back.',
     tip: 'A morning summary is a good first one',
@@ -102,6 +126,15 @@ export const SLIDES: TourSlide[] = [
     shortcut: 'goEmail'
   },
   {
+    id: 'profile',
+    icon: 'user',
+    area: 'rail',
+    detached: true,
+    title: 'Profile and settings',
+    body: 'Your name and picture, and a second way into Settings from wherever you are.',
+    tip: 'Add a name and picture to make it yours'
+  },
+  {
     id: 'attach',
     icon: 'paperclip',
     area: 'composer',
@@ -116,24 +149,5 @@ export const SLIDES: TourSlide[] = [
     title: 'Permissions',
     body: 'Choose whether Anodex asks before it edits files or runs commands, or works on its own.',
     tip: 'Asking first is the safe place to start'
-  },
-  {
-    id: 'settings',
-    icon: 'settings',
-    area: 'titleBar',
-    detached: true,
-    title: 'Settings',
-    body: 'Models, tools, voice, appearance, and everything else Anodex can be tuned by.',
-    tip: 'Anything you choose now can be changed later',
-    shortcut: 'openSettings'
-  },
-  {
-    id: 'profile',
-    icon: 'user',
-    area: 'rail',
-    detached: true,
-    title: 'Profile and settings',
-    body: 'Your name and picture, and a second way into Settings from wherever you are.',
-    tip: 'Add a name and picture to make it yours'
   }
 ]

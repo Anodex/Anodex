@@ -49,9 +49,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  min-height: 188px;
+  min-height: 236px;
   text-align: left;
   animation: slideIn var(--motion-medium, 220ms) var(--ease);
+}
+
+/* The rail is a column down the side of the app, so it is drawn as one here. */
+.slide[data-area='rail'] {
+  flex-direction: row;
+  align-items: stretch;
 }
 
 .area {
@@ -64,6 +70,13 @@
   border-radius: var(--radius-md);
 }
 
+.slide[data-area='rail'] .area {
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+}
+
 .areaLabel {
   font-size: var(--text-xs);
   font-weight: 500;
@@ -74,12 +87,17 @@
 .row {
   display: flex;
   flex: 1;
-  justify-content: flex-end;
   gap: var(--space-1);
+}
+
+.slide[data-area='rail'] .row {
+  flex-direction: column;
+  align-items: center;
 }
 
 .control {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 30px;
@@ -89,8 +107,37 @@
   opacity: 0.55;
 }
 
+.slide[data-area='rail'] .control {
+  width: 26px;
+  height: 22px;
+}
+
+/* Settings sits at the right end of the top bar; the profile at the foot of the rail. */
 .detached {
-  margin-left: var(--space-4);
+  margin-left: auto;
+}
+
+.slide[data-area='rail'] .detached {
+  margin-top: auto;
+  margin-left: 0;
+}
+
+.dividerBefore {
+  position: relative;
+}
+
+.slide[data-area='rail'] .dividerBefore {
+  margin-top: var(--space-2);
+}
+
+.slide[data-area='rail'] .dividerBefore::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--space-1) - var(--space-1) / 2 - 1px);
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  background: var(--border-strong);
 }
 
 .controlLit {
