@@ -1,0 +1,48 @@
+.notes {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.notes h3,
+.notes h4 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-md);
+}
+
+.notes h3:first-child,
+.notes h4:first-child {
+  margin-top: 0;
+}
+
+.notes p {
+  margin: 0 0 var(--space-3);
+}
+
+.notes ul {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+}
+
+.notes li {
+  margin-bottom: var(--space-2);
+}
+
+.notes code,
+.notes pre {
+  font-family: var(--font-mono);
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.notes code {
+  padding: 1px 4px;
+}
+
+.notes pre {
+  overflow-x: auto;
+  padding: var(--space-3);
+}
+
+.notes a {
+  color: var(--accent);
+}

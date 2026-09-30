@@ -18,12 +18,40 @@
 > at `Desktop/voice recorder`. §9 described the removal before any of it was
 > written, and it went exactly as described.
 
+> **Feasibility rechecked on 2026-09-26.** A persistent Qwen3-TTS 0.6B Base
+> runtime (`ServeurpersoCom/qwentts.cpp`, commit `6a3e912`, MIT) now provides a
+> different path from the one measured below. On the owner's Ryzen 9 7900X,
+> RX 7900 XTX and 64 GB RAM, its CPU backend cloned the locally stored reference
+> voice without occupying chat VRAM. With the runtime already loaded, a one-word
+> reply began producing audio in 122 ms and generated 1.12 s of speech in 0.91 s.
+> A 15-word reply began in 132 ms and generated 4.56 s of speech in 3.46 s
+> (real-time factor 0.76). With Anodex's 27B local model resident, a similar
+> 4.96 s clip generated in 3.91 s (real-time factor 0.79). The speech process
+> used about 4.6 GB of system memory. This is a local feasibility measurement,
+> not a shipped integration or a cross-machine guarantee; the brief chat
+> overlap sample is too small to establish that CPU contention is negligible.
+> The tested model weights are Qwen3-TTS under Apache-2.0. The speaker reference
+> and generated audio remained outside the repository.
+
+> **Implementation restarted on 2026-09-26.** The owner asked for a private,
+> optional read-aloud mode with a built-in voice for other users and the option
+> to use their own voice. The desktop prototype uses the Qwen3-TTS Base default
+> voice unless a user selects a WAV reference; that recording is optional, never
+> synced or packaged. Model weights are downloaded only when requested. The
+> model runs as a persistent CPU process with authenticated loopback access and
+> streams PCM to the UI. Voice setup remains off until the user enables it.
+> This changes the runtime decision from “all inference code must be
+> Anodex-owned” to “the replaceable engine may be an audited, pinned,
+> permissively licensed component”; Anodex still owns the playback, IPC,
+> privacy boundary, and user controls.
+
 # Voice — design and handoff
 
-**Status: specification. No code exists yet.** This document is the decision record
-written _before_ the first commit, because most of what follows is cheap to choose
-now and expensive or impossible to change later. §9 is the part to read if you are
-here to decide whether this can be removed again.
+**Status: original product-voice specification plus a desktop read-aloud prototype
+with a built-in model voice and optional local custom voice.** The decisions below
+describe the eventual end-to-end product voice and paired mobile experience; they
+are not all in scope for this prototype. The current desktop feature reads
+completed replies aloud without requiring a reference recording.
 
 Voice means a spoken back-and-forth on **both the desktop app and Android**: you
 talk, Anodex talks back, and you can cut it off mid-sentence. Not dictation, and

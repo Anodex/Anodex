@@ -53,6 +53,12 @@ import { suggestionFromPlan } from '../lib/replaySuggestions'
 import type { ChatStreamEvent } from '../features/chat/streamEvents'
 import { resolveActiveStyle } from '@shared/chatPersonality'
 import { firstPlainLine } from '@shared/titleText'
+import {
+  normalizeSpeechText,
+  speechReady,
+  stopReadAloud,
+  toggleReadAloud
+} from '../features/voice/readAloud'
 
 export type { Conversation }
 
@@ -164,6 +170,7 @@ interface ChatState {
   setConversationGoal: (title: string) => string | null
   /** Remove the active goal marker without changing the chat or its plan. */
   clearConversationGoal: () => void
+  setReadRepliesAutomatically: (enabled: boolean) => Promise<void>
   /**
    * Copies a conversation's history into a new, ordinary chat and selects it.
    * Used to carry a scheduled task's run log into a chat the user can actually
@@ -612,6 +619,23 @@ export const useChatStore = create<ChatState>()(
       if (saved) void persistConversation(saved)
     },
 
+    setReadRepliesAutomatically: async (enabled) => {
+      const conversationId = get().activeId
+      if (!conversationId) return
+      const loaded = await get().ensureConversationLoaded(conversationId)
+      if (!loaded || loaded.messagesNotLoaded) return
+      let saved: Conversation | null = null
+      set((state) => {
+        const conversation = state.conversations.find((item) => item.id === conversationId)
+        if (!conversation) return
+        conversation.readRepliesAutomatically = enabled
+        conversation.updatedAt = Date.now()
+        saved = conversation
+      })
+      if (saved) void persistConversation(saved)
+      if (!enabled) stopReadAloud()
+    },
+
     openEmailThreadConversation: (accountId, threadId, details) => {
       // `conversations` holds only live chats — archiving or deleting removes
       // an entry — so a hit here is by definition a chat the user can still
@@ -916,6 +940,7 @@ export const useChatStore = create<ChatState>()(
     sendMessage: async (text, attachments = [], conversationIdOverride) => {
       const trimmed = text.trim()
       if (!trimmed && attachments.length === 0) return
+      stopReadAloud()
 
       if (!ensureChatReady()) return
 
@@ -1168,6 +1193,34 @@ export const useChatStore = create<ChatState>()(
         useUiStore.getState().markConversationRead(conversationId, finalConvo.updatedAt)
       }
       if (finalConvo) void persistConversation(finalConvo)
+
+      if (
+        result.ok &&
+        !result.value.stopped &&
+        !failureNote &&
+        finalConvo?.readRepliesAutomatically &&
+        get().activeId === conversationId &&
+        useSettingsStore.getState().settings?.speech.enabled &&
+        !get().pendingMessages[conversationId]?.length &&
+        !finalConvo.messages.find((message) => message.id === assistantId)?.error
+      ) {
+        const spoken = normalizeSpeechText(
+          finalConvo.messages.find((message) => message.id === assistantId)?.content ?? ''
+        )
+        if (spoken)
+          void speechReady().then((ready) => {
+            const current = get().conversations.find((item) => item.id === conversationId)
+            if (
+              !ready ||
+              get().activeId !== conversationId ||
+              !current?.readRepliesAutomatically ||
+              current.messages.some((message) => message.streaming) ||
+              get().pendingMessages[conversationId]?.length
+            )
+              return
+            toggleReadAloud(assistantId, spoken)
+          })
+      }
 
       if (!result.ok) {
         // Also triggers the error chime via `uiStore.notify()`.

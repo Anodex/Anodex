@@ -20,6 +20,7 @@ import { RemoteSettings } from './pages/remote/RemoteSettings'
 import { ArchiveSettings } from './pages/archive/ArchiveSettings'
 import { ToolsSkillsSettings } from './pages/tools-skills/ToolsSkillsSettings'
 import { AutonomySettings } from './pages/autonomy/AutonomySettings'
+import { VoiceSettings } from './pages/voice/VoiceSettings'
 import styles from './SettingsView.module.css'
 
 interface NavItem {
@@ -46,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Assistant',
     items: [
       { id: 'memory', label: 'Memory', icon: <Icon name="memory" size={18} /> },
+      { id: 'voice', label: 'Voice', icon: <Icon name="speaker" size={18} /> },
       { id: 'projects', label: 'Skills', icon: <Icon name="lightbulb" size={18} /> },
       { id: 'autonomy', label: 'Autonomy', icon: <Icon name="shield-check" size={18} /> },
       { id: 'tools-skills', label: 'Tools', icon: <Icon name="wrench" size={18} /> }
@@ -144,6 +146,7 @@ export function SettingsView(): JSX.Element {
                 />
               )}
               {section === 'memory' && <MemorySettings />}
+              {section === 'voice' && <VoiceSettings />}
               {section === 'projects' && <ProjectsSettings />}
               {section === 'autonomy' && <AutonomySettings />}
               {section === 'tools-skills' && <ToolsSkillsSettings />}

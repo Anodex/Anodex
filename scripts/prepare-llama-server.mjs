@@ -177,8 +177,11 @@ async function sha256File(path) {
 
 /**
  * GitHub-hosted Windows runners keep the checkout and the temp directory on
- * different drives. `rename` cannot cross that boundary, so copy in that one
- * case; the temporary source is still removed by the outer `finally` block.
+ * different drives (as does Linux with /tmp on tmpfs). `rename` cannot cross
+ * that boundary, so copy in that one case; the temporary source is still
+ * removed by the outer `finally` block. The Linux and macOS archives link
+ * `libfoo.so.0 -> libfoo.so.0.1.2`; `cp` would otherwise rewrite those links
+ * to absolute paths into the temporary source, which then dangle.
  */
 async function moveExtractedRuntime(source, target) {
   try {
@@ -187,7 +190,7 @@ async function moveExtractedRuntime(source, target) {
     if (!(error instanceof Error) || !('code' in error) || error.code !== 'EXDEV') {
       throw error
     }
-    await cp(source, target, { recursive: true })
+    await cp(source, target, { recursive: true, verbatimSymlinks: true })
   }
 }
 

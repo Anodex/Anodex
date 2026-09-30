@@ -209,6 +209,28 @@ export interface ComputerControlSettings {
   desktopControlEnabled: boolean
 }
 
+/** Local speech playback preferences. Voice audio never leaves this computer. */
+export interface SpeechSettings {
+  enabled: boolean
+  engine: 'qwen' | 'pocket'
+  voice: SpeechVoice
+  pocketVoice: string
+  speed: number
+}
+
+export type SpeechVoice =
+  | 'default'
+  | 'personal'
+  | 'serena'
+  | 'vivian'
+  | 'uncle_fu'
+  | 'ryan'
+  | 'aiden'
+  | 'ono_anna'
+  | 'sohee'
+  | 'eric'
+  | 'dylan'
+
 export interface AnthropicProviderSettings {
   /** User's Anthropic API key. Stored locally in settings, same as the web search provider keys. */
   apiKey: string
@@ -653,6 +675,7 @@ export interface AppSettings {
   workspace: WorkspaceSettings
   tools: ToolSettings
   computerControl: ComputerControlSettings
+  speech: SpeechSettings
   provider: ProviderSettings
   webSearch: WebSearchSettings
   diagnostics: DiagnosticSettings

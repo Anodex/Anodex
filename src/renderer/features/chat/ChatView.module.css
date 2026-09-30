@@ -10,3 +10,28 @@
   isolation: isolate;
   overflow: hidden;
 }
+
+.headerAction,
+.autoRead {
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.headerAction {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.headerAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.autoRead {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}

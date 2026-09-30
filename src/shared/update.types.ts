@@ -29,3 +29,12 @@ export type UpdateStatus =
    */
   | { state: 'rejected'; version: string; reason: string }
   | { state: 'error'; message: string }
+
+/** Public GitHub release notes for the version running on this computer. */
+export interface ReleaseNotes {
+  version: string
+  title: string
+  body: string
+  publishedAt: string | null
+  url: string
+}

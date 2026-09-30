@@ -27,6 +27,32 @@ import type { RemoteStatus } from '@shared/remote.types'
  * no channel strings leak into the renderer.
  */
 const api: AnodexApi = {
+  speech: {
+    status: () => ipcRenderer.invoke(IpcChannel.Speech.status),
+    listVoices: () => ipcRenderer.invoke(IpcChannel.Speech.listVoices),
+    addVoice: () => ipcRenderer.invoke(IpcChannel.Speech.addVoice),
+    deleteVoice: (id) => ipcRenderer.invoke(IpcChannel.Speech.deleteVoice, id),
+    getTranscript: () => ipcRenderer.invoke(IpcChannel.Speech.getTranscript),
+    setTranscript: (text) => ipcRenderer.invoke(IpcChannel.Speech.setTranscript, text),
+    download: () => ipcRenderer.invoke(IpcChannel.Speech.download),
+    cancelDownload: () => ipcRenderer.invoke(IpcChannel.Speech.cancelDownload),
+    prepare: () => ipcRenderer.invoke(IpcChannel.Speech.prepare),
+    release: () => ipcRenderer.invoke(IpcChannel.Speech.release),
+    removeReference: () => ipcRenderer.invoke(IpcChannel.Speech.removeReference),
+    onProgress: (listener) =>
+      subscribe<{ receivedBytes: number; totalBytes: number }>(
+        IpcChannel.Speech.progress,
+        listener
+      ),
+    chooseReference: () => ipcRenderer.invoke(IpcChannel.Speech.chooseReference),
+    speak: (requestId, text) => ipcRenderer.invoke(IpcChannel.Speech.speak, requestId, text),
+    stop: () => ipcRenderer.invoke(IpcChannel.Speech.stop),
+    onAudio: (listener) =>
+      subscribe<{ requestId: string; pcm: Uint8Array; sampleRate: number }>(
+        IpcChannel.Speech.audio,
+        listener
+      )
+  },
   models: {
     list: () => ipcRenderer.invoke(IpcChannel.Models.list),
     add: () => ipcRenderer.invoke(IpcChannel.Models.add),
@@ -223,6 +249,7 @@ const api: AnodexApi = {
   },
   updates: {
     getStatus: () => ipcRenderer.invoke(IpcChannel.Updates.getStatus),
+    getReleaseNotes: () => ipcRenderer.invoke(IpcChannel.Updates.getReleaseNotes),
     check: () => ipcRenderer.invoke(IpcChannel.Updates.check),
     download: () => ipcRenderer.invoke(IpcChannel.Updates.download),
     installAndRestart: () => ipcRenderer.invoke(IpcChannel.Updates.installAndRestart),

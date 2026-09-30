@@ -66,7 +66,7 @@ import type {
 import type { WorkspaceTreeNode } from './workspaceFiles.types'
 import type { WorkspaceFileContent } from './workspaceFileContent.types'
 import type { ToastContent } from './toast.types'
-import type { UpdateStatus } from './update.types'
+import type { ReleaseNotes, UpdateStatus } from './update.types'
 import type { ChartGranularity, ChartRange, UsageBreakdown, UsageProfile } from './stats.types'
 import type {
   CreateMemoryRequest,
@@ -149,6 +149,24 @@ import type {
 } from './computerControl.types'
 
 export const IpcChannel = {
+  Speech: {
+    status: 'speech:status',
+    listVoices: 'speech:list-voices',
+    addVoice: 'speech:add-voice',
+    deleteVoice: 'speech:delete-voice',
+    getTranscript: 'speech:get-transcript',
+    setTranscript: 'speech:set-transcript',
+    download: 'speech:download',
+    cancelDownload: 'speech:cancel-download',
+    prepare: 'speech:prepare',
+    release: 'speech:release',
+    removeReference: 'speech:remove-reference',
+    progress: 'speech:progress',
+    chooseReference: 'speech:choose-reference',
+    speak: 'speech:speak',
+    stop: 'speech:stop',
+    audio: 'speech:audio'
+  },
   Models: {
     list: 'models:list',
     add: 'models:add',
@@ -515,6 +533,7 @@ export const IpcChannel = {
   },
   Updates: {
     getStatus: 'updates:get-status',
+    getReleaseNotes: 'updates:get-release-notes',
     check: 'updates:check',
     download: 'updates:download',
     installAndRestart: 'updates:install-and-restart',
@@ -812,6 +831,36 @@ export interface ContextMenuRequest {
  * Each `on*` method returns an unsubscribe function.
  */
 export interface AnodexApi {
+  speech: {
+    status(): Promise<{
+      runtimeAvailable: boolean
+      pocketAvailable: boolean
+      modelInstalled: boolean
+      referenceReady: boolean
+      engineReady: boolean
+      downloadBytes: number
+    }>
+    listVoices(): Promise<Result<Array<{ id: string; name: string; kind: string }>>>
+    /** Opens a WAV picker and makes a local voice from it; `null` if cancelled. */
+    addVoice(): Promise<Result<{ id: string; name: string; kind: string } | null>>
+    deleteVoice(id: string): Promise<Result<void>>
+    getTranscript(): Promise<string>
+    setTranscript(text: string): Promise<Result<void>>
+    download(): Promise<Result<void>>
+    cancelDownload(): Promise<void>
+    prepare(): Promise<Result<void>>
+    release(): Promise<void>
+    removeReference(): Promise<void>
+    onProgress(
+      listener: (progress: { receivedBytes: number; totalBytes: number }) => void
+    ): () => void
+    chooseReference(): Promise<Result<boolean>>
+    speak(requestId: string, text: string): Promise<Result<void>>
+    stop(): Promise<void>
+    onAudio(
+      listener: (chunk: { requestId: string; pcm: Uint8Array; sampleRate: number }) => void
+    ): () => void
+  }
   models: {
     list(): Promise<Result<ModelInfo[]>>
     /** Opens a file picker for a `.gguf` file; resolves `null` if cancelled. */
@@ -1105,6 +1154,7 @@ export interface AnodexApi {
   }
   updates: {
     getStatus(): Promise<UpdateStatus>
+    getReleaseNotes(): Promise<Result<ReleaseNotes>>
     /** No-op in an unpackaged dev build. */
     check(): Promise<void>
     /** Only meaningful once status is `available`. */
