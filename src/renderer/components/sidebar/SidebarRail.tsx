@@ -84,6 +84,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         className={styles.railButton}
         onClick={requestSearch}
         aria-label="Search chats and projects"
+        data-tour="search"
         title="Search chats and projects"
       >
         <Icon name="search" size={16} />
@@ -93,6 +94,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         type="button"
         className={`${styles.railButton} ${view === 'scheduler' ? styles.railButtonActive : ''}`}
         onClick={() => navigate('scheduler')}
+        data-tour="scheduler"
         aria-current={view === 'scheduler' ? 'page' : undefined}
         aria-label={`Scheduler${counts.scheduler > 0 ? `, ${counts.scheduler} new result${counts.scheduler === 1 ? '' : 's'}` : ''}`}
         title={`Scheduler${counts.scheduler > 0 ? ` (${counts.scheduler})` : ''}`}
@@ -104,6 +106,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         type="button"
         className={`${styles.railButton} ${view === 'agent' ? styles.railButtonActive : ''}`}
         onClick={() => navigate('agent')}
+        data-tour="agent"
         aria-current={view === 'agent' ? 'page' : undefined}
         aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
         title={`Agent${counts.agent > 0 ? ` (${counts.agent})` : ''}`}
@@ -115,6 +118,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         type="button"
         className={`${styles.railButton} ${view === 'critical-thinking' ? styles.railButtonActive : ''}`}
         onClick={() => navigate('critical-thinking')}
+        data-tour="critical-thinking"
         aria-current={view === 'critical-thinking' ? 'page' : undefined}
         aria-label={`Critical Thinking${counts.criticalThinking > 0 ? `, ${counts.criticalThinking} notification${counts.criticalThinking === 1 ? '' : 's'}` : ''}`}
         title={`Critical Thinking${counts.criticalThinking > 0 ? ` (${counts.criticalThinking})` : ''}`}
@@ -126,6 +130,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         type="button"
         className={`${styles.railButton} ${view === 'email' ? styles.railButtonActive : ''}`}
         onClick={() => navigate('email')}
+        data-tour="email"
         aria-current={view === 'email' ? 'page' : undefined}
         aria-label={`Email${counts.email > 0 ? `, ${counts.email} unread thread${counts.email === 1 ? '' : 's'}` : ''}`}
         title={`Email${counts.email > 0 ? ` (${counts.email})` : ''}`}
@@ -181,6 +186,7 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
           openSettings()
         }}
         aria-label="Profile and settings"
+        data-tour="profile"
         title="Profile and settings"
       >
         {settings?.profile.avatarBase64 ? (

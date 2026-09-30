@@ -316,6 +316,7 @@ export function ChatComposer(): JSX.Element {
             disabled={!ready || attachments.attachments.length >= MAX_ATTACHMENTS}
             title={visionAvailable ? 'Attach files or images' : 'Attach files'}
             aria-label={visionAvailable ? 'Attach files or images' : 'Attach files'}
+            data-tour="attach"
           >
             <Icon name="paperclip" size={15} />
           </button>
