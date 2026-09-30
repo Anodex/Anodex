@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   capAssistantSummary,
   cleanSummaryText,
+  nextLastEditAt,
   validateProjectMemoryFile
 } from '../ProjectMemoryStore'
 
@@ -97,5 +98,31 @@ describe('validateProjectMemoryFile', () => {
     const badVerification = { ...validEvent, verification: [{ command: 'x', status: 'maybe' }] }
     const result = validateProjectMemoryFile({ recentEvents: [badVerification] })
     expect(result.recentEvents).toEqual([])
+  })
+})
+
+describe('nextLastEditAt', () => {
+  it('stamps a write or a move with its own time', () => {
+    expect(nextLastEditAt('write', 50, undefined)).toBe(50)
+    expect(nextLastEditAt('move', 50, { path: 'a', action: 'read', at: 10 })).toBe(50)
+  })
+
+  it('carries the last edit across a read that follows it', () => {
+    expect(nextLastEditAt('read', 90, { path: 'a', action: 'write', at: 40 })).toBe(40)
+    expect(nextLastEditAt('read', 90, { path: 'a', action: 'read', at: 60, lastEditAt: 40 })).toBe(
+      40
+    )
+  })
+
+  it('has no edit to carry for a file only ever read, or one that was deleted', () => {
+    expect(nextLastEditAt('read', 90, undefined)).toBeUndefined()
+    expect(nextLastEditAt('read', 90, { path: 'a', action: 'read', at: 60 })).toBeUndefined()
+    expect(nextLastEditAt('delete', 90, { path: 'a', action: 'write', at: 60 })).toBeUndefined()
+  })
+
+  it('keeps a stored touch that carries a last-edit time', () => {
+    const touch = { path: 'a.ts', action: 'read', at: 2, lastEditAt: 1 }
+    const file = validateProjectMemoryFile({ filesTouched: [touch], recentEvents: [] })
+    expect(file.filesTouched).toEqual([touch])
   })
 })
