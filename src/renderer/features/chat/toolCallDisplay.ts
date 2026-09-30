@@ -1,5 +1,16 @@
 import type { ToolCall } from '@shared/tools.types'
+import type { IconName } from '../../components/Icon'
 import { diffStats } from '@shared/diffRows'
+
+/** The icon for each kind of tool, shared by the transcript's cards and the dock's activity feed. */
+export const KIND_ICON: Record<ToolCall['kind'], IconName> = {
+  read: 'folder',
+  write: 'copy',
+  command: 'terminal',
+  web: 'web',
+  plan: 'plan',
+  mcp: 'plug'
+}
 
 export interface ToolCallDisplay {
   action: string
