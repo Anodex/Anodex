@@ -10,6 +10,7 @@ import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
+import { Button } from '../../components/ui/Button'
 import styles from './ChatEmptyState.module.css'
 
 const SUGGESTIONS = [
@@ -29,6 +30,89 @@ function releasedLabel(model: RecommendedModel): string | null {
   const published = new Date(model.publishedAt)
   if (Number.isNaN(published.getTime())) return null
   return `released ${published.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`
+}
+
+interface SpecTile {
+  icon: 'cpu' | 'layers' | 'monitor' | 'archive'
+  label: string
+  value: string
+  detail?: string
+  /** The untrimmed hardware name, for the hover tooltip. */
+  full?: string
+}
+
+/**
+ * Hardware names as the OS reports them carry filler that pushes the part that
+ * identifies the chip off the end of a small tile: "12-Core Processor" repeats
+ * the core count shown above it, Intel adds trademark marks and a clock, and Mesa
+ * appends its driver in parentheses.
+ */
+function shortHardwareName(name: string): string {
+  return name
+    .replace(/\((R|TM)\)/gi, '')
+    .replace(/\s*\(.*\)\s*$/, '')
+    .replace(/\s+@\s*[\d.]+\s*GHz$/i, '')
+    .replace(/\s+\d+-Core Processor$/i, '')
+    .replace(/\s+(Processor|CPU)$/i, '')
+    .trim()
+}
+
+/**
+ * What the recommendation was made against. "Recommended for your hardware"
+ * asks to be taken on trust; showing the machine it measured lets a first-time
+ * user check it, and saying what the model needs of memory and disk beside what
+ * the machine has explains the pick before they commit to a large download.
+ */
+function specTiles(hardware: HardwareInfo, model: RecommendedModel): SpecTile[] {
+  const tiles: SpecTile[] = [
+    {
+      icon: 'cpu',
+      label: 'Processor',
+      value: `${hardware.cores} cores`,
+      detail: shortHardwareName(hardware.cpu),
+      full: hardware.cpu
+    },
+    {
+      icon: 'layers',
+      label: 'Memory',
+      value: hardware.ram,
+      detail: `This model needs ${model.minRam}`
+    }
+  ]
+  const gpu = hardware.gpu ? shortHardwareName(hardware.gpu) : undefined
+  if (hardware.unifiedMemory) {
+    tiles.push({
+      icon: 'monitor',
+      label: 'Graphics',
+      value: 'Unified memory',
+      detail: gpu,
+      full: hardware.gpu ?? undefined
+    })
+  } else if (hardware.gpu) {
+    tiles.push({
+      icon: 'monitor',
+      label: 'Graphics',
+      value: hardware.vram ? `${hardware.vram} VRAM` : 'Detected',
+      detail: gpu,
+      full: hardware.gpu
+    })
+  } else {
+    tiles.push({
+      icon: 'monitor',
+      label: 'Graphics',
+      value: 'CPU only',
+      detail: 'No GPU detected'
+    })
+  }
+  if (hardware.storageFree) {
+    tiles.push({
+      icon: 'archive',
+      label: 'Free space',
+      value: hardware.storageFree,
+      detail: `This model needs ${model.approxSize}`
+    })
+  }
+  return tiles
 }
 
 /** Shown when the active conversation has no messages yet. */
@@ -168,24 +252,55 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
     if (match) void loadModel(match)
   }
 
+  const released = releasedLabel(bestOverall.model)
+
   return (
     <div className={styles.recommendCard}>
       <div className={styles.recommendHeader}>
-        <Icon name="cpu" size={16} />
-        <span>No model loaded yet</span>
-      </div>
-
-      <div className={styles.recommendModel}>
-        <ModelLogo family={bestOverall.model.family} size={20} />
-        <div className={styles.recommendModelText}>
-          <div className={styles.recommendModelName}>{bestOverall.model.name}</div>
-          <div className={styles.recommendModelMeta}>
-            Recommended for your hardware · needs {bestOverall.model.minRam} RAM
-            {releasedLabel(bestOverall.model) ? ` · ${releasedLabel(bestOverall.model)}` : ''}
+        <span className={styles.recommendHeaderIcon}>
+          <Icon name="cpu" size={16} />
+        </span>
+        <div>
+          <div className={styles.recommendTitle}>Pick a model to get started</div>
+          <div className={styles.recommendSubtitle}>
+            Models run on this machine. Nothing you type leaves it.
           </div>
         </div>
-        {installed && <Icon name="check" size={16} className={styles.recommendCheck} />}
       </div>
+
+      {hardware && (
+        <section className={styles.specs} aria-label="Your system">
+          <div className={styles.sectionLabel}>Your system</div>
+          <div className={styles.specGrid}>
+            {specTiles(hardware, bestOverall.model).map((tile) => (
+              <div key={tile.label} className={styles.specTile} title={tile.full}>
+                <div className={styles.specLabel}>
+                  <Icon name={tile.icon} size={12} />
+                  {tile.label}
+                </div>
+                <div className={styles.specValue}>{tile.value}</div>
+                {tile.detail && <div className={styles.specDetail}>{tile.detail}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section aria-label="Recommended model">
+        <div className={styles.sectionLabel}>Recommended for your hardware</div>
+        <div className={styles.recommendModel}>
+          <ModelLogo family={bestOverall.model.family} size={24} />
+          <div className={styles.recommendModelText}>
+            <div className={styles.recommendModelName}>{bestOverall.model.name}</div>
+            <div className={styles.recommendModelMeta}>
+              {[bestOverall.model.description.replace(/\.$/, ''), released]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          </div>
+          {installed && <Icon name="check" size={16} className={styles.recommendCheck} />}
+        </div>
+      </section>
 
       {progress?.status === 'downloading' ? (
         <DownloadProgress
@@ -193,18 +308,20 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
           onCancel={() => cancelDownload(bestOverall.model.id)}
         />
       ) : (
-        <button
+        <Button
+          variant="primary"
           className={styles.recommendButton}
+          iconLeft={installed ? undefined : <Icon name="download" size={16} />}
+          loading={loading}
           onClick={() => void handleAction()}
-          disabled={loading}
         >
           {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
-        </button>
+        </Button>
       )}
 
-      <button className={styles.recommendLink} onClick={onOpenSettings}>
+      <Button variant="ghost" size="sm" className={styles.recommendLink} onClick={onOpenSettings}>
         Browse all models
-      </button>
+      </Button>
     </div>
   )
 }
