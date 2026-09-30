@@ -270,3 +270,27 @@
   align-self: center;
   margin-top: calc(-1 * var(--space-2));
 }
+
+.downloadHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.downloadName {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.downloadRate {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}

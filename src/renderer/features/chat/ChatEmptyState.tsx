@@ -8,10 +8,12 @@ import { anodex } from '../../lib/anodex'
 import { AnodexLogo } from '../../components/AnodexLogo'
 import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
+import { formatBytes } from '../../lib/format'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import { Button } from '../../components/ui/Button'
 import { DownloadTour } from './DownloadTour'
+import { timeLeftLabel, useDownloadRate } from './downloadRate'
 import styles from './ChatEmptyState.module.css'
 
 const SUGGESTIONS = [
@@ -261,13 +263,11 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
     return (
       <div className={styles.recommendCard}>
         <DownloadTour />
-        <section aria-label="Download progress">
-          <div className={styles.sectionLabel}>Downloading {bestOverall.model.name}</div>
-          <DownloadProgress
-            progress={progress}
-            onCancel={() => cancelDownload(bestOverall.model.id)}
-          />
-        </section>
+        <DownloadStatus
+          name={bestOverall.model.name}
+          progress={progress}
+          onCancel={() => cancelDownload(bestOverall.model.id)}
+        />
       </div>
     )
   }
@@ -334,5 +334,36 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         Browse all models
       </Button>
     </div>
+  )
+}
+
+/** The download's progress, with the speed and time left a long wait needs. */
+function DownloadStatus({
+  name,
+  progress,
+  onCancel
+}: {
+  name: string
+  progress: { receivedBytes: number; totalBytes: number | null }
+  onCancel: () => void
+}): JSX.Element {
+  const rate = useDownloadRate(progress.receivedBytes, progress.totalBytes)
+  return (
+    <section aria-label="Download progress">
+      <div className={styles.downloadHeader}>
+        <span className={styles.downloadName}>Downloading {name}</span>
+        <span className={styles.downloadRate}>
+          {rate
+            ? [
+                `${formatBytes(rate.bytesPerSecond)}/s`,
+                rate.secondsLeft !== null ? timeLeftLabel(rate.secondsLeft) : null
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : 'Measuring speed…'}
+        </span>
+      </div>
+      <DownloadProgress progress={progress} onCancel={onCancel} />
+    </section>
   )
 }
