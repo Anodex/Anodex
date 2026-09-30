@@ -32,6 +32,12 @@ export interface Toast {
   kind: ToastKind
   title: string
   message?: string
+  /** How many times this same toast was raised while it was showing. */
+  count?: number
+  /** How long it stays, in ms, counted from `shownAt`. Absent while pending. */
+  duration?: number
+  /** When its current countdown began; changes when a repeat restarts it. */
+  shownAt?: number
 }
 
 interface UiState {
@@ -71,6 +77,11 @@ interface UiState {
    *  auto-dismiss/chime lifecycle. No-op if the toast was already dismissed. */
   resolveToast: (id: string, patch: Omit<Toast, 'id'>) => void
   dismissToast: (id: string) => void
+  /**
+   * Stop every toast's countdown while the user is reading them (the stack is
+   * hovered or focused), and resume each from where it stopped.
+   */
+  holdToasts: (held: boolean) => void
   addPendingConfirmation: (request: ToolConfirmRequest) => void
   resolveConfirmation: (id: string, response: ToolConfirmResponse) => void
   /**
@@ -168,6 +179,26 @@ function announceToast(kind: ToastKind, title: string, message?: string): void {
   notifyDesktop(title, message ?? '')
 }
 
+function toastDuration(kind: ToastKind): number {
+  return kind === 'error' ? 7000 : 4000
+}
+
+/**
+ * Each showing toast's countdown. Kept outside the state because a paused
+ * countdown has to remember how much it had left, which no component renders.
+ */
+const toastTimers = new Map<
+  string,
+  { remaining: number; startedAt: number; handle: ReturnType<typeof setTimeout> | null }
+>()
+let toastsHeld = false
+
+function clearToastTimer(id: string): void {
+  const timer = toastTimers.get(id)
+  if (timer?.handle) clearTimeout(timer.handle)
+  toastTimers.delete(id)
+}
+
 /** Global, ephemeral UI state: the active view, toasts, and tool approvals. */
 export const useUiStore = create<UiState>((set, get) => ({
   view: 'chat',
@@ -245,13 +276,31 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   notify: (toast) => {
-    const id = createId('toast')
-    set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }))
-    const ttl = toast.kind === 'error' ? 7000 : 4000
-    setTimeout(() => {
-      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
-    }, ttl)
+    // The same toast raised again while it is still up counts, rather than
+    // stacking a copy: five identical failures are one problem, not five.
+    const repeat = get().toasts.find(
+      (t) =>
+        t.kind === toast.kind &&
+        t.kind !== 'pending' &&
+        t.title === toast.title &&
+        t.message === toast.message
+    )
+    if (repeat) {
+      set((state) => ({
+        toasts: state.toasts.map((t) =>
+          t.id === repeat.id ? { ...t, count: (t.count ?? 1) + 1, shownAt: Date.now() } : t
+        )
+      }))
+      startToastTimer(repeat.id, toastDuration(toast.kind))
+      return
+    }
 
+    const id = createId('toast')
+    const duration = toastDuration(toast.kind)
+    set((state) => ({
+      toasts: [...state.toasts, { ...toast, id, duration, shownAt: Date.now() }]
+    }))
+    startToastTimer(id, duration)
     announceToast(toast.kind, toast.title, toast.message)
   },
 
@@ -263,16 +312,54 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   resolveToast: (id, patch) => {
     if (!get().toasts.some((t) => t.id === id)) return
-    set((state) => ({ toasts: state.toasts.map((t) => (t.id === id ? { id, ...patch } : t)) }))
-    const ttl = patch.kind === 'error' ? 7000 : 4000
-    setTimeout(() => {
-      set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
-    }, ttl)
+    const duration = toastDuration(patch.kind)
+    set((state) => ({
+      toasts: state.toasts.map((t) =>
+        t.id === id ? { id, ...patch, duration, shownAt: Date.now() } : t
+      )
+    }))
+    startToastTimer(id, duration)
     announceToast(patch.kind, patch.title, patch.message)
   },
 
-  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+  dismissToast: (id) => {
+    clearToastTimer(id)
+    set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+  },
+
+  holdToasts: (held) => {
+    if (held === toastsHeld) return
+    toastsHeld = held
+    const now = Date.now()
+    for (const [id, timer] of toastTimers) {
+      if (held) {
+        if (timer.handle) clearTimeout(timer.handle)
+        timer.remaining = Math.max(0, timer.remaining - (now - timer.startedAt))
+        timer.handle = null
+      } else {
+        runToastTimer(id, timer.remaining)
+      }
+    }
+  }
 }))
+
+/** (Re)start a toast's countdown from `ms`, held if the stack is being read. */
+function startToastTimer(id: string, ms: number): void {
+  clearToastTimer(id)
+  if (toastsHeld) {
+    toastTimers.set(id, { remaining: ms, startedAt: Date.now(), handle: null })
+    return
+  }
+  runToastTimer(id, ms)
+}
+
+function runToastTimer(id: string, ms: number): void {
+  toastTimers.set(id, {
+    remaining: ms,
+    startedAt: Date.now(),
+    handle: setTimeout(() => useUiStore.getState().dismissToast(id), ms)
+  })
+}
 
 /** Convenience helper for the common error-toast case. Also logs to diagnostics. */
 export function notifyError(title: string, message?: string): void {
