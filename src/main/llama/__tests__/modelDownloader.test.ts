@@ -127,6 +127,28 @@ describe('downloadModel', () => {
     expect(new Set(totals)).toEqual(new Set([20]))
   })
 
+  // Hundreds of reports a second kept the window too busy to answer Cancel.
+  it('reports progress a few times a second, not once per network chunk', async () => {
+    const chunks = 200
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-length', String(chunks)]]),
+      body: new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < chunks; i++) controller.enqueue(new Uint8Array([i % 256]))
+          controller.close()
+        }
+      })
+    })
+
+    const statuses: string[] = []
+    await downloadModel({ ...MODEL, id: 'throttled' }, dir, (p) => statuses.push(p.status))
+
+    expect(statuses.filter((s) => s === 'downloading').length).toBeLessThan(5)
+    expect(statuses.at(-1)).toBe('done')
+  })
+
   it('rejects and cleans up on a non-OK response', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
