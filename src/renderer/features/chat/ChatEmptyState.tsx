@@ -11,6 +11,7 @@ import { ModelLogo } from '../../components/ModelLogo'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import { Button } from '../../components/ui/Button'
+import { DownloadTour } from './DownloadTour'
 import styles from './ChatEmptyState.module.css'
 
 const SUGGESTIONS = [
@@ -254,6 +255,23 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
 
   const released = releasedLabel(bestOverall.model)
 
+  // The download is minutes long and nothing else can happen yet, so the card
+  // spends it on the tour, keeping only the progress that says how long is left.
+  if (progress?.status === 'downloading') {
+    return (
+      <div className={styles.recommendCard}>
+        <DownloadTour />
+        <section aria-label="Download progress">
+          <div className={styles.sectionLabel}>Downloading {bestOverall.model.name}</div>
+          <DownloadProgress
+            progress={progress}
+            onCancel={() => cancelDownload(bestOverall.model.id)}
+          />
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.recommendCard}>
       <div className={styles.recommendHeader}>
@@ -302,22 +320,15 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         </div>
       </section>
 
-      {progress?.status === 'downloading' ? (
-        <DownloadProgress
-          progress={progress}
-          onCancel={() => cancelDownload(bestOverall.model.id)}
-        />
-      ) : (
-        <Button
-          variant="primary"
-          className={styles.recommendButton}
-          iconLeft={installed ? undefined : <Icon name="download" size={16} />}
-          loading={loading}
-          onClick={() => void handleAction()}
-        >
-          {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
-        </Button>
-      )}
+      <Button
+        variant="primary"
+        className={styles.recommendButton}
+        iconLeft={installed ? undefined : <Icon name="download" size={16} />}
+        loading={loading}
+        onClick={() => void handleAction()}
+      >
+        {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
+      </Button>
 
       <Button variant="ghost" size="sm" className={styles.recommendLink} onClick={onOpenSettings}>
         Browse all models
