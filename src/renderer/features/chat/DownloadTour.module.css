@@ -45,12 +45,21 @@
   animation-play-state: paused;
 }
 
+.deck {
+  display: grid;
+}
+
 .slide {
   display: flex;
+  grid-area: 1 / 1;
   flex-direction: column;
   gap: var(--space-4);
-  min-height: 236px;
   text-align: left;
+  visibility: hidden;
+}
+
+.slideActive {
+  visibility: visible;
   animation: slideIn var(--motion-medium, 220ms) var(--ease);
 }
 
@@ -297,7 +306,7 @@
 
 /* No animation means no animationend, so the tour waits to be stepped. */
 @media (prefers-reduced-motion: reduce) {
-  .slide,
+  .slideActive,
   .controlLit {
     animation: none;
   }

@@ -123,6 +123,17 @@ describe('DownloadTour', () => {
     for (const slide of SLIDES) expect(html).toContain(`aria-label="${slide.title}"`)
   })
 
+  // Every slide is in the page so the box keeps the tallest one's height;
+  // only the current one may be visible or reachable by a screen reader.
+  it('lays every slide out but shows only the current one', () => {
+    const html = renderToStaticMarkup(<DownloadTour />)
+    const slides = [...html.matchAll(/aria-roledescription="slide"[^>]*>/g)].map((m) => m[0])
+    expect(slides).toHaveLength(SLIDES.length)
+    const shown = slides.filter((tag) => !tag.includes('aria-hidden="true"'))
+    expect(shown).toHaveLength(1)
+    expect(shown[0]).toContain(`aria-label="1 of ${SLIDES.length}"`)
+  })
+
   it('lists every dock panel from the dock itself', () => {
     const dock = SLIDES.findIndex((s) => s.id === 'dock')
     expect(dock).toBeGreaterThan(-1)
