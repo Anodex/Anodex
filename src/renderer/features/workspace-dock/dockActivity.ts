@@ -61,3 +61,12 @@ export function planProgress(
     total: plan.steps.length
   }
 }
+
+/**
+ * A tool's path argument as a person would say it. Tools name the project's
+ * top folder ".", which reads as a stray full stop in a list.
+ */
+export function readablePath(path: string): string {
+  const trimmed = path.trim()
+  return trimmed === '.' || trimmed === './' || trimmed === '' ? 'project root' : path
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '@shared/chat.types'
 import type { ToolCall } from '@shared/tools.types'
-import { activityOf, isWorking, outputsOf, planProgress } from '../dockActivity'
+import { activityOf, isWorking, outputsOf, planProgress, readablePath } from '../dockActivity'
 
 function call(id: string, over: Partial<ToolCall> = {}): ToolCall {
   return { id, name: 'edit_file', kind: 'write', title: `Edit ${id}`, status: 'success', ...over }
@@ -49,5 +49,11 @@ describe('dock activity', () => {
         ]
       })
     ).toEqual({ done: 1, total: 2 })
+  })
+
+  it('names the project folder instead of showing a lone full stop', () => {
+    expect(readablePath('.')).toBe('project root')
+    expect(readablePath('./')).toBe('project root')
+    expect(readablePath('src/app.ts')).toBe('src/app.ts')
   })
 })

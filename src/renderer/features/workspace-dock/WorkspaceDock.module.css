@@ -148,11 +148,14 @@
   animation: panelIn var(--motion-medium, 220ms) var(--ease);
 }
 
+/* Sized like the chat panel's footer (its border, the model status row, and
+   the panel's own padding beneath) so the two bottom edges line up. */
 .footer {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   min-height: 34px;
+  margin-bottom: var(--space-3);
   padding: 0 var(--space-3);
   flex-shrink: 0;
   font-size: var(--text-xs);

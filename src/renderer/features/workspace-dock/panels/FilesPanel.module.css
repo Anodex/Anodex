@@ -80,6 +80,7 @@
 }
 
 .row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -172,13 +173,22 @@
   text-align: right;
 }
 
+/* Shown over the end of the row on hover rather than holding its width all
+   the time, which cut file names short to leave room for invisible buttons. */
 .actions {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
   display: flex;
-  flex-shrink: 0;
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-sm);
   opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .row:hover .actions,
 .actions:focus-within {
   opacity: 1;
+  pointer-events: auto;
 }

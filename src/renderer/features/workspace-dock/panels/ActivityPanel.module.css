@@ -69,7 +69,12 @@
   text-overflow: ellipsis;
 }
 
-.meta {
+.detail {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.time {
   flex-shrink: 0;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;

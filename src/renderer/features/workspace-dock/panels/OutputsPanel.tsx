@@ -6,7 +6,7 @@ import { formatClock } from '../../../lib/format'
 import { useChatStore } from '../../../stores/chatStore'
 import { useProjectStore } from '../../../stores/projectStore'
 import { useFileViewer } from '../../file-viewer/useFileViewer'
-import { activityOf, outputsOf } from '../dockActivity'
+import { activityOf, outputsOf, readablePath } from '../dockActivity'
 import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import styles from './OutputsPanel.module.css'
 
@@ -73,7 +73,7 @@ export function OutputsPanel(): JSX.Element {
                 <span className={styles.text}>
                   <span className={styles.name}>{name}</span>
                   <span className={styles.folder}>
-                    {entry ? folder || '.' : 'Deleted or moved'}
+                    {entry ? readablePath(folder) : 'Deleted or moved'}
                   </span>
                 </span>
                 <span className={styles.time}>{formatClock(output.at)}</span>
