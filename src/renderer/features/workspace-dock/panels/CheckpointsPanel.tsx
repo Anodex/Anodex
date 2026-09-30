@@ -9,7 +9,7 @@ import { CheckpointDialog } from '../../chat/CheckpointDialog'
 import { anodex } from '../../../lib/anodex'
 import { useChatStore } from '../../../stores/chatStore'
 import { notifyError, useUiStore } from '../../../stores/uiStore'
-import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import { useWorkspaceDockProjectId } from '../useWorkspaceDockAvailability'
 import styles from './CheckpointsPanel.module.css'
 
@@ -101,7 +101,10 @@ export function CheckpointsPanel(): JSX.Element {
           <Spinner size={14} />
         </div>
       ) : entries.length === 0 ? (
-        <div className={styles.empty}>No file checkpoints yet.</div>
+        <DockEmpty icon="restore" title="No restore points yet">
+          Before each reply that changes files, Anodex saves how they were, so you can review or
+          undo exactly what it did.
+        </DockEmpty>
       ) : (
         <ul className={styles.list}>
           {entries.map((entry) => {

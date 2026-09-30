@@ -4,64 +4,76 @@ import { DOCK_PANELS } from './workspaceDockTypes'
 
 interface WorkspaceDockState {
   open: boolean
-  enabledPanels: Record<DockPanelId, boolean>
+  /** The panel the dock shows. One at a time, chosen from the dock's tab strip. */
+  activePanel: DockPanelId
   setOpen: (open: boolean) => void
+  /** Open the dock on a panel. */
+  showPanel: (panelId: DockPanelId) => void
+  /**
+   * What a panel's shortcut does: open the dock on that panel, or close it when
+   * that panel is already the one showing.
+   */
   togglePanel: (panelId: DockPanelId) => void
 }
 
-const ENABLED_PANELS_KEY = 'anodex:dockEnabledPanels'
+const ACTIVE_PANEL_KEY = 'anodex:dockActivePanel'
 const OPEN_KEY = 'anodex:dockOpen'
+/** The stacked dock's record of which panels were switched on; read once to pick a first tab. */
+const LEGACY_ENABLED_PANELS_KEY = 'anodex:dockEnabledPanels'
 
-const DEFAULT_ENABLED: Record<DockPanelId, boolean> = Object.fromEntries(
-  DOCK_PANELS.map((p) => [p.id, false])
-) as Record<DockPanelId, boolean>
+function isPanelId(value: unknown): value is DockPanelId {
+  return DOCK_PANELS.some((panel) => panel.id === value)
+}
 
-function loadEnabledPanels(): Record<DockPanelId, boolean> {
+function loadActivePanel(): DockPanelId {
   try {
-    const raw = localStorage.getItem(ENABLED_PANELS_KEY)
-    if (!raw) return { ...DEFAULT_ENABLED }
-    const parsed = JSON.parse(raw) as Partial<Record<DockPanelId, boolean>>
-    return DOCK_PANELS.reduce((acc, p) => ({ ...acc, [p.id]: Boolean(parsed[p.id]) }), {
-      ...DEFAULT_ENABLED
-    })
+    const stored: unknown = JSON.parse(localStorage.getItem(ACTIVE_PANEL_KEY) ?? 'null')
+    if (isPanelId(stored)) return stored
+    // Someone who used the stacked dock had chosen panels; open on the first
+    // of them rather than on a panel they had switched off.
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_ENABLED_PANELS_KEY) ?? '{}') as Partial<
+      Record<DockPanelId, boolean>
+    >
+    return DOCK_PANELS.find((panel) => legacy[panel.id])?.id ?? DOCK_PANELS[0].id
   } catch {
-    return { ...DEFAULT_ENABLED }
+    return DOCK_PANELS[0].id
   }
 }
 
-function saveDockState(open: boolean, enabledPanels: Record<DockPanelId, boolean>): void {
+function loadOpen(): boolean {
   try {
-    localStorage.setItem(ENABLED_PANELS_KEY, JSON.stringify(enabledPanels))
-    localStorage.setItem(OPEN_KEY, JSON.stringify(open))
-  } catch {
-    /* noop */
-  }
-}
-
-const initialEnabledPanels = loadEnabledPanels()
-const initialOpen = (() => {
-  try {
-    const raw = localStorage.getItem(OPEN_KEY)
-    return raw ? (JSON.parse(raw) as boolean) : false
+    return JSON.parse(localStorage.getItem(OPEN_KEY) ?? 'false') === true
   } catch {
     return false
   }
-})()
+}
+
+function save(open: boolean, activePanel: DockPanelId): void {
+  try {
+    localStorage.setItem(OPEN_KEY, JSON.stringify(open))
+    localStorage.setItem(ACTIVE_PANEL_KEY, JSON.stringify(activePanel))
+  } catch {
+    /* storage unavailable: the dock still works, it just will not remember */
+  }
+}
 
 export const useWorkspaceDock = create<WorkspaceDockState>((set, get) => ({
-  open: initialOpen,
-  enabledPanels: initialEnabledPanels,
+  open: loadOpen(),
+  activePanel: loadActivePanel(),
 
   setOpen: (open) => {
-    saveDockState(open, get().enabledPanels)
+    save(open, get().activePanel)
     set({ open })
   },
 
-  togglePanel: (panelId) =>
-    set((s) => {
-      const enabledPanels = { ...s.enabledPanels, [panelId]: !s.enabledPanels[panelId] }
-      const hasEnabled = DOCK_PANELS.some((p) => enabledPanels[p.id])
-      saveDockState(hasEnabled, enabledPanels)
-      return { enabledPanels, open: hasEnabled }
-    })
+  showPanel: (activePanel) => {
+    save(true, activePanel)
+    set({ open: true, activePanel })
+  },
+
+  togglePanel: (panelId) => {
+    const { open, activePanel } = get()
+    if (open && activePanel === panelId) get().setOpen(false)
+    else get().showPanel(panelId)
+  }
 }))
