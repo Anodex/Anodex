@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import type { KeyboardShortcutMap } from '@shared/settings.types'
 import { Icon } from '../../components/Icon'
@@ -32,7 +32,7 @@ import styles from './DownloadTour.module.css'
  * tour exactly where it was, and under reduced motion (no animation) the tour
  * waits to be stepped.
  */
-export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element {
+function DownloadTourView({ modelName }: { modelName?: string }): JSX.Element {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const shortcuts = useSettingsStore((s) => s.settings?.keyboard.shortcuts)
@@ -97,6 +97,13 @@ export function DownloadTour({ modelName }: { modelName?: string }): JSX.Element
     </section>
   )
 }
+
+/**
+ * Memoised because it sits beside the download's progress: every progress
+ * report re-renders the card, and a tour that re-rendered all of its slides
+ * each time made the window slow to answer a click, Cancel included.
+ */
+export const DownloadTour = memo(DownloadTourView)
 
 function TourSlideView({
   slide,
