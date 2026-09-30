@@ -19,6 +19,7 @@
 /* The primary action follows the selected collection. Match SidebarSearch's
    34px row, padding, and keycap so the two controls read as a pair. */
 .primaryButton {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -54,11 +55,17 @@
 .primaryLabel {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  /* Never wraps: "New project" beside its longer "Ctrl Shift N" keycap broke
+     onto two lines in a narrow panel. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Mirrors SidebarSearch's .shortcut so action and search hints sit identically. */
 .primaryShortcut {
   flex-shrink: 0;
+  white-space: nowrap;
   padding: 1px var(--space-1);
   font-family: inherit;
   font-size: var(--text-xs);
@@ -68,6 +75,14 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+
+/* Too narrow for the label and the keycap together, the label wins: the
+   keycap goes and the button's tooltip still names the shortcut. */
+@container (max-width: 212px) {
+  .primaryShortcut {
+    display: none;
+  }
 }
 
 .scroll {
