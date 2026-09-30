@@ -236,6 +236,9 @@ export function Sidebar(): JSX.Element {
 
   const hasExpandedProjects = filteredProjects.some((p) => isProjectExpanded(p.project.id))
 
+  const primaryLabel = mode === 'workspace' ? 'New project' : 'New chat'
+  const primaryShortcut = mode === 'workspace' ? newProjectShortcut : newChatShortcut
+
   return (
     <aside className={styles.sidebar}>
       <SidebarModeSwitcher mode={mode} onChange={setMode} />
@@ -244,19 +247,20 @@ export function Sidebar(): JSX.Element {
           type="button"
           className={styles.primaryButton}
           onClick={() => (mode === 'workspace' ? void handleCreateProject() : handleNewChat())}
+          title={
+            primaryShortcut
+              ? `${primaryLabel} (${primaryShortcut.replace(/\+/g, ' ')})`
+              : primaryLabel
+          }
         >
           <Icon
             name={mode === 'workspace' ? 'folder-plus' : 'plus'}
             size={14}
             className={styles.primaryIcon}
           />
-          <span className={styles.primaryLabel}>
-            {mode === 'workspace' ? 'New project' : 'New chat'}
-          </span>
-          {(mode === 'workspace' ? newProjectShortcut : newChatShortcut) && (
-            <kbd className={styles.primaryShortcut}>
-              {(mode === 'workspace' ? newProjectShortcut : newChatShortcut).replace(/\+/g, ' ')}
-            </kbd>
+          <span className={styles.primaryLabel}>{primaryLabel}</span>
+          {primaryShortcut && (
+            <kbd className={styles.primaryShortcut}>{primaryShortcut.replace(/\+/g, ' ')}</kbd>
           )}
         </button>
         <SidebarSearch
