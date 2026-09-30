@@ -296,7 +296,7 @@ export function ChatComposer(): JSX.Element {
                   ? 'Message Anodex…'
                   : settings && settings.provider.active !== 'local'
                     ? `Add ${agentRunProviderVendor(settings.provider.active)} credentials in Settings → AI & Models to start chatting`
-                    : 'Load a model from the Models tab to start chatting'
+                    : 'Load a model in Settings → AI & Models to start chatting'
           }
           onChange={(event) => {
             if (event.target.value.length > 0 && activeConversation) {
