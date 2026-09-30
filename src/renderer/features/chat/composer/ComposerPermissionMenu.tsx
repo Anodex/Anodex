@@ -66,6 +66,7 @@ export function ComposerPermissionMenu({
         onClick={() => setOpen((value) => !value)}
         title={`Permission mode: ${permissionLabel(mode)} — ${permissionDescription(mode)}`}
         aria-label={`Permission mode: ${permissionLabel(mode)}`}
+        data-tour="permissions"
         aria-haspopup="menu"
         aria-expanded={open}
       >
