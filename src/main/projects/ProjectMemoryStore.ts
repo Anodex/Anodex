@@ -44,10 +44,13 @@ class ProjectMemoryStore {
   recordTouch(projectId: string, path: string, action: FileTouchAction): void {
     assertSafeProjectId(projectId)
     const current = this.load(projectId)
+    const at = Date.now()
+    const previous = current.filesTouched.find((touch) => touch.path === path)
+    const lastEditAt = nextLastEditAt(action, at, previous)
     const next: ProjectMemory = {
       ...current,
       filesTouched: [
-        { path, action, at: Date.now() },
+        { path, action, at, ...(lastEditAt === undefined ? {} : { lastEditAt }) },
         ...current.filesTouched.filter((touch) => touch.path !== path)
       ].slice(0, MAX_FILES_TOUCHED)
     }
@@ -170,8 +173,26 @@ function isValidFileTouch(value: unknown): value is FileTouch {
     isPlainObject(value) &&
     typeof value.path === 'string' &&
     FILE_TOUCH_ACTIONS.has(value.action as FileTouchAction) &&
-    typeof value.at === 'number'
+    typeof value.at === 'number' &&
+    (value.lastEditAt === undefined || typeof value.lastEditAt === 'number')
   )
+}
+
+/**
+ * When a file was last edited, after a touch of `action`: now for a write or
+ * move, nothing for a delete (the file it described is gone), and otherwise
+ * whatever the previous touch knew. A previous write recorded before
+ * `lastEditAt` existed counts from its own time.
+ */
+export function nextLastEditAt(
+  action: FileTouchAction,
+  at: number,
+  previous: FileTouch | undefined
+): number | undefined {
+  if (action === 'write' || action === 'move') return at
+  if (action === 'delete' || !previous) return undefined
+  if (previous.lastEditAt !== undefined) return previous.lastEditAt
+  return previous.action === 'write' || previous.action === 'move' ? previous.at : undefined
 }
 
 function isValidVerificationResult(value: unknown): value is VerificationResult {

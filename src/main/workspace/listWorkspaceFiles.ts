@@ -129,7 +129,11 @@ export function determineEditedBy(
   memory: ProjectMemory | null
 ): 'user' | 'ai' {
   const touch = memory?.filesTouched.find((t) => t.path === path)
-  const isEdit = touch && (touch.action === 'write' || touch.action === 'move')
-  if (!isEdit) return 'user'
-  return modifiedAt > touch.at + EDIT_ATTRIBUTION_TOLERANCE_MS ? 'user' : 'ai'
+  // The time of Anodex's last edit, not of its last touch: it often reads back
+  // a file it has just written, and that read must not hand the file to the user.
+  const editedAt =
+    touch?.lastEditAt ??
+    (touch && (touch.action === 'write' || touch.action === 'move') ? touch.at : undefined)
+  if (editedAt === undefined) return 'user'
+  return modifiedAt > editedAt + EDIT_ATTRIBUTION_TOLERANCE_MS ? 'user' : 'ai'
 }
