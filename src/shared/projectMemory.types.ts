@@ -15,6 +15,13 @@ export interface FileTouch {
   path: string
   action: FileTouchAction
   at: number
+  /**
+   * When Anodex last wrote or moved this file. Kept across later touches of
+   * other kinds, because only one entry is kept per file: without it, reading
+   * back a file it had just written replaced the write, and the file went on
+   * being labelled as the user's edit.
+   */
+  lastEditAt?: number
 }
 
 export interface VerificationResult {
