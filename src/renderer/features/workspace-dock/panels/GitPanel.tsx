@@ -7,7 +7,9 @@ import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { anodex } from '../../../lib/anodex'
 import { notifyError, useUiStore } from '../../../stores/uiStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
-import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { GIT_STATUS_EVENT } from '../useDockStatus'
+import { Button } from '../../../components/ui/Button'
 import { useWorkspaceDockProjectId } from '../useWorkspaceDockAvailability'
 import styles from './GitPanel.module.css'
 
@@ -44,6 +46,13 @@ export function GitPanel(): JSX.Element {
     }
     setStatus(result.value)
   }, [projectId])
+
+  // The dock's footer and Git tab badge show the branch and its changes; tell
+  // them whenever this panel learns something new, including after its own
+  // commit, init, or branch switch.
+  useEffect(() => {
+    if (status) window.dispatchEvent(new CustomEvent(GIT_STATUS_EVENT, { detail: status }))
+  }, [status])
 
   useEffect(() => {
     setStatus(null)
@@ -195,18 +204,22 @@ export function GitPanel(): JSX.Element {
   if (!status.hasRepo) {
     return (
       <WorkspaceDockPanel title="Git">
-        <div className={styles.empty}>
-          <p>This project isn&apos;t a git repository yet.</p>
-          <button
-            type="button"
-            className={styles.initButton}
-            disabled={initializing}
-            onClick={() => void initRepo()}
-          >
-            {initializing ? <Spinner size={13} /> : <Icon name="git-branch" size={13} />}
-            Initialize repository
-          </button>
-        </div>
+        <DockEmpty
+          icon="git-branch"
+          title="Not a Git repository"
+          action={
+            <Button
+              size="sm"
+              loading={initializing}
+              iconLeft={<Icon name="git-branch" size={13} />}
+              onClick={() => void initRepo()}
+            >
+              Initialize repository
+            </Button>
+          }
+        >
+          Start one to track what changes, switch branches, and commit from here.
+        </DockEmpty>
       </WorkspaceDockPanel>
     )
   }

@@ -2,7 +2,7 @@ import type { PlanStep, PlanStepStatus } from '@shared/plan.types'
 import { Icon } from '../../../components/Icon'
 import { Spinner } from '../../../components/ui/Spinner'
 import { useChatStore } from '../../../stores/chatStore'
-import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import styles from './PlanPanel.module.css'
 
 /**
@@ -17,7 +17,14 @@ export function PlanPanel(): JSX.Element {
   const plan = useChatStore((s) => s.conversations.find((c) => c.id === activeId)?.plan)
 
   if (!plan || plan.steps.length === 0) {
-    return <WorkspaceDockPanel title="Plan">No active plan for this session.</WorkspaceDockPanel>
+    return (
+      <WorkspaceDockPanel title="Plan">
+        <DockEmpty icon="plan" title="No plan yet">
+          When Anodex takes on a task with several steps, it writes a plan and ticks the steps off
+          here as it works.
+        </DockEmpty>
+      </WorkspaceDockPanel>
+    )
   }
 
   const completed = plan.steps.filter((step) => step.status === 'completed').length

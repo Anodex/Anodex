@@ -4,12 +4,6 @@
   padding: var(--space-4);
 }
 
-.empty {
-  padding: var(--space-2) 0;
-  font-size: var(--text-xs);
-  color: var(--text-faint);
-}
-
 .list {
   margin: 0;
   padding: 0;
