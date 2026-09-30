@@ -16,7 +16,7 @@ export const TOUR_AREA_LABEL: Record<TourArea, string> = {
  * (its status dot, the context meter's stylesheet, the dock's panel list) so
  * it follows them rather than being a picture of them.
  */
-export type TourVisual = 'dockPanels' | 'modelStatus' | 'contextMeter'
+export type TourVisual = 'dockPanels' | 'modelStatus' | 'contextMeter' | 'permissionModes'
 
 export interface TourSlide {
   /** Matches the `data-tour` attribute on the real control; see the drift test. */
@@ -172,10 +172,12 @@ export const SLIDES: TourSlide[] = [
   },
   {
     id: 'permissions',
-    icon: 'shield-check',
+    // The icon a new install shows: Ask, the default mode.
+    icon: 'shield-question',
     area: 'composer',
+    visual: 'permissionModes',
     title: 'Permissions',
-    body: 'Choose whether Anodex asks before it edits files or runs commands, or works on its own.',
+    body: 'How much Anodex may do before it checks with you. Destructive actions always ask, whichever you pick.',
     tip: 'Asking first is the safe place to start'
   },
   {

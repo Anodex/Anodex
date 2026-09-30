@@ -64,6 +64,23 @@ function screenOrder(): Map<string, [string, number, number]> {
   return order
 }
 
+/** A file's source plus the sibling modules it imports, where an icon choice may live. */
+function withLocalImports(path: string): string {
+  const source = readFileSync(join(process.cwd(), path), 'utf-8')
+  const dir = path.slice(0, path.lastIndexOf('/'))
+  const imported = [...source.matchAll(/from '\.\/([\w-]+)'/g)].map((m) => {
+    for (const ext of ['.ts', '.tsx']) {
+      try {
+        return readFileSync(join(process.cwd(), dir, m[1] + ext), 'utf-8')
+      } catch {
+        // not this extension
+      }
+    }
+    return ''
+  })
+  return [source, ...imported].join('\n')
+}
+
 function taggedControls(): Map<string, string> {
   const tags = new Map<string, string>()
   for (const { path, source } of CHROME) {
@@ -87,7 +104,7 @@ describe('DownloadTour drift', () => {
     const tags = taggedControls()
     for (const slide of SLIDES) {
       if (!slide.icon) continue
-      const source = CHROME.find((c) => c.path === tags.get(slide.id))?.source ?? ''
+      const source = withLocalImports(tags.get(slide.id)!)
       expect(source, `${slide.id} should use the "${slide.icon}" icon`).toMatch(
         new RegExp(`['"]${slide.icon}['"]`)
       )

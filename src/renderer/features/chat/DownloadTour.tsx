@@ -6,6 +6,13 @@ import { ShortcutKeys } from '../../components/ShortcutKeys'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CometStatusDot } from '../../components/ui/CometStatusDot'
 import { DOCK_PANELS } from '../workspace-dock/workspaceDockTypes'
+import { createDefaultSettings } from '@shared/settings.defaults'
+import {
+  PERMISSION_MODES,
+  permissionDescription,
+  permissionIcon,
+  permissionLabel
+} from './composer/permissionModes'
 import { SLIDES, TOUR_AREA_LABEL, type TourSlide, type TourVisual } from './downloadTourSlides'
 import meterStyles from './ContextMeter.module.css'
 import styles from './DownloadTour.module.css'
@@ -180,6 +187,10 @@ function TourVisualView({
     )
   }
 
+  if (visual === 'permissionModes') {
+    return <PermissionModes />
+  }
+
   if (visual === 'modelStatus') {
     return (
       <div className={styles.states} aria-label="Model status states">
@@ -214,6 +225,25 @@ function TourVisualView({
       <span className={meterStyles.label}>
         ~13.4k<span className={meterStyles.labelMuted}> / 32k</span>
       </span>
+    </div>
+  )
+}
+
+/** The composer menu's own modes, marking the one this install is using. */
+function PermissionModes(): JSX.Element {
+  const current =
+    useSettingsStore((s) => s.settings?.general.permissionMode) ??
+    createDefaultSettings('').general.permissionMode
+  return (
+    <div className={styles.modes} aria-label="Permission modes">
+      {PERMISSION_MODES.map((mode) => (
+        <div key={mode} className={`${styles.mode} ${mode === current ? styles.modeCurrent : ''}`}>
+          <Icon name={permissionIcon(mode)} size={14} className={styles.modeIcon} />
+          <span className={styles.modeName}>{permissionLabel(mode)}</span>
+          <span className={styles.modeText}>{permissionDescription(mode)}</span>
+          {mode === current && <span className={styles.modeBadge}>Current</span>}
+        </div>
+      ))}
     </div>
   )
 }

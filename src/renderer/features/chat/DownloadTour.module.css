@@ -278,6 +278,54 @@
   pointer-events: none;
 }
 
+.modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.modeCurrent {
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+}
+
+.modeIcon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.modeName {
+  flex-shrink: 0;
+  width: 72px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modeText {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.modeBadge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+}
+
 @keyframes segmentFill {
   from {
     transform: scaleX(0);
