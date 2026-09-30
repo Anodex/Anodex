@@ -74,6 +74,7 @@ export function WorkspaceDockButton(): JSX.Element | null {
       <IconButton
         label={dockOpen ? 'Collapse workspace dock' : 'Expand workspace dock'}
         icon={<Icon name="panel-right" size={18} />}
+        data-tour="dock"
         size="sm"
         className={dockOpen ? styles.active : undefined}
         onClick={() => setDockOpen(!dockOpen)}
