@@ -877,7 +877,7 @@ class LlamaService extends EventEmitter {
 
   private async generateInternal(params: GenerateParams): Promise<GenerateOutcome> {
     if (this.status !== 'ready' || (!this.context && !this.visionService.active)) {
-      throw new Error('No model is loaded. Load a model from the Models tab first.')
+      throw new Error('No model is loaded. Load one in Settings → AI & Models first.')
     }
     // An invariant, not a contention case: `generate()` is the only caller and
     // holds the model lock across this whole call, clearing the flag in its
