@@ -36,6 +36,7 @@ import { registerContextMenuHandlers } from '../contextMenu'
 import { registerComputerControlHandlers } from './computerControl.handlers'
 import { registerRemoteHandlers } from './remote.handlers'
 import { registerDevicesHandlers } from './devices.handlers'
+import { registerSpeechHandlers } from '../speech/speech.handlers'
 import { captureIpcHandlers } from '../remote/handlerRegistry'
 import { mcpManager } from '../mcp/McpManager'
 import { computerControlService } from '../computerControl/ComputerControlService'
@@ -62,6 +63,7 @@ export function registerIpcHandlers(): void {
   registerToolHandlers()
   registerRemoteHandlers()
   registerDevicesHandlers()
+  registerSpeechHandlers()
   registerWindowHandlers()
   registerWorkspaceHandlers()
   registerToastHandlers()

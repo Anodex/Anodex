@@ -693,6 +693,39 @@ function assertKnownKeys(
 export function validatePatch(patch: SettingsPatch): void {
   assertKnownKeys(patch, createDefaultSettings('') as unknown as Record<string, unknown>)
 
+  if (patch.speech?.engine !== undefined && !['qwen', 'pocket'].includes(patch.speech.engine))
+    throw new Error('speech.engine must be an available engine')
+  if (
+    patch.speech?.pocketVoice !== undefined &&
+    (typeof patch.speech.pocketVoice !== 'string' ||
+      patch.speech.pocketVoice.length < 1 ||
+      patch.speech.pocketVoice.length > 100)
+  )
+    throw new Error('speech.pocketVoice must be an available voice ID')
+
+  if (
+    patch.speech?.voice !== undefined &&
+    ![
+      'default',
+      'personal',
+      'serena',
+      'vivian',
+      'uncle_fu',
+      'ryan',
+      'aiden',
+      'ono_anna',
+      'sohee',
+      'eric',
+      'dylan'
+    ].includes(patch.speech.voice)
+  )
+    throw new Error('speech.voice must be an available voice')
+  if (
+    patch.speech?.speed !== undefined &&
+    (!isFiniteNumber(patch.speech.speed) || patch.speech.speed < 0.75 || patch.speech.speed > 1.5)
+  )
+    throw new Error('speech.speed must be between 0.75 and 1.5')
+
   const generation = patch.generation
   if (generation?.temperature !== undefined) {
     if (!isFiniteNumber(generation.temperature) || generation.temperature < 0) {

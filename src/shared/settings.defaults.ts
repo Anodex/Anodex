@@ -98,6 +98,13 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     computerControl: {
       desktopControlEnabled: false
     },
+    speech: {
+      enabled: false,
+      engine: 'qwen',
+      voice: 'default',
+      pocketVoice: 'default',
+      speed: 1
+    },
     provider: {
       active: 'local',
       // Off by default: see LocalProviderSettings.maxResponseTokens. The

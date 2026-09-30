@@ -2,8 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import { IconButton } from './ui/IconButton'
 import { useUiStore } from '../stores/uiStore'
+import { useProjectStore } from '../stores/projectStore'
 import { useSidebarCollapse } from '../stores/sidebarCollapseStore'
+import {
+  resolveSidebarMode,
+  useSidebarModeStore,
+  type SidebarMode
+} from '../stores/sidebarModeStore'
 import { WorkspaceDockButton } from '../features/workspace-dock/WorkspaceDockButton'
+import { SidebarModeSwitcher } from './sidebar/SidebarModeSwitcher'
+import { WhatsNew } from '../features/updates/WhatsNew'
 import { anodex } from '../lib/anodex'
 import titleLogo from '../assets/title-logo.png'
 import styles from './TitleBar.module.css'
@@ -11,11 +19,17 @@ import styles from './TitleBar.module.css'
 /** Custom drag region with window controls and app action buttons. */
 export function TitleBar(): JSX.Element {
   const openSettings = useUiStore((s) => s.openSettings)
+  const setView = useUiStore((s) => s.setView)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const savedMode = useSidebarModeStore((s) => s.mode)
+  const setMode = useSidebarModeStore((s) => s.setMode)
+  const mode = resolveSidebarMode(savedMode, activeProjectId)
   const autoCollapsed = useSidebarCollapse((s) => s.autoCollapsed)
   const manuallyCollapsed = useSidebarCollapse((s) => s.manuallyCollapsed)
   const overlayOpen = useSidebarCollapse((s) => s.overlayOpen)
   const sidebarCollapsed = autoCollapsed || manuallyCollapsed
   const toggleSidebar = useSidebarCollapse((s) => s.toggle)
+  const expandSidebar = useSidebarCollapse((s) => s.expand)
   // On a narrow window there's no room to dock the sidebar back open, so the
   // toggle only pops it as a temporary overlay — "Show" rather than "Expand"
   // so the label doesn't promise a state that won't stick.
@@ -30,6 +44,12 @@ export function TitleBar(): JSX.Element {
   const [isMac, setIsMac] = useState(false)
   const [logoPulseId, setLogoPulseId] = useState(0)
   const isMacRef = useRef(false)
+
+  const selectMode = (nextMode: SidebarMode): void => {
+    setMode(nextMode)
+    setView('chat')
+    expandSidebar()
+  }
 
   useEffect(() => {
     const mac = navigator.userAgent.includes('Mac')
@@ -86,15 +106,19 @@ export function TitleBar(): JSX.Element {
         <span className={styles.title}>
           Anode<span className={styles.titleAccent}>x</span>
         </span>
+        <div className={styles.navigationControls}>
+          <SidebarModeSwitcher mode={mode} onChange={selectMode} />
+          <IconButton
+            label={sidebarToggleLabel}
+            icon={<Icon name="panel-left" size={18} />}
+            size="sm"
+            className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
+            onClick={toggleSidebar}
+          />
+        </div>
       </div>
       <div className={styles.actions}>
-        <IconButton
-          label={sidebarToggleLabel}
-          icon={<Icon name="panel-left" size={18} />}
-          size="sm"
-          className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
-          onClick={toggleSidebar}
-        />
+        <WhatsNew />
         <WorkspaceDockButton />
         <IconButton
           label="Settings"

@@ -162,6 +162,22 @@ Key capabilities:
 - Relevant skill suggestions directly in the composer.
 - Permission mode control from the composer.
 
+## Optional Local Voice
+
+Anodex can read a completed reply aloud without a voice recording. The feature
+starts off, and speech models download only when requested. Settings offers a
+default Base voice, nine built-in CustomVoice speakers, and an optional recording
+of the user's own voice. The recording and its optional transcript stay in the
+local user-data folder. No operating-system or cloud voice is used.
+
+The local speech engine runs on the CPU and streams audio into the chat player,
+separately from the chat model's GPU memory. Users can pause, resume, stop, adjust
+playback speed, read selected text, or enable automatic reading per chat. They can
+replace or remove their recording and switch voices at any time. Each 0.6B model
+uses about 1 GB of disk, plus a shared 0.29 GB tokenizer; only the selected model
+loads into memory. Enabling read-aloud prepares the engine in the background;
+turning the feature off unloads it to free memory.
+
 Why it is good:
 
 - Chat is not treated as disposable. It can carry file context, tool results,
@@ -179,6 +195,7 @@ Key capabilities:
 - Create project conversations.
 - Keep general chats separate from project chats.
 - Switch the sidebar between general Chats and project-based Workspace conversations.
+- Switch between Chats and Workspace from the title bar using icon tabs.
 - Search within the selected sidebar view.
 - Mark conversations unread.
 - Archive all active general chats.
@@ -747,6 +764,8 @@ Diagnostics capabilities:
 Update capabilities:
 
 - Check for packaged app updates.
+- Open the current version's GitHub release notes from the title bar and dismiss the
+  prompt until the next installed version.
 - Download updates only after user action.
 - Restart to install only after user action.
 - Avoid automatic disruptive restarts.

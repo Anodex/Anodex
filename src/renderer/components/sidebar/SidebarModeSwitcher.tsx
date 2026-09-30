@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react'
 import type { SidebarMode } from '../../stores/sidebarModeStore'
 import { Icon } from '../Icon'
 import styles from './SidebarModeSwitcher.module.css'
@@ -8,79 +7,30 @@ interface SidebarModeSwitcherProps {
   onChange: (mode: SidebarMode) => void
 }
 
-const OPTIONS: Array<{ mode: SidebarMode; label: string; description: string }> = [
-  { mode: 'chats', label: 'Chats', description: 'Conversations outside projects' },
-  { mode: 'workspace', label: 'Workspace', description: 'Projects and their chats' }
-]
-
-/** Chooses which conversation collection the side panel shows. */
+/** Title-bar tabs for the two conversation collections. */
 export function SidebarModeSwitcher({ mode, onChange }: SidebarModeSwitcherProps): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handlePointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        setOpen(false)
-        triggerRef.current?.focus()
-      }
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [open])
-
   return (
-    <div className={styles.switcher} ref={rootRef}>
+    <div className={styles.switcher} role="group" aria-label="Conversation view">
       <button
-        ref={triggerRef}
         type="button"
-        className={styles.trigger}
-        onClick={() => setOpen((value) => !value)}
-        aria-label={`Sidebar view: ${mode === 'chats' ? 'Chats' : 'Workspace'}`}
-        aria-expanded={open}
-        aria-controls="sidebar-mode-options"
+        className={`${styles.option} ${mode === 'chats' ? styles.active : ''}`}
+        onClick={() => onChange('chats')}
+        aria-label="Chats"
+        aria-pressed={mode === 'chats'}
+        title="Chats"
       >
-        <span>{mode === 'chats' ? 'Chats' : 'Workspace'}</span>
-        <Icon name="chevron-down" size={13} className={open ? styles.chevronOpen : undefined} />
+        <Icon name="chat" size={16} />
       </button>
-      {open && (
-        <div
-          className={styles.menu}
-          id="sidebar-mode-options"
-          role="group"
-          aria-label="Sidebar views"
-        >
-          {OPTIONS.map((option) => (
-            <button
-              key={option.mode}
-              type="button"
-              className={styles.option}
-              aria-pressed={mode === option.mode}
-              onClick={() => {
-                onChange(option.mode)
-                setOpen(false)
-                triggerRef.current?.focus()
-              }}
-            >
-              <span className={styles.optionText}>
-                <span className={styles.optionLabel}>{option.label}</span>
-                <span className={styles.optionDescription}>{option.description}</span>
-              </span>
-              {mode === option.mode && <Icon name="check" size={14} />}
-            </button>
-          ))}
-        </div>
-      )}
+      <button
+        type="button"
+        className={`${styles.option} ${mode === 'workspace' ? styles.active : ''}`}
+        onClick={() => onChange('workspace')}
+        aria-label="Workspace"
+        aria-pressed={mode === 'workspace'}
+        title="Workspace"
+      >
+        <Icon name="code" size={17} />
+      </button>
     </div>
   )
 }

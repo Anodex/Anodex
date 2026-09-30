@@ -59,14 +59,21 @@ interface SelectControlProps {
   value: string
   options: Option[]
   onChange: (value: string) => void
+  disabled?: boolean
 }
 
 /** A styled native select. */
-export function SelectControl({ value, options, onChange }: SelectControlProps): JSX.Element {
+export function SelectControl({
+  value,
+  options,
+  onChange,
+  disabled = false
+}: SelectControlProps): JSX.Element {
   return (
     <select
       className={styles.select}
       value={value}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
     >
       {options.map((option) => (

@@ -6,6 +6,7 @@ import type { ReactNode, SVGProps } from 'react'
  */
 export type IconName =
   | 'chat'
+  | 'code'
   | 'models'
   | 'settings'
   | 'plus'
@@ -31,6 +32,8 @@ export type IconName =
   | 'sliders'
   | 'keyboard'
   | 'activity'
+  | 'speaker'
+  | 'pause'
   | 'monitor'
   | 'smartphone'
   | 'chevron-down'
@@ -93,6 +96,7 @@ export type IconName =
 const GLYPHS: Record<IconName, ReactNode> = {
   /* Speech bubble with the system's signature 45° facet on the top-right corner. */
   chat: <path d="M3 5a2 2 0 0 1 2-2h11l5 5v7a2 2 0 0 1-2 2H7l-4 4V5z" />,
+  code: <path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18" />,
   /* Hexagonal cell that reads as an isometric cube — package semantics, brand geometry. */
   models: (
     <>
@@ -137,6 +141,19 @@ const GLYPHS: Record<IconName, ReactNode> = {
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,
+  speaker: (
+    <>
+      <path d="M4 9h3.5L12 5v14l-4.5-4H4z" />
+      <path d="M15.5 8.8a4.2 4.2 0 0 1 0 6.4" />
+      <path d="M18.2 6a7.8 7.8 0 0 1 0 12" />
+    </>
+  ),
+  pause: (
+    <>
+      <rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
+      <rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3 6h18" />

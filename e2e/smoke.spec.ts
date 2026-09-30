@@ -87,7 +87,7 @@ test('app shell does not render nested buttons', async () => {
 test('the navigation rail stays put while the chat panel opens and closes', async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-sidebar-e2e-'))
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -95,7 +95,7 @@ test('the navigation rail stays put while the chat panel opens and closes', asyn
     await window.setViewportSize({ width: 1200, height: 800 })
     await waitForStartup(window)
 
-    const railButton = window.getByRole('button', { name: 'Chats view', exact: true })
+    const railButton = window.getByRole('button', { name: 'Chat', exact: true })
     const panel = window.locator('#project-chat-sidebar aside')
     const main = window.locator('main')
     await expect(railButton).toBeVisible()
@@ -147,7 +147,7 @@ test('Chats and Workspace switch the sidebar list without switching the open con
   const folderPath = join(userDataDir, 'workspace')
   await mkdir(folderPath)
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -183,54 +183,41 @@ test('Chats and Workspace switch the sidebar list without switching the open con
     await waitForStartup(window)
 
     const panel = window.locator('#project-chat-sidebar aside')
-    await expect(panel.getByRole('button', { name: 'Sidebar view: Workspace' })).toBeVisible()
+    const chatsTab = window.getByRole('button', { name: 'Chats', exact: true })
+    const workspaceTab = window.getByRole('button', { name: 'Workspace', exact: true })
+    await expect(workspaceTab).toHaveAttribute('aria-pressed', 'true')
+    await expect(panel.getByRole('heading', { name: 'Workspace' })).toBeVisible()
     await expect(panel.getByText('Sidebar test project')).toBeVisible()
     await expect(panel.getByText('General test chat')).toHaveCount(0)
     await expect(window.locator('main').getByText('Project test chat')).toBeVisible()
 
-    await panel.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
-    await panel
-      .locator('#sidebar-mode-options')
-      .getByRole('button', { name: /^Chats/ })
-      .click()
-    await expect(panel.getByRole('button', { name: 'Sidebar view: Chats' })).toBeVisible()
-    await expect(window.getByRole('button', { name: 'Chats view' })).toHaveAttribute(
-      'aria-current',
-      'page'
-    )
-    await expect(window.getByRole('button', { name: 'Workspace view' })).not.toHaveAttribute(
-      'aria-current',
-      'page'
-    )
+    await chatsTab.click()
+    await expect(panel.getByRole('heading', { name: 'Chats' })).toBeVisible()
+    await expect(chatsTab).toHaveAttribute('aria-pressed', 'true')
+    await expect(workspaceTab).toHaveAttribute('aria-pressed', 'false')
     await expect(panel.getByText('General test chat')).toBeVisible()
     await expect(panel.getByText('Sidebar test project')).toHaveCount(0)
     await expect(window.locator('main').getByText('Project test chat')).toBeVisible()
 
-    await window.getByRole('button', { name: 'Workspace view' }).click()
+    await workspaceTab.click()
     await expect(panel.getByText('Sidebar test project')).toBeVisible()
-    await window.getByRole('button', { name: 'Chats view' }).click()
+    await chatsTab.click()
     await expect(panel.getByText('General test chat')).toBeVisible()
 
     await window.reload()
     await waitForStartup(window)
-    await expect(panel.getByRole('button', { name: 'Sidebar view: Chats' })).toBeVisible()
+    await expect(chatsTab).toHaveAttribute('aria-pressed', 'true')
     await expect(panel.getByText('General test chat')).toBeVisible()
 
     await window.setViewportSize({ width: 700, height: 800 })
-    await window.getByRole('button', { name: 'Workspace view' }).click()
+    await workspaceTab.click()
     const overlay = window.locator('#project-chat-sidebar-overlay aside')
-    await expect(overlay.getByRole('button', { name: 'Sidebar view: Workspace' })).toBeVisible()
-    await overlay.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
-    await expect(overlay.locator('#sidebar-mode-options')).toBeVisible()
+    await expect(overlay.getByRole('heading', { name: 'Workspace' })).toBeVisible()
     await window.keyboard.press('Escape')
-    await expect(overlay.locator('#sidebar-mode-options')).toHaveCount(0)
-    await expect(overlay).toBeVisible()
+    await expect(overlay).toHaveCount(0)
 
-    await overlay.getByRole('button', { name: 'Sidebar view: Workspace' }).click()
-    await overlay
-      .locator('#sidebar-mode-options')
-      .getByRole('button', { name: /^Chats/ })
-      .click()
+    await chatsTab.click()
+    await expect(overlay.getByRole('heading', { name: 'Chats' })).toBeVisible()
     await expect(overlay.getByText('General test chat')).toBeVisible()
     await overlay.getByText('General test chat').click()
     await expect(overlay).toHaveCount(0)
@@ -265,7 +252,7 @@ test('past user messages open the edit and regenerate review', async ({
 }, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-edit-message-e2e-'))
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -416,7 +403,7 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
   )
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -521,7 +508,7 @@ test('persisted uploaded images reopen inline in user messages', async () => {
   )
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -560,7 +547,7 @@ test('visual preview storage reports usage and clears stored pixels', async () =
   await writeFile(join(assetDir, 'message-1-preview.png'), ONE_PIXEL_PNG)
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -595,7 +582,7 @@ test('a running download stays clear of the settings close button', async ({
 }, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-download-header-e2e-'))
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -678,7 +665,7 @@ interface PageGlobals {
  */
 test('the app shell cannot be navigated away', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'anodex-nav-'))
-  const app = await electron.launch({ args: ['out/main/index.js', `--user-data-dir=${dir}`] })
+  const app = await electron.launch({ args: [`--user-data-dir=${dir}`, 'out/main/index.js'] })
 
   try {
     const w = await app.firstWindow()
@@ -772,7 +759,7 @@ test('sub-agent settings explain why a default local machine gets none', async (
   // shown when they are off.
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-subagents-e2e-'))
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -865,7 +852,7 @@ test('a delegated run shows its sub-agents nested underneath it', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify(runs), 'utf-8')
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -937,7 +924,7 @@ test('a finished run offers to continue the work', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -1013,7 +1000,7 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
   )
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -1114,7 +1101,7 @@ test('a scheduled continuation starts the next run of the same work', async () =
   )
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {
@@ -1183,7 +1170,7 @@ test('a finished run can be put on a schedule from the run list', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
 
   const app = await electron.launch({
-    args: ['out/main/index.js', `--user-data-dir=${userDataDir}`]
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
   })
 
   try {

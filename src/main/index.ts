@@ -41,6 +41,7 @@ import { registerCrashHandlers } from './diagnostics/crashHandlers'
 import { finishModelLoad, getLoadRecovery, initLoadSentinel } from './llama/loadSentinel'
 import { computerControlService } from './computerControl/ComputerControlService'
 import { remoteService } from './remote/RemoteService'
+import { speechService } from './speech/speech.handlers'
 
 const log = createLogger('main')
 
@@ -72,6 +73,8 @@ function reportInterruptedLoad(): void {
  *  check adds its own network activity — same reasoning as the model
  *  auto-load delay, just for a much lighter request. */
 const STARTUP_UPDATE_CHECK_DELAY_MS = 5000
+const SPEECH_WARMUP_DELAY_MS = 8000
+let appShuttingDown = false
 
 // Windows derives taskbar grouping/jump-list identity from this — without it
 // (notably in an unpackaged dev run, which has no Start Menu shortcut to
@@ -146,6 +149,16 @@ if (!app.requestSingleInstanceLock()) {
       // the user is told through Settings instead.
       void remoteService.initialize()
       createMainWindow()
+      const speechWarmup = setTimeout(() => {
+        if (appShuttingDown || !settingsStore.get().speech.enabled) return
+        const speechStatus = speechService.status()
+        if (!speechStatus.runtimeAvailable || !speechStatus.modelInstalled) return
+        void speechService.prepare().catch((error: unknown) => {
+          if (!settingsStore.get().speech.enabled || appShuttingDown) return
+          log.warn('Could not prepare speech in the background:', error)
+        })
+      }, SPEECH_WARMUP_DELAY_MS)
+      speechWarmup.unref()
       setTimeout(() => void updateService.check(), STARTUP_UPDATE_CHECK_DELAY_MS)
       // Dev-only, and inert without `ANODEX_CT_AUTORUN`. Must follow window
       // creation: the renderer is what restores the last local model.
@@ -180,6 +193,8 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('will-quit', () => {
+    appShuttingDown = true
+    void speechService.shutdown()
     void remoteService.shutdown()
     computerControlService.stopAll('app-quit')
     abortAllChatGenerations()

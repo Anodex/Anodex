@@ -36,6 +36,12 @@
  */
 export const DENIED_CHANNEL_PREFIXES = [
   /**
+   * Local speech playback uses the speech process and audio device on the host.
+   * The paired phone has no read-aloud surface for this feature.
+   */
+  'speech:',
+
+  /**
    * Driving the mouse and keyboard is allowed; rewriting the connection is not.
    *
    * A phone that changes the port, the manual address, or turns the listener

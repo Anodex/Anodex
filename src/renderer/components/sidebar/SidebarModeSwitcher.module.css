@@ -1,90 +1,37 @@
 .switcher {
-  position: relative;
-  flex-shrink: 0;
-  margin-bottom: var(--space-2);
-}
-
-.trigger {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  min-height: 28px;
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.trigger:hover,
-.trigger[aria-expanded='true'] {
+  flex-shrink: 0;
+  padding: 2px;
   background: var(--bg-surface-2);
-}
-
-.trigger svg {
-  color: var(--text-muted);
-  transition: transform var(--transition-fast);
-}
-
-.chevronOpen {
-  transform: rotate(180deg);
-}
-
-.menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
-  width: min(240px, 100%);
-  padding: var(--space-1);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  -webkit-app-region: no-drag;
 }
 
 .option {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-2);
-  text-align: left;
-  color: var(--text);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.option:hover,
-.option[aria-pressed='true'] {
-  background: var(--bg-surface-2);
-}
-
-.optionText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.optionLabel {
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.optionDescription {
-  font-size: var(--text-xs);
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
   color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
 }
 
-.option > svg {
-  flex-shrink: 0;
-  color: var(--accent);
+.option:hover {
+  color: var(--text);
+}
+
+.active {
+  color: var(--text);
+  background: var(--bg-elevated);
+  box-shadow: 0 1px 3px color-mix(in srgb, black 18%, transparent);
 }
