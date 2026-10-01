@@ -61,6 +61,19 @@ function rangeServer(body = WHOLE, etag = '"v1"') {
   return { fetchMock, seen }
 }
 
+/** Resolves once `path` holds at least `bytes`, so a test can act after a write has landed. */
+async function partHolds(path: string, bytes: number): Promise<void> {
+  for (let tries = 0; tries < 500; tries++) {
+    const size = await stat(path).then(
+      (info) => info.size,
+      () => 0
+    )
+    if (size >= bytes) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`${path} never reached ${bytes} bytes`)
+}
+
 describe('downloadFile — resuming', () => {
   let dir: string
   let target: string
@@ -174,10 +187,11 @@ describe('downloadFile — resuming', () => {
             // The chunk is delivered and allowed to reach disk before the
             // connection drops. Erroring in the same tick tests nothing real:
             // by the time a transfer dies at 95%, gigabytes have long since
-            // been written.
+            // been written. It waits for the bytes to be on disk rather than
+            // for a fixed 20 ms, which a slow macOS runner once outran.
             async pull(controller) {
               controller.enqueue(new TextEncoder().encode(WHOLE.slice(0, 8)))
-              await new Promise((resolve) => setTimeout(resolve, 20))
+              await partHolds(`${target}.part`, 8)
               controller.error(new Error('connection reset'))
             }
           }),
