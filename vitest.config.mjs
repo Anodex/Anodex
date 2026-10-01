@@ -35,10 +35,13 @@ export default defineConfig({
     hookTimeout: 30_000
   },
   resolve: {
-    alias: {
-      '@shared': resolve('src/shared'),
-      '@main': resolve('src/main'),
-      '@renderer': resolve('src/renderer')
-    }
+    alias: [
+      { find: '@shared', replacement: resolve('src/shared') },
+      { find: '@main', replacement: resolve('src/main') },
+      { find: '@renderer', replacement: resolve('src/renderer') },
+      // The real package downloads Electron at import time when its binary is
+      // missing; see the stub for why a test must never do that.
+      { find: /^electron$/, replacement: resolve('src/main/__tests__/electronStub.ts') }
+    ]
   }
 })
