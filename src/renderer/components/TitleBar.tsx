@@ -111,6 +111,7 @@ export function TitleBar(): JSX.Element {
           <IconButton
             label={sidebarToggleLabel}
             icon={<Icon name="panel-left" size={18} />}
+            data-tour="sidebar"
             size="sm"
             className={sidebarCollapsed && !overlayOpen ? undefined : styles.activeToggle}
             onClick={toggleSidebar}
@@ -123,6 +124,7 @@ export function TitleBar(): JSX.Element {
         <IconButton
           label="Settings"
           icon={<Icon name="settings" size={18} />}
+          data-tour="settings"
           size="sm"
           onClick={() => openSettings()}
         />

@@ -16,6 +16,7 @@ export function SidebarModeSwitcher({ mode, onChange }: SidebarModeSwitcherProps
         className={`${styles.option} ${mode === 'chats' ? styles.active : ''}`}
         onClick={() => onChange('chats')}
         aria-label="Chats"
+        data-tour="chats"
         aria-pressed={mode === 'chats'}
         title="Chats"
       >
@@ -26,6 +27,7 @@ export function SidebarModeSwitcher({ mode, onChange }: SidebarModeSwitcherProps
         className={`${styles.option} ${mode === 'workspace' ? styles.active : ''}`}
         onClick={() => onChange('workspace')}
         aria-label="Workspace"
+        data-tour="workspace"
         aria-pressed={mode === 'workspace'}
         title="Workspace"
       >

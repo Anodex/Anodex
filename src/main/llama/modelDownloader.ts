@@ -18,6 +18,9 @@ const log = createLogger('downloader')
 const activeDownloads = new Map<string, AbortController>()
 
 /** Abort an in-progress download, if one is running for this model. No-op otherwise. */
+/** The most often a download reports progress to the window. */
+const PROGRESS_INTERVAL_MS = 150
+
 export function cancelDownload(modelId: string): void {
   activeDownloads.get(modelId)?.abort()
 }
@@ -78,6 +81,7 @@ export async function downloadModel(
       projectorPath && existsSync(projectorPath) ? statSync(projectorPath).size : 0
     let currentModelBytes = knownModelBytes
     let currentProjectorBytes = knownProjectorBytes
+    let lastReportAt = 0
     const report = (
       active: 'model' | 'projector',
       received: number,
@@ -85,7 +89,21 @@ export async function downloadModel(
     ): void => {
       if (active === 'model') currentModelBytes = received
       else currentProjectorBytes = received
-      const otherKnown = active === 'model' ? knownProjectorBytes : currentModelBytes
+      // Every network chunk calls this, hundreds of times a second on a fast
+      // line, and each report is an IPC message and a renderer update. That
+      // many kept the window busy enough that a click on Cancel queued behind
+      // them. A few reports a second draw the same bar; the terminal report
+      // below is sent regardless.
+      const now = Date.now()
+      if (now - lastReportAt < PROGRESS_INTERVAL_MS) return
+      lastReportAt = now
+      // While the model streams, the projector still to come counts toward the
+      // total, so the bar matches the size the card quoted and never shrinks
+      // back when the second file starts.
+      const pendingProjectorBytes =
+        projectorPath && !knownProjectorBytes ? (model.visionProjectorBytes ?? 0) : 0
+      const otherKnown =
+        active === 'model' ? knownProjectorBytes + pendingProjectorBytes : currentModelBytes
       onProgress({
         modelId: model.id,
         receivedBytes: currentModelBytes + currentProjectorBytes,
