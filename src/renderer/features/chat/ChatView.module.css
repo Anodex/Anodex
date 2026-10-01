@@ -9,6 +9,9 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
+  /* The scene's corner under the header takes the same curve as the chat
+     panel's, so the constellation reads as a sheet set into the chrome. */
+  border-top-left-radius: var(--radius-lg);
 }
 
 .headerAction,

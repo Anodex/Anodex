@@ -69,6 +69,13 @@ interface ModelLoadOverrides {
 }
 
 /** Local model catalogue plus the live engine state. */
+/**
+ * Downloads the user has asked to stop. Tracked here rather than read from the
+ * `canceled` broadcast, because that broadcast and the download's own result
+ * travel on different IPC channels and either can arrive first.
+ */
+const cancelRequested = new Set<string>()
+
 export const useModelStore = create<ModelState>((set, get) => ({
   models: [],
   engine: INITIAL_ENGINE,
@@ -227,6 +234,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
     try {
       const result = await anodex.models.download(model)
       if (!result.ok) {
+        // A cancel ends the download by aborting it, so it comes back as an
+        // error too. The user asked for it; saying it failed tells them
+        // something went wrong when nothing did.
+        if (cancelRequested.delete(model.id)) {
+          settle('canceled')
+          return
+        }
         settle('error', result.error.detail ?? result.error.message)
         notifyError('Failed to download model', result.error.detail ?? result.error.message)
         return
@@ -237,13 +251,20 @@ export const useModelStore = create<ModelState>((set, get) => ({
         .getState()
         .notify({ kind: 'success', title: 'Model downloaded', message: result.value.name })
     } catch (error) {
+      if (cancelRequested.delete(model.id)) {
+        settle('canceled')
+        return
+      }
       const message = error instanceof Error ? error.message : 'The request failed.'
       settle('error', message)
       notifyError('Failed to download model', message)
+    } finally {
+      cancelRequested.delete(model.id)
     }
   },
 
   cancelDownload: (modelId) => {
+    cancelRequested.add(modelId)
     void anodex.models.cancelDownload(modelId)
   },
 

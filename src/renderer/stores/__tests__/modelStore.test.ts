@@ -160,6 +160,34 @@ describe('downloadModel', () => {
       receivedBytes: 900
     })
   })
+
+  // A cancel comes back from the main process as an aborted, failed download.
+  it('settles a cancel quietly instead of reporting a failure', async () => {
+    let finish: (value: unknown) => void = () => {}
+    download.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+
+    const pending = useModelStore.getState().downloadModel(recommended())
+    useModelStore.getState().cancelDownload('rec-1')
+    finish(err('This operation was aborted'))
+    await pending
+
+    expect(useModelStore.getState().downloads['rec-1'].status).toBe('canceled')
+    expect(notifyError).not.toHaveBeenCalled()
+  })
+
+  it('still reports a real failure after an earlier cancel', async () => {
+    let finish: (value: unknown) => void = () => {}
+    download.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const first = useModelStore.getState().downloadModel(recommended())
+    useModelStore.getState().cancelDownload('rec-1')
+    finish(err('This operation was aborted'))
+    await first
+
+    download.mockResolvedValue(err('404 from the host'))
+    await useModelStore.getState().downloadModel(recommended())
+
+    expect(notifyError).toHaveBeenCalledWith('Failed to download model', expect.any(String))
+  })
 })
 
 describe('engine state', () => {

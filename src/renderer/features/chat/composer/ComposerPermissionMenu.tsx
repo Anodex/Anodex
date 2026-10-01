@@ -1,35 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PermissionMode } from '@shared/settings.types'
-import { Icon, type IconName } from '../../../components/Icon'
+import { Icon } from '../../../components/Icon'
+import {
+  PERMISSION_ACTIVE_CLASS,
+  PERMISSION_MODES,
+  permissionDescription,
+  permissionIcon,
+  permissionLabel
+} from './permissionModes'
 import styles from '../ChatComposer.module.css'
-
-const PERMISSION_MODES: PermissionMode[] = ['ask', 'full', 'untethered']
-
-const PERMISSION_ACTIVE_CLASS: Record<PermissionMode, string> = {
-  ask: 'permActiveAsk',
-  full: 'permActiveFull',
-  untethered: 'permActiveUntethered'
-}
-
-function permissionIcon(mode: PermissionMode): IconName {
-  if (mode === 'untethered') return 'unlock-keyhole'
-  if (mode === 'full') return 'shield-check'
-  return 'shield-question'
-}
-
-function permissionLabel(mode: PermissionMode): string {
-  if (mode === 'untethered') return 'Untethered'
-  // Stored as `full`. Shown as Edits because that is what it allows: "Full" read as
-  // everything allowed, the one thing this mode is not, so it went unused.
-  if (mode === 'full') return 'Edits'
-  return 'Ask'
-}
-
-function permissionDescription(mode: PermissionMode): string {
-  if (mode === 'untethered') return 'auto-runs safe and sensitive actions'
-  if (mode === 'full') return 'edits files and runs read-only checks, asks before other commands'
-  return 'asks before writes and shell commands'
-}
 
 interface ComposerPermissionMenuProps {
   mode: PermissionMode
@@ -66,6 +45,7 @@ export function ComposerPermissionMenu({
         onClick={() => setOpen((value) => !value)}
         title={`Permission mode: ${permissionLabel(mode)} — ${permissionDescription(mode)}`}
         aria-label={`Permission mode: ${permissionLabel(mode)}`}
+        data-tour="permissions"
         aria-haspopup="menu"
         aria-expanded={open}
       >

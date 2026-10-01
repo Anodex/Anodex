@@ -22676,6 +22676,20 @@
             ]
           }
         },
+        "visionProjectorBytes": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
         "tags": {
           "optional": false,
           "type": {

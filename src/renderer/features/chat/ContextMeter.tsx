@@ -101,6 +101,7 @@ export function ContextMeter({ className }: { className?: string } = {}): JSX.El
   return (
     <div
       className={[styles.meter, styles[level], className].filter(Boolean).join(' ')}
+      data-tour="context"
       tabIndex={0}
       aria-describedby={detailsId}
       aria-label={`${summary.join(', ')}, ${info.pct}% of context window`}

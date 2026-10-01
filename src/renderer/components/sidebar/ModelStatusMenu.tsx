@@ -259,6 +259,7 @@ export function ModelStatusMenu(): JSX.Element {
       <button
         type="button"
         className={styles.trigger}
+        data-tour="model-status"
         onClick={() => openSettings('ai-models')}
         title="Model status — click to open AI & Models settings"
       >
@@ -273,6 +274,7 @@ export function ModelStatusMenu(): JSX.Element {
       <button
         type="button"
         className={styles.trigger}
+        data-tour="model-status"
         onClick={() => setOpen((value) => !value)}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}

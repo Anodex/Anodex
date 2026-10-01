@@ -61,6 +61,13 @@ export interface RecommendedModel {
   visionProjectorUrl?: string
   /** Filename used for the locally downloaded projector. */
   visionProjectorFileName?: string
+  /**
+   * The projector's size in bytes, when the catalog reports it. The downloader
+   * fetches the model first and the projector second, and without this the
+   * progress total covers only the model until the projector starts — a bar
+   * that disagrees with `approxSize` and then slips backwards when it grows.
+   */
+  visionProjectorBytes?: number
   /** Broad capability tags for labelling. */
   tags: string[]
   /** Primary reason Anodex would recommend this model. */
