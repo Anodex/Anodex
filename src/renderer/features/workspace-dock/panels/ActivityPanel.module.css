@@ -1,0 +1,101 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 5px var(--space-2);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  animation: rowIn 200ms var(--ease);
+}
+
+.row:hover {
+  background: var(--bg-surface-2);
+}
+
+.status {
+  display: flex;
+  flex-shrink: 0;
+  width: 14px;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.running .status {
+  color: var(--accent);
+}
+
+.error .status {
+  color: var(--danger);
+}
+
+.denied .status {
+  color: var(--text-faint);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.action {
+  flex-shrink: 0;
+  color: var(--text);
+}
+
+.denied .action,
+.denied .target {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+
+.target {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+}
+
+.detail {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.time {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.more {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  text-align: center;
+  color: var(--text-faint);
+}
+
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    animation: none;
+  }
+}

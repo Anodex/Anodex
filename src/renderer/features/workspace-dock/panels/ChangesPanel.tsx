@@ -3,7 +3,7 @@ import type { ChangeSummary } from '@shared/change.types'
 import { anodex } from '../../../lib/anodex'
 import { Spinner } from '../../../components/ui/Spinner'
 import { useProjectStore } from '../../../stores/projectStore'
-import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import styles from './ChangesPanel.module.css'
 
 const STATUS_LABEL: Record<ChangeSummary['status'], string> = {
@@ -49,7 +49,14 @@ export function ChangesPanel(): JSX.Element {
   }
 
   if (changes.length === 0) {
-    return <WorkspaceDockPanel title="Changes">No active changes proposed yet.</WorkspaceDockPanel>
+    return (
+      <WorkspaceDockPanel title="Changes">
+        <DockEmpty icon="diff" title="No change proposals">
+          For bigger work, Anodex can write up a proposal first, saved in the project, and track its
+          tasks here until it is done.
+        </DockEmpty>
+      </WorkspaceDockPanel>
+    )
   }
 
   return (
