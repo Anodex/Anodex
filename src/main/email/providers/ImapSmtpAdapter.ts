@@ -348,7 +348,9 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
         log.warn(`${mailbox} refused a subject search for "${term}".`)
       }
 
-      let uids = searched === false ? [] : searched
+      // `undefined` (imapflow 2 types it; 1 returned it untyped) is a search
+      // that produced nothing, the same as an empty result.
+      let uids: number[] = searched === false || searched === undefined ? [] : searched
 
       if (uids.length === 0) {
         // The server's search disagrees with its own mailbox.
@@ -431,6 +433,8 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
   async getUnreadThreadCount(account: EmailAccount): Promise<number> {
     return this.withClient(account, async (client) => {
       const status = await client.status('INBOX', { unseen: true })
+      // `false` is a server that refused the STATUS command: no count to show.
+      if (status === false) return 0
       return Math.max(0, Math.floor(Number(status.unseen ?? 0)))
     })
   }
@@ -760,7 +764,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     const { mailbox, uid } = parseMessageId(messageId)
     return this.withMailbox(account, mailbox, async (client) => {
       const raw = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true })
-      if (raw === false || !raw.source) {
+      if (!raw || !raw.source) {
         throw new Error(`Message ${messageId} was not found in ${mailbox}.`)
       }
       return { parsed: await simpleParser(raw.source) }

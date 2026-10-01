@@ -52,11 +52,6 @@
       "prettier --write"
     ]
   },
-  "overrides": {
-    "imapflow": {
-      "nodemailer": "^9.1.1"
-    }
-  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -65,16 +60,16 @@
     "diff": "^9.0.0",
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
-    "imapflow": "^1.5.0",
+    "imapflow": "^2.1.2",
     "immer": "^10.1.1",
-    "mailparser": "^3.9.23",
+    "mailparser": "^3.9.32",
     "node-llama-cpp": "^3.4.0",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.0.13",
     "openai": "^6.46.0",
     "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4",
     "selfsigned": "^5.5.0",
-    "undici": "^6.27.0",
+    "undici": "^6.29.0",
     "use-sync-external-store": "^1.6.0",
     "ws": "^8.21.3",
     "zustand": "^5.0.2"
@@ -93,7 +88,7 @@
     "@types/react-dom": "^18.3.5",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^43.4.0",
+    "electron": "^43.5.0",
     "electron-builder": "^26.15.6",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.4",
