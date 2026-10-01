@@ -6,7 +6,7 @@ import { Spinner } from '../../../components/ui/Spinner'
 import { filterFileTree } from '../../../lib/fileTreeSearch'
 import { useProjectStore } from '../../../stores/projectStore'
 import { useFileViewer } from '../../file-viewer/useFileViewer'
-import { WorkspaceDockPanel } from '../WorkspaceDockPanel'
+import { DockEmpty, WorkspaceDockPanel } from '../WorkspaceDockPanel'
 import { FileTreeRow } from './FileTreeRow'
 import styles from './FilesPanel.module.css'
 
@@ -79,7 +79,10 @@ export function FilesPanel(): JSX.Element {
           <Spinner size={14} />
         </div>
       ) : nodes.length === 0 ? (
-        'No session files yet.'
+        <DockEmpty icon="folder" title="This project is empty">
+          Files in the project folder appear here as a tree, each marked with whether you or Anodex
+          last changed it.
+        </DockEmpty>
       ) : visibleNodes && visibleNodes.length === 0 ? (
         <div className={styles.noResults}>No files match &quot;{query.trim()}&quot;.</div>
       ) : (

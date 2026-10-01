@@ -7,17 +7,8 @@ import { diffStats } from '@shared/diffRows'
 import { ChatHtmlPreview } from './ChatHtmlPreview'
 import { ChatImagePreview } from './ChatImagePreview'
 import { DiffView } from './DiffView'
-import { getToolCallDisplay } from './toolCallDisplay'
+import { KIND_ICON, getToolCallDisplay } from './toolCallDisplay'
 import styles from './ToolCallCard.module.css'
-
-const KIND_ICON: Record<ToolCall['kind'], IconName> = {
-  read: 'folder',
-  write: 'copy',
-  command: 'terminal',
-  web: 'web',
-  plan: 'plan',
-  mcp: 'plug'
-}
 
 function statusIcon(call: ToolCall): IconName {
   if (call.status === 'success') return 'check'
