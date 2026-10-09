@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "diff": "^9.0.0",
@@ -104,10 +104,15 @@
     "prettier": "^3.9.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.62.1",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "node-llama-cpp": {
+      "simple-git": "^4.0.2"
+    }
   }
 }
