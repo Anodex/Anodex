@@ -756,10 +756,7 @@ is the thing this file exists to surface.
 - `@napi-rs/canvas-win32-x64-msvc@0.1.100` — declared **MIT** — https://github.com/Brooooooklyn/canvas
 - `@reflink/reflink-win32-x64-msvc@0.1.19` — declared **MIT** — https://github.com/pnpm/reflink
 - `@reflink/reflink@0.1.19` — declared **MIT** — https://github.com/pnpm/reflink
-- `@simple-git/args-pathspec@1.0.3` — declared **MIT** — https://github.com/steveukx/git-js
-- `@simple-git/argv-parser@1.1.1` — declared **MIT** — https://github.com/steveukx/git-js
 - `lazy-val@1.0.5` — declared **MIT** — https://github.com/develar/lazy-val
-- `simple-git@3.36.0` — declared **MIT** — https://github.com/steveukx/git-js
 - `standardwebhooks@1.0.0` — declared **MIT** — https://github.com/standard-webhooks/standard-webhooks
 
 ### Licences and copyright notices
@@ -2534,7 +2531,7 @@ SOFTWARE.
 
 Applies to:
 
-- `@modelcontextprotocol/sdk@1.29.0`
+- `@modelcontextprotocol/sdk@1.32.1`
 
 ```text
 MIT License
@@ -2841,6 +2838,37 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+#### MIT
+
+Applies to:
+
+- `@simple-git/args-pathspec@1.0.4`
+- `@simple-git/argv-parser@2.0.1`
+- `simple-git@4.0.2`
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2025 Steve King
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 #### MIT
@@ -4102,7 +4130,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Applies to:
 
 - `etag@1.8.1`
-- `proxy-addr@2.0.7`
+- `proxy-addr@2.0.8`
 
 ```text
 (The MIT License)
