@@ -9,13 +9,14 @@
   z-index: -1;
 }
 
-/* Scene controls (density / regrow / pause), pinned to the panel's bottom-
-   right corner beside the composer. Deliberately quiet — they should read as
-   part of the backdrop, not compete with real chat controls. */
+/* Scene controls (density / regrow / pause), pinned to the panel's top-right
+   corner. They used to sit bottom-right beside the composer, which at most
+   window widths is under it. Deliberately quiet — they should read as part of
+   the backdrop, not compete with real chat controls. */
 .controls {
   position: absolute;
+  top: var(--space-3);
   right: var(--space-4);
-  bottom: var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-2);
