@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useUiStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -19,10 +19,7 @@ import { SidebarRail } from './sidebar/SidebarRail'
 import { TitleBar } from './TitleBar'
 import { Toasts } from './Toasts'
 import { ChatView } from '../features/chat/ChatView'
-import { SchedulerView } from '../features/scheduler/SchedulerView'
-import { AgentView } from '../features/agent/AgentView'
-import { EmailView } from '../features/email/EmailView'
-import { CriticalThinkingView } from '../features/critical-thinking/CriticalThinkingView'
+import { ScreenLoading } from './ui/ScreenLoading'
 import { SettingsModal } from './SettingsModal'
 import { WorkspaceDock } from '../features/workspace-dock/WorkspaceDock'
 import { useWorkspaceDockProjectId } from '../features/workspace-dock/useWorkspaceDockAvailability'
@@ -31,6 +28,24 @@ import { SafeModeDialog } from '../features/startup/SafeModeDialog'
 import { ContextMenu } from './ContextMenu'
 import { ErrorBoundary } from './ErrorBoundary'
 import styles from './AppShell.module.css'
+
+// Screens a launch mostly never opens are read when first opened, rather than
+// parsed with the chat at startup. Chat stays in the startup bundle: it is the
+// screen every launch shows first.
+const SchedulerView = lazy(() =>
+  import('../features/scheduler/SchedulerView').then((m) => ({ default: m.SchedulerView }))
+)
+const AgentView = lazy(() =>
+  import('../features/agent/AgentView').then((m) => ({ default: m.AgentView }))
+)
+const EmailView = lazy(() =>
+  import('../features/email/EmailView').then((m) => ({ default: m.EmailView }))
+)
+const CriticalThinkingView = lazy(() =>
+  import('../features/critical-thinking/CriticalThinkingView').then((m) => ({
+    default: m.CriticalThinkingView
+  }))
+)
 
 const MIN_SIDEBAR = 200
 const MAX_SIDEBAR = 400
@@ -334,7 +349,9 @@ export function AppShell(): JSX.Element {
         )}
       </div>
       <main className={styles.main}>
-        <ErrorBoundary label={getMainLabel(view)}>{renderMainView(view)}</ErrorBoundary>
+        <ErrorBoundary label={getMainLabel(view)}>
+          <Suspense fallback={<ScreenLoading />}>{renderMainView(view)}</Suspense>
+        </ErrorBoundary>
       </main>
       {isSidebarCollapsed && sidebarOverlayOpen && (
         <div
