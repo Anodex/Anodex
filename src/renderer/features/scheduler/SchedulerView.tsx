@@ -17,6 +17,7 @@ import { SchedulerTaskEditor, type SchedulerTaskEditorSeed } from './SchedulerTa
 import { SchedulerConversation } from './SchedulerConversation'
 import { TodayStrip } from './TodayStrip'
 import { useCountdown } from './useCountdown'
+import { ExampleCards } from '../../components/ExampleCards'
 import styles from './SchedulerView.module.css'
 
 type SortMode = 'nextRun' | 'name'
@@ -426,27 +427,15 @@ export function SchedulerView(): JSX.Element {
 
         <div className={styles.divider} />
 
-        <div className={styles.examples}>
-          <h2 className={styles.examplesTitle}>Get started with an example</h2>
-          <div className={styles.exampleGrid}>
-            {EXAMPLES.map((example) => (
-              <button
-                key={example.title}
-                type="button"
-                className={styles.exampleCard}
-                onClick={() => setCreatingSeed(example.seed)}
-              >
-                <div className={styles.exampleIcon}>
-                  <Icon name={example.icon} size={16} />
-                </div>
-                <div>
-                  <p className={styles.exampleTitle}>{example.title}</p>
-                  <p className={styles.exampleDescription}>{example.description}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+        <ExampleCards
+          title="Get started with an example"
+          examples={EXAMPLES.map((example) => ({
+            icon: example.icon,
+            title: example.title,
+            description: example.description,
+            onSelect: () => setCreatingSeed(example.seed)
+          }))}
+        />
       </div>
 
       {editorOpen && (
