@@ -109,6 +109,7 @@ import { createLogger } from '../utils/logger'
 import { describeLoad } from './modelLoadKey'
 import { createTurnProgress, type TurnProgressSeed } from '../tools/turnProgress'
 import { guardToolHandlers } from './guardedToolDefine'
+import { probeHardwareInChild, type HardwareProbeReport } from './hardwareProbeProcess'
 import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
 import {
   buildCompactionSummaryPrompt,
@@ -2649,16 +2650,37 @@ class LlamaService extends EventEmitter {
     }
   }
 
+  /**
+   * GPU names and llama.cpp's aggregate memory reading.
+   *
+   * From the backend already running when a local model is in use, since it
+   * costs nothing more. Otherwise from a utility process that starts its own
+   * backend and exits: this is asked on every launch by the first-run card,
+   * and starting the backend here only to read a GPU name kept about 65MB of
+   * engine in the main process for people who never load a local model. If
+   * that process fails, the backend is started here as before.
+   */
+  private async readGpuState(): Promise<HardwareProbeReport> {
+    if (!this.llama) {
+      const report = await probeHardwareInChild()
+      if (report) return report
+    }
+    const llama = await this.getLlamaBackend()
+    const [gpuNames, vram] = await Promise.all([
+      llama.getGpuDeviceNames().catch(() => [] as string[]),
+      llama.getVramState().catch(() => null)
+    ])
+    return { gpuNames, vram }
+  }
+
   async getHardwareProbe(): Promise<{
     gpuNames: string[]
     vramBytes: number | null
     unified: boolean
   }> {
     try {
-      const llama = await this.getLlamaBackend()
-      const [gpuNames, vram, devices] = await Promise.all([
-        llama.getGpuDeviceNames().catch(() => [] as string[]),
-        llama.getVramState().catch(() => null),
+      const [{ gpuNames, vram }, devices] = await Promise.all([
+        this.readGpuState(),
         listGpuDevices()
       ])
       // `getVramState()` sums every device, and an integrated GPU's memory is
