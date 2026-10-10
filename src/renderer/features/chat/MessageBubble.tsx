@@ -349,6 +349,7 @@ function MessageBubbleImpl({
                       key={`text-${index}`}
                       content={block.text}
                       sources={message.webSources}
+                      streaming={message.streaming === true}
                     />
                   )
                 }
