@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { anodex } from './lib/anodex'
-import titleLogo from './assets/title-logo.png'
+import titleLogo from './assets/title-logo-256.png'
 import styles from './ToastWindow.module.css'
 
 /**

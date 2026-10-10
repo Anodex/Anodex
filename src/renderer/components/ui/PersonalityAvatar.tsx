@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatPersonality, PersonalityTint } from '@shared/chatPersonality'
 import { ANODEX_PERSONALITY_ID } from '@shared/chatPersonality'
-import appIcon from '../../assets/app-icon.png'
+import appIcon from '../../assets/app-icon-256.png'
 import valeIcon from '../../assets/personalities/vale.png'
 import wrenIcon from '../../assets/personalities/wren.png'
 import cassIcon from '../../assets/personalities/cass.png'

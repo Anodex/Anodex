@@ -25,7 +25,12 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve('src/main/index.ts') }
+        input: {
+          index: resolve('src/main/index.ts'),
+          // Its own small entry: run in a utility process to probe the GPU, so
+          // the llama.cpp backend it starts never stays in the main process.
+          hardwareProbeWorker: resolve('src/main/llama/hardwareProbeWorker.ts')
+        }
       }
     }
   },
