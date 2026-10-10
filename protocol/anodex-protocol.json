@@ -20001,6 +20001,20 @@
               }
             ]
           }
+        },
+        "storageFreeBytes": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
         }
       }
     },

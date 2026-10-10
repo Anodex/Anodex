@@ -13,6 +13,7 @@ import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/sco
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import { Button } from '../../components/ui/Button'
 import { DownloadTour } from './DownloadTour'
+import { downloadShortfallBytes } from './diskSpace'
 import { timeLeftLabel, useDownloadRate } from './downloadRate'
 import styles from './ChatEmptyState.module.css'
 
@@ -42,6 +43,8 @@ interface SpecTile {
   detail?: string
   /** The untrimmed hardware name, for the hover tooltip. */
   full?: string
+  /** Shown in the warning colour: this is what stops the recommendation. */
+  warning?: boolean
 }
 
 /**
@@ -108,11 +111,15 @@ function specTiles(hardware: HardwareInfo, model: RecommendedModel): SpecTile[] 
     })
   }
   if (hardware.storageFree) {
+    const short = downloadShortfallBytes(hardware, model)
     tiles.push({
       icon: 'archive',
       label: 'Free space',
       value: hardware.storageFree,
-      detail: `This model needs ${model.approxSize}`
+      detail: short
+        ? `Needs ${model.approxSize} · ${formatBytes(short)} short`
+        : `This model needs ${model.approxSize}`,
+      warning: short > 0
     })
   }
   return tiles
@@ -242,6 +249,9 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
   const installed = models.find((model) => basename(model.path).toLowerCase() === fileName)
   const progress = downloads[bestOverall.model.id]
   const loading = installed && pendingPath === installed.path
+  // A model already on disk needs no room; one that is not, and would not fit,
+  // must not be offered as the first thing a new user does.
+  const spaceShort = installed ? 0 : downloadShortfallBytes(hardware, bestOverall.model)
 
   const handleAction = async (): Promise<void> => {
     if (installed) {
@@ -291,7 +301,11 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
           <div className={styles.sectionLabel}>Your system</div>
           <div className={styles.specGrid}>
             {specTiles(hardware, bestOverall.model).map((tile) => (
-              <div key={tile.label} className={styles.specTile} title={tile.full}>
+              <div
+                key={tile.label}
+                className={`${styles.specTile} ${tile.warning ? styles.specTileWarning : ''}`}
+                title={tile.full}
+              >
                 <div className={styles.specLabel}>
                   <Icon name={tile.icon} size={12} />
                   {tile.label}
@@ -320,18 +334,29 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
         </div>
       </section>
 
-      <Button
-        variant="primary"
-        className={styles.recommendButton}
-        iconLeft={installed ? undefined : <Icon name="download" size={16} />}
-        loading={loading}
-        onClick={() => void handleAction()}
-      >
-        {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
-      </Button>
+      {spaceShort ? (
+        <>
+          <Button variant="secondary" className={styles.recommendButton} disabled>
+            Not enough space
+          </Button>
+          <p className={styles.spaceNote} role="status">
+            Free {formatBytes(spaceShort)} more on this drive, or pick a smaller model.
+          </p>
+        </>
+      ) : (
+        <Button
+          variant="primary"
+          className={styles.recommendButton}
+          iconLeft={installed ? undefined : <Icon name="download" size={16} />}
+          loading={loading}
+          onClick={() => void handleAction()}
+        >
+          {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
+        </Button>
+      )}
 
       <Button variant="ghost" size="sm" className={styles.recommendLink} onClick={onOpenSettings}>
-        Browse all models
+        {spaceShort ? 'See models that fit' : 'Browse all models'}
       </Button>
     </div>
   )

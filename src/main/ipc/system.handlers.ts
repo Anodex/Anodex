@@ -1,11 +1,13 @@
 import { app, ipcMain } from 'electron'
 import os from 'node:os'
 import fs from 'node:fs'
+import path from 'node:path'
 import { execSync } from 'node:child_process'
 import { IpcChannel } from '@shared/ipc'
 import type { HardwareInfo, SystemInfo } from '@shared/system.types'
 import { llamaService } from '../llama/LlamaService'
 import { anodexVersion } from '../appVersion'
+import { settingsStore } from '../settings/SettingsStore'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -21,22 +23,30 @@ function getCpuName(): string {
   return cpus[0].model.trim()
 }
 
-function getStorageFree(): string | null {
-  try {
-    const target = app.getPath('userData')
-    // statfsSync is available on Node 18.15+ and gives per-filesystem stats.
-    const stats = fs.statfsSync(target)
-    return formatBytes(stats.bfree * stats.bsize)
-  } catch {
-    // Fallback: try the home directory.
+/**
+ * Free space where models download, in bytes, as the user can use it.
+ *
+ * Measured at the models folder rather than the app's data folder, because the
+ * user can point models at another drive, and that is where a download lands.
+ * `bavail`, not `bfree`: `bfree` counts blocks reserved for the system, which an
+ * ordinary user cannot write to, so it overstated room by several percent.
+ */
+export function getStorageFreeBytes(target: string | undefined): number | null {
+  const candidates = [target, app.getPath('userData'), os.homedir()].filter((dir): dir is string =>
+    Boolean(dir)
+  )
+  for (const candidate of candidates) {
+    // A models folder that does not exist yet is measured at its nearest existing parent.
+    let dir = candidate
+    while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
     try {
-      const home = os.homedir()
-      const stats = fs.statfsSync(home)
-      return formatBytes(stats.bfree * stats.bsize)
+      const stats = fs.statfsSync(dir)
+      return Number(stats.bavail) * Number(stats.bsize)
     } catch {
-      return null
+      // try the next place
     }
   }
+  return null
 }
 
 function getOsLabel(): string {
@@ -88,6 +98,7 @@ function getGpuDriver(): string | null {
 
 export async function getHardware(): Promise<HardwareInfo> {
   const probe = await llamaService.getHardwareProbe()
+  const storageFreeBytes = getStorageFreeBytes(settingsStore.get().modelsDirectory)
   return {
     cpu: getCpuName(),
     cores: os.cpus().length,
@@ -99,7 +110,8 @@ export async function getHardware(): Promise<HardwareInfo> {
     vram: probe.vramBytes ? formatBytes(probe.vramBytes) : null,
     vramBytes: probe.vramBytes,
     unifiedMemory: probe.unified,
-    storageFree: getStorageFree()
+    storageFree: storageFreeBytes === null ? null : formatBytes(storageFreeBytes),
+    storageFreeBytes
   }
 }
 
