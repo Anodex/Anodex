@@ -1,4 +1,5 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import { resolveCommandShell } from '../tools/commandShell'
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
@@ -499,7 +500,7 @@ export async function runGeneration(
         // what makes it available to send, not having a project folder open.
         userFiles: request.userFiles ?? [],
         permissionMode: io.permissionModeOverride ?? settings.general.permissionMode,
-        commandShell: settings.general.defaultShell.trim() || undefined,
+        commandShell: resolveCommandShell(settings.general.defaultShell),
         projectId: activeProject?.id ?? null,
         webSearch: settings.webSearch,
         // Linked integrations remain available without interpreting the
