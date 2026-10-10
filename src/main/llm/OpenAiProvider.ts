@@ -1,4 +1,5 @@
-import OpenAI, { APIUserAbortError } from 'openai'
+import type OpenAI from 'openai'
+import { loadOpenAiSdk, isOpenAiAbort } from './sdkModules'
 import type {
   FunctionTool,
   ResponseFunctionToolCall,
@@ -84,7 +85,7 @@ class OpenAiProvider implements LlmProvider {
       )
     }
 
-    const client = new OpenAI({ apiKey })
+    const client = new (await loadOpenAiSdk()).default({ apiKey })
     const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
     const visualInputs = createVisualInputQueue(
       MAX_VISION_INSPECTIONS_PER_RESPONSE,
@@ -222,7 +223,7 @@ class OpenAiProvider implements LlmProvider {
         // Folded before anything below reads `content`, so a round that
         // streamed real text before failing is judged on what it produced.
         content = appendRoundText(content, roundContent)
-        if (params.signal?.aborted || error instanceof APIUserAbortError) {
+        if (params.signal?.aborted || isOpenAiAbort(error)) {
           stopped = true
           break
         }
@@ -410,7 +411,7 @@ export async function summarizeForCompactionOpenAi(
   const apiKey = settings.apiKey.trim()
   if (!apiKey) return null
 
-  const client = new OpenAI({ apiKey })
+  const client = new (await loadOpenAiSdk()).default({ apiKey })
   const model = modelOverride?.trim() || settings.model.trim() || DEFAULT_OPENAI_MODEL
 
   try {
@@ -455,14 +456,14 @@ export async function summarizeForCompactionOpenAi(
  * to show the user; callers just need to catch and relay it.
  */
 export async function verifyOpenAiKey(apiKey: string, model: string): Promise<void> {
-  const client = new OpenAI({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
+  const client = new (await loadOpenAiSdk()).default({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
   try {
     await client.models.retrieve(model)
   } catch (error) {
-    if (error instanceof OpenAI.AuthenticationError) {
+    if (error instanceof (await loadOpenAiSdk()).default.AuthenticationError) {
       throw new Error('Invalid API key.')
     }
-    if (error instanceof OpenAI.NotFoundError) {
+    if (error instanceof (await loadOpenAiSdk()).default.NotFoundError) {
       throw new Error(`Key looks valid, but model "${model}" isn't available on this account.`)
     }
     throw new Error(error instanceof Error ? error.message : 'Could not verify the API key.')
@@ -486,7 +487,10 @@ export async function listOpenAiModels(apiKey: string): Promise<string[]> {
   const key = apiKey.trim()
   if (!key) return []
   try {
-    const client = new OpenAI({ apiKey: key, timeout: VERIFY_KEY_TIMEOUT_MS })
+    const client = new (await loadOpenAiSdk()).default({
+      apiKey: key,
+      timeout: VERIFY_KEY_TIMEOUT_MS
+    })
     const page = await client.models.list()
     return page.data
       .map((model) => model.id)

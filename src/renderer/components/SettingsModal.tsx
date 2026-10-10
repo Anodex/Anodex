@@ -1,9 +1,16 @@
+import { Suspense, lazy } from 'react'
 import { useUiStore } from '../stores/uiStore'
-import { SettingsView } from '../features/settings/SettingsView'
 import { Overlay } from './ui/Overlay'
 import { Icon } from './Icon'
 import { ErrorBoundary } from './ErrorBoundary'
+import { ScreenLoading } from './ui/ScreenLoading'
 import styles from './SettingsModal.module.css'
+
+// Settings is the largest screen in the app and is opened now and then, so it
+// is read the first time it is opened rather than at startup.
+const SettingsView = lazy(() =>
+  import('../features/settings/SettingsView').then((m) => ({ default: m.SettingsView }))
+)
 
 /**
  * Settings as a proper app-level overlay — sits above the whole layout
@@ -32,7 +39,9 @@ export function SettingsModal(): JSX.Element {
         <Icon name="close" size={16} />
       </button>
       <ErrorBoundary label="Settings">
-        <SettingsView />
+        <Suspense fallback={<ScreenLoading />}>
+          <SettingsView />
+        </Suspense>
       </ErrorBoundary>
     </Overlay>
   )

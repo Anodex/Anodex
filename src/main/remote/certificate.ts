@@ -1,5 +1,8 @@
 import { createHash, X509Certificate } from 'node:crypto'
-import selfsigned from 'selfsigned'
+import { lazyImport } from '../utils/lazyImport'
+
+// Certificate generation pulls in a whole ASN.1 stack; only pairing needs it.
+const loadSelfsigned = lazyImport(() => import('selfsigned'))
 
 /**
  * The desktop's TLS identity for remote connections.
@@ -44,7 +47,9 @@ export async function generateRemoteCertificate(commonName = 'Anodex'): Promise<
   const notBeforeDate = new Date()
   const notAfterDate = new Date(notBeforeDate.getTime() + VALIDITY_DAYS * DAY_MS)
 
-  const pems = await selfsigned.generate([{ name: 'commonName', value: commonName }], {
+  const pems = await (
+    await loadSelfsigned()
+  ).generate([{ name: 'commonName', value: commonName }], {
     notBeforeDate,
     notAfterDate,
     keySize: 2048,

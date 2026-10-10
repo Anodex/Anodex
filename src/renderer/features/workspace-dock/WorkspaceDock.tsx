@@ -1,4 +1,11 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useRef,
+  type ComponentType,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react'
 import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import type { KeyboardShortcutMap } from '@shared/settings.types'
 import { Icon } from '../../components/Icon'
@@ -20,10 +27,15 @@ import { GitPanel } from './panels/GitPanel'
 import { FilesPanel } from './panels/FilesPanel'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { OutputsPanel } from './panels/OutputsPanel'
-import { TerminalPanel } from './panels/TerminalPanel'
+import { ScreenLoading } from '../../components/ui/ScreenLoading'
 import styles from './WorkspaceDock.module.css'
 
-const PANEL_COMPONENTS: Record<DockPanelId, () => JSX.Element> = {
+// xterm is a third of a megabyte and only the Terminal tab uses it.
+const TerminalPanel = lazy(() =>
+  import('./panels/TerminalPanel').then((m) => ({ default: m.TerminalPanel }))
+)
+
+const PANEL_COMPONENTS: Record<DockPanelId, ComponentType> = {
   plan: PlanPanel,
   changes: ChangesPanel,
   checkpoints: CheckpointsPanel,
@@ -193,7 +205,9 @@ export function WorkspaceDock(): JSX.Element | null {
           ) : (
             <ErrorBoundary key={panel.id} label={`${panel.label} panel`}>
               <div key={panel.id} className={styles.panelIn}>
-                <Panel />
+                <Suspense fallback={<ScreenLoading />}>
+                  <Panel />
+                </Suspense>
               </div>
             </ErrorBoundary>
           )}

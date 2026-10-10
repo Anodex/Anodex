@@ -1,10 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { app } from 'electron'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
-import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import type { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type {
   McpNewServerConfig,
@@ -20,13 +17,48 @@ import { mcpServerStore } from './McpServerStore'
 import { mcpAuthStore } from './McpAuthStore'
 import { McpOAuthProvider } from './oauth'
 import { diagnosticsReporter } from '../diagnostics/DiagnosticsReporter'
+import { lazyImport } from '../utils/lazyImport'
 
 const log = createLogger('mcp')
 /** Bound a server connection and an individual external tool call separately. */
 const MCP_CONNECT_TIMEOUT_MS = 20_000
 const MCP_TOOL_TIMEOUT_MS = 60_000
-/** `McpError.code` is a plain `number`, so the enum member is widened to compare against it. */
-const REQUEST_TIMEOUT_CODE: number = ErrorCode.RequestTimeout
+/** The protocol's `ErrorCode.RequestTimeout`, written out so reading it does not load the SDK. */
+const REQUEST_TIMEOUT_CODE = -32001
+
+/**
+ * The MCP SDK and its JSON-schema validator are about 27MB once loaded, and
+ * most launches have no MCP server configured. They are read when the first
+ * server connects.
+ */
+const loadMcpSdk = lazyImport(async () => {
+  const [client, stdio, http, auth, types] = await Promise.all([
+    import('@modelcontextprotocol/sdk/client/index.js'),
+    import('@modelcontextprotocol/sdk/client/stdio.js'),
+    import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
+    import('@modelcontextprotocol/sdk/client/auth.js'),
+    import('@modelcontextprotocol/sdk/types.js')
+  ])
+  return {
+    Client: client.Client,
+    StdioClientTransport: stdio.StdioClientTransport,
+    StreamableHTTPClientTransport: http.StreamableHTTPClientTransport,
+    UnauthorizedError: auth.UnauthorizedError,
+    McpError: types.McpError
+  }
+})
+type McpSdk = Awaited<ReturnType<typeof loadMcpSdk>>
+
+/** Only a connection attempt can raise these, so the SDK is loaded by then. */
+function isUnauthorized(error: unknown): boolean {
+  const sdk = loadMcpSdk.loaded()
+  return Boolean(sdk && error instanceof sdk.UnauthorizedError)
+}
+
+function isRequestTimeout(error: unknown): boolean {
+  const sdk = loadMcpSdk.loaded()
+  return Boolean(sdk && error instanceof sdk.McpError && error.code === REQUEST_TIMEOUT_CODE)
+}
 
 export interface McpToolInfo {
   name: string
@@ -102,7 +134,7 @@ class McpManager extends EventEmitter {
       if (this.connectionAttempts.get(config.id) === attempt) {
         this.setStatus({
           id: config.id,
-          status: error instanceof UnauthorizedError ? 'auth-required' : 'error',
+          status: isUnauthorized(error) ? 'auth-required' : 'error',
           error: message
         })
       }
@@ -154,7 +186,7 @@ class McpManager extends EventEmitter {
     } catch (error) {
       // The SDK's message is a bare "Request timed out" — the model reads this
       // as the tool result, so it needs to say which tool.
-      if (error instanceof McpError && error.code === REQUEST_TIMEOUT_CODE) {
+      if (isRequestTimeout(error)) {
         throw new Error(`MCP tool "${toolName}" timed out.`)
       }
       throw error
@@ -259,7 +291,8 @@ class McpManager extends EventEmitter {
   private async connectClient(
     config: McpServerConfig
   ): Promise<{ client: Client; tools: McpToolDescriptor[] }> {
-    const client = new Client(
+    const sdk = await loadMcpSdk()
+    const client = new sdk.Client(
       { name: 'anodex', version: app.getVersion() },
       {
         capabilities: {},
@@ -285,7 +318,7 @@ class McpManager extends EventEmitter {
       }
     )
 
-    const { transport, oauthProvider } = this.buildTransport(config)
+    const { transport, oauthProvider } = this.buildTransport(config, sdk)
     try {
       try {
         await withTimeout(
@@ -294,7 +327,7 @@ class McpManager extends EventEmitter {
           `Connection to "${config.name}" timed out.`
         )
       } catch (error) {
-        if (error instanceof UnauthorizedError && oauthProvider) {
+        if (isUnauthorized(error) && oauthProvider) {
           const code = await oauthProvider.waitForPendingCode()
           await withTimeout(
             (transport as StreamableHTTPClientTransport).finishAuth(code),
@@ -323,7 +356,10 @@ class McpManager extends EventEmitter {
     }
   }
 
-  private buildTransport(config: McpServerConfig): {
+  private buildTransport(
+    config: McpServerConfig,
+    sdk: McpSdk
+  ): {
     transport: Transport
     oauthProvider?: McpOAuthProvider
   } {
@@ -331,7 +367,7 @@ class McpManager extends EventEmitter {
       const [command, ...args] = config.command
       if (!command) throw new Error('Local MCP server command cannot be empty.')
       return {
-        transport: new StdioClientTransport({
+        transport: new sdk.StdioClientTransport({
           command,
           args,
           cwd: config.cwd,
@@ -343,7 +379,7 @@ class McpManager extends EventEmitter {
     const staticToken = mcpAuthStore.get(config.id)?.staticToken
     if (staticToken) {
       return {
-        transport: new StreamableHTTPClientTransport(new URL(config.url), {
+        transport: new sdk.StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: { ...config.headers, Authorization: `Bearer ${staticToken}` } }
         })
       }
@@ -351,7 +387,7 @@ class McpManager extends EventEmitter {
 
     const oauthProvider = new McpOAuthProvider(config.id)
     return {
-      transport: new StreamableHTTPClientTransport(new URL(config.url), {
+      transport: new sdk.StreamableHTTPClientTransport(new URL(config.url), {
         authProvider: oauthProvider,
         requestInit: config.headers ? { headers: config.headers } : undefined
       }),
