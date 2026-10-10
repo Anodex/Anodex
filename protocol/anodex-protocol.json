@@ -1021,6 +1021,29 @@
       }
     },
     {
+      "channel": "chat:project-switched",
+      "kind": "event",
+      "api": "chat.onProjectSwitched",
+      "args": [],
+      "payload": {
+        "kind": "object",
+        "properties": {
+          "conversationId": {
+            "optional": false,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "projectId": {
+            "optional": false,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      }
+    },
+    {
       "channel": "chat:replay-suggestion",
       "kind": "invoke",
       "api": "chat.replaySuggestion",

@@ -30,6 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { requestFolderAccessTool } from './folderAccessTools'
 import {
   listProcessesTool,
   readProcessOutputTool,
@@ -326,6 +327,13 @@ export function buildTools(
   // setting is on and this run is not itself a sub-run, so the capability
   // being present *is* the permission — a chat turn and a delegated run both
   // simply never see the tool, and one level of fan-out cannot recurse.
+  // Only where a reply can carry on into the project the grant creates: the
+  // bounded chat runner supplies `switchProject`; scheduled tasks, agent runs
+  // and Critical Thinking do not, so they never see this tool.
+  if (ctx.switchProject && isEnabled('request_folder_access')) {
+    tools.request_folder_access = requestFolderAccessTool(define, ctx)
+  }
+
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)
   }

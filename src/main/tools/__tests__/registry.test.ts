@@ -88,7 +88,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'list_mailboxes',
   'manage_email',
   'move_email',
-  'batch_email'
+  'batch_email',
+  'request_folder_access'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
