@@ -24,6 +24,7 @@ import {
   normalizeShortcut
 } from '@shared/keyboardShortcuts'
 import { createLogger } from '../utils/logger'
+import { isWindowsOnlyShellElsewhere } from '../tools/commandShell'
 
 const log = createLogger('settings')
 
@@ -99,15 +100,17 @@ class SettingsStore {
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateLegacyContextReplay(
-        migrateLegacyMaxTokens(
-          migrateLegacyGmailAccount(
-            migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+      const migrated = migrateWindowsShellOffWindows(
+        migrateLegacyContextReplay(
+          migrateLegacyMaxTokens(
+            migrateLegacyGmailAccount(
+              migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+              raw
+            ),
             raw
           ),
           raw
-        ),
-        raw
+        )
       )
       // Persist right away so the stray legacy fields (and, on the first pass,
       // their migrated values) only ever need handling once — left on disk,
@@ -127,7 +130,8 @@ class SettingsStore {
         legacyEmailFieldsPresent ||
         (raw.generation as { maxTokens?: number } | undefined)?.maxTokens !== undefined ||
         retired.changed ||
-        legacyContextReplayPresent
+        legacyContextReplayPresent ||
+        migrated.general.defaultShell !== merged.general.defaultShell
       ) {
         try {
           // `persist` encrypts what it is given, and `migrated` still holds the
@@ -327,6 +331,22 @@ export function migrateLegacyMaxTokens(
     }
   }
   return { ...cleaned, provider }
+}
+
+/**
+ * A Windows-only shell stored on another platform reads as the default.
+ *
+ * `powershell` was the shipped default everywhere, so every Linux and macOS
+ * install carries it. `resolveCommandShell` already runs those installs in the
+ * user's own shell, but Settings would go on showing "powershell" for a shell
+ * that is not the one in use. Cleared once, the field shows "System default".
+ */
+export function migrateWindowsShellOffWindows(
+  settings: AppSettings,
+  platform: NodeJS.Platform = process.platform
+): AppSettings {
+  if (!isWindowsOnlyShellElsewhere(settings.general.defaultShell, platform)) return settings
+  return { ...settings, general: { ...settings.general, defaultShell: '' } }
 }
 
 export function migrateLegacyThemeMode(

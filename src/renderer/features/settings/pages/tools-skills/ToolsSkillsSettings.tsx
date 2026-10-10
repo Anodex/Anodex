@@ -106,11 +106,11 @@ export function ToolsSkillsSettings(): JSX.Element {
         <h2 className={pageStyles.sectionTitle}>Tool setup</h2>
         <SettingRow
           label="Default shell"
-          description="Shell used by the run_command tool."
+          description="Shell Anodex runs commands in. Leave empty for your system's own: PowerShell on Windows, your login shell on macOS and Linux."
           control={
             <TextControl
               value={settings.general.defaultShell}
-              placeholder="powershell"
+              placeholder="System default"
               onChange={(value) => void update({ general: { defaultShell: value } })}
             />
           }

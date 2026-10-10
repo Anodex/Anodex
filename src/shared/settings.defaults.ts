@@ -85,7 +85,8 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       permissionMode: 'ask',
       desktopNotifications: false,
       confirmDestructive: true,
-      defaultShell: 'powershell'
+      // Empty means the platform's own shell; see resolveCommandShell.
+      defaultShell: ''
     },
     workspace: {
       root: null
