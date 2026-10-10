@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,6 +43,21 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       return (actual.writeFileSync as (...args: unknown[]) => void)(path, ...rest)
     }) as typeof actual.writeFileSync
+  }
+})
+
+// Conversation saves are written off the main thread, so the same switch has
+// to reach the asynchronous write too.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    writeFile: ((path: string, ...rest: unknown[]) => {
+      if (h.failWritePattern !== null && String(path).includes(h.failWritePattern)) {
+        return Promise.reject(new Error(`simulated write failure: ${path}`))
+      }
+      return (actual.writeFile as (...args: unknown[]) => Promise<void>)(path, ...rest)
+    }) as typeof actual.writeFile
   }
 })
 
@@ -221,24 +236,26 @@ describe('ConversationStore remote saves', () => {
 })
 
 describe('ConversationStore persistence', () => {
-  it('moves the file when a conversation changes project, leaving no duplicate', () => {
+  it('moves the file when a conversation changes project, leaving no duplicate', async () => {
     conversationStore.save(conversation())
+    await conversationStore.whenWritten('chat-1')
     expect(existsSync(filePathFor('general', 'chat-1'))).toBe(true)
 
     conversationStore.save(conversation({ projectId: 'proj1' }))
+    await conversationStore.whenWritten('chat-1')
 
     expect(existsSync(filePathFor('general', 'chat-1'))).toBe(false)
     expect(existsSync(filePathFor('proj1', 'chat-1'))).toBe(true)
     expect(conversationStore.listShallow()).toHaveLength(1)
   })
 
-  it('keeps the original file when the write for a project move fails', () => {
+  it('keeps the original file when the write for a project move fails', async () => {
     conversationStore.save(conversation())
+    await conversationStore.whenWritten('chat-1')
 
     h.failWritePattern = join('conversations', 'proj1')
-    expect(() => conversationStore.save(conversation({ projectId: 'proj1' }))).toThrow(
-      /simulated write failure/
-    )
+    conversationStore.save(conversation({ projectId: 'proj1' }))
+    await expect(conversationStore.whenWritten('chat-1')).rejects.toThrow(/simulated write failure/)
     h.failWritePattern = null
 
     // The conversation must survive: removing the old file before the new one
@@ -588,13 +605,90 @@ describe('ConversationStore project deletion', () => {
     expect(h.abortGeneration).toHaveBeenCalledWith('chat-1')
   })
 
-  it('leaves conversations in other projects untouched', () => {
+  it('leaves conversations in other projects untouched', async () => {
     conversationStore.save(conversation({ id: 'keep', projectId: 'proj2' }))
     conversationStore.save(conversation({ id: 'drop', projectId: 'proj1' }))
 
     conversationStore.deleteByProjectPermanent('proj1')
+    await conversationStore.flush()
 
     expect(conversationStore.listShallow().map((row) => row.conversation.id)).toEqual(['keep'])
     expect(existsSync(filePathFor('proj2', 'keep'))).toBe(true)
+  })
+})
+
+describe('ConversationStore writing off the main thread', () => {
+  it('returns before the file is written, and every read already sees the save', async () => {
+    conversationStore.save(conversation({ title: 'Fresh' }))
+
+    expect(existsSync(filePathFor('general', 'chat-1'))).toBe(false)
+    expect(conversationStore.get('chat-1')?.title).toBe('Fresh')
+
+    await conversationStore.whenWritten('chat-1')
+    expect(existsSync(filePathFor('general', 'chat-1'))).toBe(true)
+  })
+
+  it('collapses a burst of saves into one write of the newest', async () => {
+    for (let turn = 1; turn <= 5; turn++) {
+      conversationStore.save(conversation({ title: `Turn ${turn}`, updatedAt: turn }))
+    }
+    await conversationStore.whenWritten('chat-1')
+
+    const onDisk = JSON.parse(
+      readFileSync(filePathFor('general', 'chat-1'), 'utf-8')
+    ) as Conversation
+    expect(onDisk.title).toBe('Turn 5')
+  })
+
+  it('writes everything still waiting when flushed synchronously on quit', () => {
+    conversationStore.save(conversation({ title: 'Last words' }))
+    conversationStore.flushSync()
+
+    const onDisk = JSON.parse(
+      readFileSync(filePathFor('general', 'chat-1'), 'utf-8')
+    ) as Conversation
+    expect(onDisk.title).toBe('Last words')
+  })
+
+  it('does not let a write already in flight land over a newer synchronous flush', async () => {
+    conversationStore.save(conversation({ title: 'Older' }))
+    // Let the asynchronous write start, then overtake it on quit.
+    await new Promise((resolve) => setImmediate(resolve))
+    conversationStore.save(conversation({ title: 'Newer' }))
+    conversationStore.flushSync()
+    await conversationStore.flush()
+
+    const onDisk = JSON.parse(
+      readFileSync(filePathFor('general', 'chat-1'), 'utf-8')
+    ) as Conversation
+    expect(onDisk.title).toBe('Newer')
+  })
+
+  it('reads an archived chat from its unwritten save, not the older file', () => {
+    conversationStore.save(conversation({ messages: [] }))
+    conversationStore.flushSync()
+    conversationStore.save(
+      conversation({
+        messages: [{ id: 'm1', role: 'user', content: 'keep me', createdAt: 2 }]
+      })
+    )
+    conversationStore.archive('chat-1')
+    conversationStore.restore('chat-1')
+
+    expect(conversationStore.get('chat-1')?.messages.map((message) => message.content)).toEqual([
+      'keep me'
+    ])
+  })
+
+  it('does not put back a permanently deleted chat when its write lands late', async () => {
+    conversationStore.save(conversation())
+    await conversationStore.whenWritten('chat-1')
+    conversationStore.archive('chat-1')
+    // The archive's write is now in flight; the delete happens under it.
+    await new Promise((resolve) => setImmediate(resolve))
+    conversationStore.deletePermanent('chat-1')
+    await conversationStore.flush()
+
+    expect(existsSync(filePathFor('general', 'chat-1'))).toBe(false)
   })
 })
