@@ -9352,6 +9352,67 @@
       }
     },
     {
+      "channel": "web-search:test",
+      "kind": "invoke",
+      "api": "webSearch.test",
+      "args": [
+        {
+          "name": "config",
+          "optional": false,
+          "type": {
+            "$ref": "WebSearchTestConfig"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "object",
+                  "properties": {
+                    "resultCount": {
+                      "optional": false,
+                      "type": {
+                        "kind": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "window:close",
       "kind": "invoke",
       "api": "windowControls.close",
@@ -16993,11 +17054,11 @@
               },
               {
                 "kind": "literal",
-                "value": "model"
+                "value": "provider"
               },
               {
                 "kind": "literal",
-                "value": "provider"
+                "value": "model"
               },
               {
                 "kind": "literal",
@@ -26897,6 +26958,57 @@
           "optional": false,
           "type": {
             "kind": "boolean"
+          }
+        }
+      }
+    },
+    "WebSearchTestConfig": {
+      "kind": "object",
+      "properties": {
+        "provider": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "google"
+              },
+              {
+                "kind": "literal",
+                "value": "none"
+              },
+              {
+                "kind": "literal",
+                "value": "searxng"
+              },
+              {
+                "kind": "literal",
+                "value": "brave"
+              },
+              {
+                "kind": "literal",
+                "value": "tavily"
+              }
+            ]
+          }
+        },
+        "apiKey": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "baseUrl": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "searchEngineId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
           }
         }
       }

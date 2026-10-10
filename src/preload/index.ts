@@ -105,6 +105,9 @@ const api: AnodexApi = {
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Personality.setActive, id),
     image: (id) => ipcRenderer.invoke(IpcChannel.Personality.image, id)
   },
+  webSearch: {
+    test: (config) => ipcRenderer.invoke(IpcChannel.WebSearch.test, config)
+  },
   settings: {
     onChanged: (listener) => subscribe<AppSettings>(IpcChannel.Settings.changed, listener),
     get: () => ipcRenderer.invoke(IpcChannel.Settings.get),
