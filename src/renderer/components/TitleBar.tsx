@@ -13,7 +13,7 @@ import { WorkspaceDockButton } from '../features/workspace-dock/WorkspaceDockBut
 import { SidebarModeSwitcher } from './sidebar/SidebarModeSwitcher'
 import { WhatsNew } from '../features/updates/WhatsNew'
 import { anodex } from '../lib/anodex'
-import titleLogo from '../assets/title-logo.png'
+import titleLogo from '../assets/title-logo-256.png'
 import styles from './TitleBar.module.css'
 
 /** Custom drag region with window controls and app action buttons. */

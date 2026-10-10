@@ -1,5 +1,5 @@
-import titleLogo from '../assets/title-logo.png'
-import appIcon from '../assets/app-icon.png'
+import titleLogo from '../assets/title-logo-256.png'
+import appIcon from '../assets/app-icon-256.png'
 
 interface AnodexLogoProps {
   size?: number
