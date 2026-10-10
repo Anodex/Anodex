@@ -274,6 +274,7 @@ const DIRECT_TOOL_PRIORITY = [
   // `run_command` names `start_process` when it refuses a server, so a window
   // too small to hold it natively still reaches it through the gateway.
   'start_process',
+  'download_file',
   'read_process_output',
   'stop_process',
   // Ahead of the git and stat tools deliberately: those three are each a
@@ -300,6 +301,9 @@ const DIRECT_TOOL_PRIORITY = [
   // email conversation is made of; the other eleven mailbox tools can wait
   // behind the gateway, which is what a gateway is for.
   'anodex_status',
+  // "Do I have Java?" is answered by this or guessed at with platform-specific
+  // shell commands; a chat should not have to reach behind the gateway for it.
+  'check_computer',
   // The Scheduler pair sits with chat's own primaries, directly after the tool
   // that reads Anodex state, because a chat is usually asked about a task and
   // then asked to change it in the same breath.

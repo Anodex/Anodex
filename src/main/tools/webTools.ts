@@ -764,7 +764,7 @@ export function setResolveHostForTests(
 }
 
 /** Parse a URL and reject non-http(s) schemes and private/loopback hosts. */
-function assertPublicUrl(raw: string): URL {
+export function assertPublicUrl(raw: string): URL {
   if (raw.length > MAX_URL_CHARS) throw new Error('URL is too long to fetch safely.')
   let url: URL
   try {
@@ -790,7 +790,7 @@ function assertPublicUrl(raw: string): URL {
  * connection to them (see `pinnedDispatcher`) instead of trusting a second,
  * separate resolution.
  */
-async function assertPublicDns(url: URL, signal: AbortSignal): Promise<string[]> {
+export async function assertPublicDns(url: URL, signal: AbortSignal): Promise<string[]> {
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
   const addresses = isIP(hostname) ? [hostname] : await abortable(resolveHost(hostname), signal)
   if (addresses.length === 0) {

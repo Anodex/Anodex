@@ -398,6 +398,19 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'check_computer',
+    kind: 'read',
+    description:
+      'Check facts about this computer: whether a program is installed and its version, whether a port is free, disk space, and the OS, CPU and memory.'
+  },
+  {
+    name: 'download_file',
+    kind: 'write',
+    description:
+      'Download a file from the web into the project folder, showing its size first; resumes if interrupted. Approval depends on permission mode. Requires an open project.',
+    requiresProject: true
+  },
+  {
     name: 'start_process',
     kind: 'command',
     description:

@@ -294,6 +294,12 @@ Write and mutation tools:
 - Create directories.
 - Delete directories.
 - Run shell commands.
+- Download files into the project (an installer, a server .jar, a dataset). The size and
+  source are shown before asking, every redirect is checked so a link cannot reach the
+  local network, progress shows while it runs, and interrupted downloads resume.
+- Check facts about this computer without shell commands: whether a program is installed
+  and its version, whether a port is free, disk space, and the OS, CPU and memory.
+  Read-only, so it never asks.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.
