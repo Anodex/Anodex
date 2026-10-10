@@ -3,6 +3,70 @@
   flex-direction: column;
 }
 
+.headRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-2);
+  min-width: 0;
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chip,
+.chipMore {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.chip:hover,
+.chipMore:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.chip:focus-visible,
+.chipMore:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.chipMore {
+  font-family: inherit;
+}
+
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipAdded {
+  color: var(--success);
+}
+
+.chipRemoved {
+  color: var(--danger);
+}
+
 .header {
   display: inline-flex;
   align-items: center;

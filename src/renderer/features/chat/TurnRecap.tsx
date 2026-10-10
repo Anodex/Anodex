@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { RenderSegment } from './taskPhase'
 import { Icon } from '../../components/Icon'
 import { formatDuration } from '../../lib/format'
@@ -8,6 +8,8 @@ import { MessageContent } from './MessageContent'
 import { VisualComparison } from './VisualComparison'
 import { latestVisualComparison, type VisualComparisonPair } from './visualComparisonPair'
 import { summarizeWork } from './summarizeWork'
+import { changedFilesOf, type ChangedFile } from './changedFiles'
+import { openWorkspaceFile } from './openWorkspaceFile'
 import styles from './TurnRecap.module.css'
 
 /**
@@ -77,11 +79,23 @@ export function TurnRecap({
     return undefined
   }, [streaming, startedAt])
 
+  // Measured once the run has settled: diffing every changed file on each
+  // quarter-second tick of a live run would be work nobody can see yet.
+  const changedFiles = useMemo(
+    () =>
+      streaming
+        ? []
+        : changedFilesOf(
+            segments.flatMap((segment) => (segment.type === 'toolGroup' ? segment.calls : []))
+          ),
+    [segments, streaming]
+  )
+  const showChips = !streaming && showTotalDuration && changedFiles.length > 0
   const hasRunningCall = calls.some((call) => call.status === 'running')
   const elapsedMs = streaming ? Date.now() - startedAt : (finalDurationMs ?? settledMs ?? 0)
   // Named from the settled calls rather than left as "Work details", which
   // told the reader nothing about whether a turn read one file or rewrote six.
-  const work = summarizeWork(calls)
+  const work = summarizeWork(calls, { omitEdits: showChips })
   const label = streaming
     ? `Working for ${formatDuration(elapsedMs)}`
     : showTotalDuration
@@ -90,20 +104,23 @@ export function TurnRecap({
 
   return (
     <div className={styles.turnHead}>
-      <button
-        type="button"
-        className={styles.header}
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Collapse' : 'Show'} turn activity`}
-      >
-        <Icon
-          name="chevron-right"
-          size={12}
-          className={`${styles.chev} ${expanded ? styles.chevOpen : ''}`}
-        />
-        <span className={styles.label}>{label}</span>
-      </button>
+      <div className={styles.headRow}>
+        <button
+          type="button"
+          className={styles.header}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Show'} turn activity`}
+        >
+          <Icon
+            name="chevron-right"
+            size={12}
+            className={`${styles.chev} ${expanded ? styles.chevOpen : ''}`}
+          />
+          <span className={styles.label}>{label}</span>
+        </button>
+        {showChips && <ChangedFileChips files={changedFiles} onMore={() => setExpanded(true)} />}
+      </div>
 
       {streaming && !expanded && hasRunningCall && (
         <span className={styles.runTrack} aria-hidden="true">
@@ -162,3 +179,48 @@ const TurnSteps = memo(function TurnSteps({
     </div>
   )
 })
+
+/** Most a folded line shows before the rest become a count. */
+const MAX_CHIPS = 3
+
+/**
+ * One chip per file the turn changed, beside the folded "Worked for" line, so
+ * what a turn made is visible without unfolding it; a chip opens its file.
+ */
+function ChangedFileChips({
+  files,
+  onMore
+}: {
+  files: ChangedFile[]
+  onMore: () => void
+}): JSX.Element {
+  const shown = files.slice(0, MAX_CHIPS)
+  const hidden = files.length - shown.length
+  return (
+    <span className={styles.chips}>
+      {shown.map((file) => (
+        <button
+          key={file.path}
+          type="button"
+          className={styles.chip}
+          onClick={() => void openWorkspaceFile(file.path)}
+          title={`Open ${file.path}`}
+        >
+          <Icon name="file" size={11} />
+          <span className={styles.chipName}>{file.name}</span>
+          {file.added !== undefined && file.added > 0 && (
+            <span className={styles.chipAdded}>+{file.added}</span>
+          )}
+          {file.removed !== undefined && file.removed > 0 && (
+            <span className={styles.chipRemoved}>−{file.removed}</span>
+          )}
+        </button>
+      ))}
+      {hidden > 0 && (
+        <button type="button" className={styles.chipMore} onClick={onMore}>
+          +{hidden} more
+        </button>
+      )}
+    </span>
+  )
+}
