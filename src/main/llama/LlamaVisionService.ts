@@ -1,4 +1,4 @@
-import OpenAI, { APIUserAbortError } from 'openai'
+import { loadOpenAiSdk, isOpenAiAbort } from '../llm/sdkModules'
 import { contextPerJob } from '@shared/contextShare'
 import type {
   ChatCompletionCreateParamsNonStreaming,
@@ -356,7 +356,7 @@ export class LlamaVisionService {
     const connection = this.runtime.activeConnection
     const prefix = this.promptPrefixes?.loadRecent(modelPath, index + 1)[index]
     if (!connection || !prefix) return false
-    const client = new OpenAI({
+    const client = new (await loadOpenAiSdk()).default({
       apiKey: connection.apiKey,
       baseURL: connection.baseUrl,
       timeout: 5 * 60_000,
@@ -424,7 +424,7 @@ export class LlamaVisionService {
     const connection = this.runtime.activeConnection
     if (!connection) throw new Error('The local vision model is not loaded.')
 
-    const client = new OpenAI({
+    const client = new (await loadOpenAiSdk()).default({
       apiKey: connection.apiKey,
       baseURL: connection.baseUrl,
       timeout: 15 * 60_000,
@@ -912,7 +912,7 @@ export class LlamaVisionService {
           })
           break
         }
-        if (params.signal?.aborted || error instanceof APIUserAbortError) {
+        if (params.signal?.aborted || isOpenAiAbort(error)) {
           stopped = true
           break
         }
@@ -1352,7 +1352,7 @@ export class LlamaVisionService {
   ): Promise<string> {
     const connection = this.runtime.activeConnection
     if (!connection) throw new Error('The local vision model is not loaded.')
-    const client = new OpenAI({
+    const client = new (await loadOpenAiSdk()).default({
       apiKey: connection.apiKey,
       baseURL: connection.baseUrl,
       timeout: 5 * 60_000,

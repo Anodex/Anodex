@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import { loadOpenAiSdk } from '../llm/sdkModules'
 import type { ChatImageInput } from '@shared/chat.types'
 import { readVisionImageBuffer } from '../vision/imageInputs'
 import { settingsStore } from '../settings/SettingsStore'
@@ -32,7 +32,7 @@ async function generateOpenAiImage(request: GenerateImageRequest): Promise<ChatI
   const apiKey = settingsStore.get().provider.openai.apiKey.trim()
   if (!apiKey) throw new Error('No OpenAI API key configured for image generation.')
 
-  const client = new OpenAI({ apiKey })
+  const client = new (await loadOpenAiSdk()).default({ apiKey })
   // The installed SDK predates GPT Image 2's type declaration. The documented
   // Image API accepts these fields, and the narrow cast keeps the rest of this
   // integration fully typed without pinning Anodex to an older image model.

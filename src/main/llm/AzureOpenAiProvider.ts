@@ -1,4 +1,5 @@
-import { AzureOpenAI } from 'openai'
+import type { AzureOpenAI } from 'openai'
+import { loadOpenAiSdk } from './sdkModules'
 import { VERIFY_KEY_TIMEOUT_MS } from './cloudTimeouts'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
 import { settingsStore } from '../settings/SettingsStore'
@@ -34,7 +35,7 @@ class AzureOpenAiProvider implements LlmProvider {
       )
     }
 
-    const client = buildClient(settings)
+    const client = await buildClient(settings)
     // 'azure' maps to an empty catalog on purpose, so this resolves to the
     // conservative default window — a customer names their own deployment and
     // there is no id to look up. See `CLOUD_MODEL_CATALOGS`.
@@ -42,7 +43,7 @@ class AzureOpenAiProvider implements LlmProvider {
   }
 }
 
-function buildClient(
+async function buildClient(
   settings: {
     apiKey: string
     resourceName: string
@@ -54,7 +55,8 @@ function buildClient(
    * generation, where a short ceiling would abort long legitimate replies.
    */
   timeoutMs?: number
-): AzureOpenAI {
+): Promise<AzureOpenAI> {
+  const { AzureOpenAI } = await loadOpenAiSdk()
   return new AzureOpenAI({
     apiKey: settings.apiKey.trim(),
     endpoint: `https://${settings.resourceName.trim()}.openai.azure.com`,
@@ -79,7 +81,7 @@ export async function summarizeForCompactionAzure(
   const deploymentName = settings.deploymentName.trim()
   if (!apiKey || !resourceName || !deploymentName) return null
 
-  const client = buildClient(settings)
+  const client = await buildClient(settings)
   return summarizeViaChatCompletions(
     client,
     deploymentName,
@@ -104,7 +106,7 @@ export async function verifyAzureKey(
 ): Promise<void> {
   if (!resourceName.trim()) throw new Error('Enter the Azure resource name first.')
   if (!deploymentName.trim()) throw new Error('Enter the deployment name first.')
-  const client = buildClient(
+  const client = await buildClient(
     { apiKey, resourceName, deploymentName, apiVersion },
     VERIFY_KEY_TIMEOUT_MS
   )

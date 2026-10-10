@@ -1,5 +1,9 @@
 import { createServer, type Server as HttpsServer } from 'node:https'
-import { WebSocketServer, type WebSocket } from 'ws'
+import type { WebSocket, WebSocketServer } from 'ws'
+import { lazyImport } from '../utils/lazyImport'
+
+// Read when pairing is switched on, not at every launch.
+const loadWs = lazyImport(() => import('ws'))
 import { createLogger } from '../utils/logger'
 import type { ClientChannel } from '../clients/ClientChannel'
 import { desktopCapabilities } from './capabilities'
@@ -193,7 +197,7 @@ export class RemoteBridge {
       minVersion: 'TLSv1.2'
     })
 
-    const sockets = new WebSocketServer({
+    const sockets = new (await loadWs()).WebSocketServer({
       server,
       maxPayload: MAX_FRAME_BYTES,
       // Compressed, with the window kept between frames, which is what makes a
