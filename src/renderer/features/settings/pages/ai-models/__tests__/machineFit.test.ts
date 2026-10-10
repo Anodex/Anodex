@@ -19,6 +19,7 @@ function machine(overrides: Partial<HardwareInfo>): HardwareInfo {
     vramBytes: null,
     unifiedMemory: false,
     storageFree: null,
+    storageFreeBytes: null,
     ...overrides
   }
 }

@@ -265,7 +265,7 @@ export function scoreRecommendedModel(
  * A model's size read off its download size, in GB. Falls back to what it asks
  * of memory, which is always the larger number and never far off.
  */
-function modelSizeGb(model: RecommendedModel): number {
+export function modelSizeGb(model: RecommendedModel): number {
   const stated = /([\d.]+)\s*GB/i.exec(model.approxSize)
   const size = stated ? Number.parseFloat(stated[1] ?? '') : NaN
   return Number.isFinite(size) && size > 0 ? size : model.minRamGb * 0.6

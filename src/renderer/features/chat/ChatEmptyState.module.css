@@ -294,3 +294,18 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+.specTileWarning {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.specTileWarning .specDetail {
+  color: var(--danger);
+}
+
+.spaceNote {
+  margin: calc(-1 * var(--space-2)) 0 0;
+  font-size: var(--text-xs);
+  text-align: center;
+  color: var(--danger);
+}

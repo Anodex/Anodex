@@ -32,7 +32,8 @@ const hardware: HardwareInfo = {
   vram: '12 GB',
   vramBytes: 12 * 1024 ** 3,
   unifiedMemory: false,
-  storageFree: '100 GB'
+  storageFree: '100 GB',
+  storageFreeBytes: 64 * 1024 ** 3
 }
 
 const engine: EngineState = {

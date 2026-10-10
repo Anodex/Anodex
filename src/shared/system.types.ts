@@ -34,4 +34,6 @@ export interface HardwareInfo {
   unifiedMemory: boolean
   /** Free space on the user data volume, human readable. */
   storageFree: string | null
+  /** Free space where models download, in bytes, usable by this user; null when unknown. */
+  storageFreeBytes: number | null
 }
