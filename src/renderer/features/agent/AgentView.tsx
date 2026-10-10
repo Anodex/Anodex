@@ -33,6 +33,8 @@ import styles from './AgentView.module.css'
 import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
 import { runOutcomeText } from './agentRunFormat'
+import { AGENT_EXAMPLES } from './agentExamples'
+import { ExampleCards } from '../../components/ExampleCards'
 
 /**
  * True for one render pass when a run reaches a terminal status the user
@@ -440,6 +442,7 @@ export function AgentView(): JSX.Element {
 
   const [creating, setCreating] = useState(false)
   const [retrySeed, setRetrySeed] = useState<AgentRunEditorSeed | null>(null)
+  const [exampleSeed, setExampleSeed] = useState<AgentRunEditorSeed | null>(null)
   const [stoppingId, setStoppingId] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -481,6 +484,7 @@ export function AgentView(): JSX.Element {
   const closeEditor = (): void => {
     setCreating(false)
     setRetrySeed(null)
+    setExampleSeed(null)
   }
 
   const retryRun = (run: AgentRun): void => {
@@ -589,8 +593,8 @@ export function AgentView(): JSX.Element {
     }
   }
 
-  const editor = (creating || retrySeed) && (
-    <AgentRunEditor seed={retrySeed ?? undefined} onClose={closeEditor} />
+  const editor = (creating || retrySeed || exampleSeed) && (
+    <AgentRunEditor seed={retrySeed ?? exampleSeed ?? undefined} onClose={closeEditor} />
   )
 
   // Drilled into one run: the whole pane becomes its log, the list a click away.
@@ -680,10 +684,21 @@ export function AgentView(): JSX.Element {
         )}
 
         {runs.length === 0 ? (
-          <div className={styles.empty}>
-            <Icon name="bot" size={40} className={styles.emptyIcon} />
-            <p>No agent runs yet.</p>
-          </div>
+          <>
+            <div className={styles.empty}>
+              <Icon name="bot" size={40} className={styles.emptyIcon} />
+              <p>No agent runs yet.</p>
+            </div>
+            <ExampleCards
+              title="Hand off a goal"
+              examples={AGENT_EXAMPLES.map((example) => ({
+                icon: example.icon,
+                title: example.title,
+                description: example.description,
+                onSelect: () => setExampleSeed(example.seed)
+              }))}
+            />
+          </>
         ) : visibleRuns.length === 0 ? (
           <div className={styles.empty}>
             <p>No {statusFilter} runs.</p>
