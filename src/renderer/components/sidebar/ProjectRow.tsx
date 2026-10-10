@@ -3,6 +3,7 @@ import type { Project } from '@shared/project.types'
 import type { Conversation } from '@shared/conversation.types'
 import { Icon } from '../Icon'
 import { ChatRow } from './ChatRow'
+import { chatRowStatus } from './chatRowStatus'
 import { ProjectActionsMenu } from './ProjectActionsMenu'
 import styles from './ProjectRow.module.css'
 
@@ -123,6 +124,11 @@ export function ProjectRow({
                 projectPath={project.folderPath}
                 running={isConversationRunning(conversation)}
                 unread={isConversationUnread(conversation)}
+                status={chatRowStatus(
+                  conversation,
+                  isConversationRunning(conversation),
+                  isConversationUnread(conversation)
+                )}
                 excerpt={matchExcerpts?.get(conversation.id)}
                 onClick={() => void onSelectConversation(conversation.id)}
                 onRename={(title) => void onRenameConversation(conversation.id, title)}

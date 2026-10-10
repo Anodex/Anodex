@@ -19,6 +19,7 @@ import { StatusDot } from '../ui/StatusDot'
 import { TextPromptDialog } from '../ui/TextPromptDialog'
 import styles from './ChatRow.module.css'
 import { plainTitleLine } from '@shared/titleText'
+import type { ChatRowStatus } from './chatRowStatus'
 
 interface ChatRowProps {
   conversation: Conversation
@@ -38,6 +39,8 @@ interface ChatRowProps {
    * it — a title match needs no explanation, the reason is already visible.
    */
   excerpt?: string
+  /** What it is doing, or what it changed while nobody was looking. See `chatRowStatus`. */
+  status?: ChatRowStatus | null
 }
 
 /** A single chat row with title, relative last-used time, and an optional action. */
@@ -53,7 +56,8 @@ export function ChatRow({
   onOpenProjectFolder,
   running = false,
   unread = false,
-  excerpt
+  excerpt,
+  status
 }: ChatRowProps): JSX.Element {
   const rowRef = useRef<HTMLDivElement>(null)
   const closeTimer = useRef<number | null>(null)
@@ -147,7 +151,20 @@ export function ChatRow({
           <span className={styles.title}>
             {plainTitleLine(conversation.title) || conversation.title}
           </span>
-          {excerpt && <span className={styles.excerpt}>{excerpt}</span>}
+          {excerpt ? (
+            <span className={styles.excerpt}>{excerpt}</span>
+          ) : (
+            status && (
+              <span
+                className={`${styles.status2} ${status.tone === 'live' ? styles.statusLive : ''}`}
+              >
+                {status.tone === 'changed' && (
+                  <span className={styles.changedDot} aria-hidden="true" />
+                )}
+                {status.text}
+              </span>
+            )
+          )}
           {running && (
             <span className={styles.runTrack} aria-hidden="true">
               <span className={styles.runHalo} />

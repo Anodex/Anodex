@@ -432,6 +432,33 @@
 /* Search excerpt — the line of transcript that caused this row to surface.
    Single line by design: the sidebar is a list of chats, not a results page,
    and a wrapping snippet would push the rows around it out of scanning range. */
+/* The second line: what a working chat is doing, or what a finished one changed. */
+.status2 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.statusLive {
+  display: block;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+.changedDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
 .excerpt {
   overflow: hidden;
   font-size: var(--text-xs);
