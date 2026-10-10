@@ -1,4 +1,5 @@
-import Anthropic, { APIUserAbortError } from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
+import { isAnthropicAbort, loadAnthropicSdk } from './sdkModules'
 import type { ChatHistoryTurn, ChatImageInput, GenerationStats } from '@shared/chat.types'
 import { DEFAULT_ANTHROPIC_MODEL } from '@shared/anthropicModels'
 import type { GenerateOutcome, GenerateParams } from '../llama/LlamaService'
@@ -80,7 +81,7 @@ class AnthropicProvider implements LlmProvider {
       )
     }
 
-    const client = new Anthropic({ apiKey })
+    const client = new (await loadAnthropicSdk()).default({ apiKey })
     const model = params.modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
     const visualInputs = createVisualInputQueue(
       MAX_VISION_INSPECTIONS_PER_RESPONSE,
@@ -220,7 +221,7 @@ class AnthropicProvider implements LlmProvider {
         // Folded before anything below reads `content`, so a round that
         // streamed real text before failing is judged on what it produced.
         content = appendRoundText(content, roundContent)
-        if (params.signal?.aborted || error instanceof APIUserAbortError) {
+        if (params.signal?.aborted || isAnthropicAbort(error)) {
           stopped = true
           break
         }
@@ -438,7 +439,7 @@ export async function summarizeForCompactionAnthropic(
   const apiKey = settings.apiKey.trim()
   if (!apiKey) return null
 
-  const client = new Anthropic({ apiKey })
+  const client = new (await loadAnthropicSdk()).default({ apiKey })
   const model = modelOverride?.trim() || settings.model.trim() || DEFAULT_ANTHROPIC_MODEL
 
   try {
@@ -485,14 +486,14 @@ export async function summarizeForCompactionAnthropic(
  * to show the user; callers just need to catch and relay it.
  */
 export async function verifyAnthropicKey(apiKey: string, model: string): Promise<void> {
-  const client = new Anthropic({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
+  const client = new (await loadAnthropicSdk()).default({ apiKey, timeout: VERIFY_KEY_TIMEOUT_MS })
   try {
     await client.models.retrieve(model)
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
+    if (error instanceof (await loadAnthropicSdk()).default.AuthenticationError) {
       throw new Error('Invalid API key.')
     }
-    if (error instanceof Anthropic.NotFoundError) {
+    if (error instanceof (await loadAnthropicSdk()).default.NotFoundError) {
       throw new Error(`Key looks valid, but model "${model}" isn't available on this account.`)
     }
     throw new Error(error instanceof Error ? error.message : 'Could not verify the API key.')

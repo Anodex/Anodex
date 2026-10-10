@@ -1,4 +1,5 @@
-import OpenAI, { APIUserAbortError } from 'openai'
+import type OpenAI from 'openai'
+import { loadOpenAiSdk, isOpenAiAbort } from './sdkModules'
 import type {
   ChatCompletionAssistantMessageParam,
   ChatCompletionContentPart,
@@ -126,7 +127,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       )
     }
 
-    const client = new OpenAI({ apiKey, baseURL: this.config.baseURL })
+    const client = new (await loadOpenAiSdk()).default({ apiKey, baseURL: this.config.baseURL })
     const model = params.modelOverride?.trim() || settings.model.trim() || this.config.defaultModel
     return runChatCompletionsLoop(
       client,
@@ -288,7 +289,7 @@ export async function runChatCompletionsLoop(
       // Folded before anything below reads `content`, so a round that streamed
       // real text before failing is judged on what it produced.
       content = appendRoundText(content, roundContent)
-      if (params.signal?.aborted || error instanceof APIUserAbortError) {
+      if (params.signal?.aborted || isOpenAiAbort(error)) {
         stopped = true
         break
       }
@@ -578,7 +579,7 @@ export async function summarizeForCompactionOpenAiCompatible(
   const apiKey = settings.apiKey.trim()
   if (!apiKey) return null
 
-  const client = new OpenAI({ apiKey, baseURL: config.baseURL })
+  const client = new (await loadOpenAiSdk()).default({ apiKey, baseURL: config.baseURL })
   const model = modelOverride?.trim() || settings.model.trim() || config.defaultModel
   return summarizeViaChatCompletions(client, model, config.displayName, transcript, previousSummary)
 }
@@ -599,10 +600,10 @@ export async function verifyKeyViaModelsRetrieve(client: OpenAI, model: string):
   try {
     await client.models.retrieve(model)
   } catch (error) {
-    if (error instanceof OpenAI.AuthenticationError) {
+    if (error instanceof (await loadOpenAiSdk()).default.AuthenticationError) {
       throw new Error('Invalid API key.')
     }
-    if (error instanceof OpenAI.NotFoundError) {
+    if (error instanceof (await loadOpenAiSdk()).default.NotFoundError) {
       throw new Error(`Key looks valid, but model "${model}" isn't available on this account.`)
     }
     throw new Error(error instanceof Error ? error.message : 'Could not verify the API key.')
@@ -614,7 +615,7 @@ export async function verifyOpenAiCompatibleKey(
   apiKey: string,
   model: string
 ): Promise<void> {
-  const client = new OpenAI({
+  const client = new (await loadOpenAiSdk()).default({
     apiKey,
     baseURL: config.baseURL,
     timeout: VERIFY_KEY_TIMEOUT_MS

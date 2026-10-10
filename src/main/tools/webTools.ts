@@ -1,7 +1,8 @@
 import { lookup } from 'node:dns/promises'
 import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
-import { Agent } from 'undici'
+import type { Agent } from 'undici'
+import { lazyImport } from '../utils/lazyImport'
 import { htmlToReadableText } from './htmlToText'
 import type { EvidencePassage, WebFetchArtifactDraft } from '@shared/toolArtifacts.types'
 import type { ToolFactory } from './types'
@@ -222,7 +223,7 @@ async function fetchUrl(rawUrl: string, signal?: AbortSignal): Promise<FetchedPa
         throw new Error('Too many redirects.')
       }
       const addresses = await assertPublicDns(current, controller.signal)
-      const dispatcher = pinnedDispatcher(addresses)
+      const dispatcher = await pinnedDispatcher(addresses)
       try {
         const response = await fetch(current.toString(), {
           signal: controller.signal,
@@ -725,8 +726,12 @@ function extractHtmlTitle(html: string): string {
   return truncate(match?.[1].replace(/\s+/g, ' ').trim() ?? '', MAX_TITLE_CHARS)
 }
 
+/** Read on the first page fetch: undici is a hundred modules most launches never use. */
+const loadUndici = lazyImport(() => import('undici'))
+
 /** An undici dispatcher whose connections are pinned to pre-validated addresses. */
-function pinnedDispatcher(addresses: string[]): Agent {
+async function pinnedDispatcher(addresses: string[]): Promise<Agent> {
+  const { Agent } = await loadUndici()
   const records = addresses.map((address) => ({
     address,
     family: address.includes(':') ? 6 : 4

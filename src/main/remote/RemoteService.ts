@@ -19,7 +19,10 @@ import {
   releasePortMapping,
   requestPortMapping
 } from './natpmp'
-import QRCode from 'qrcode'
+import { lazyImport } from '../utils/lazyImport'
+
+// Only a pairing screen draws a QR code.
+const loadQrCode = lazyImport(() => import('qrcode'))
 import { createLogger } from '../utils/logger'
 import { fingerprintOf, generateRemoteCertificate, type RemoteCertificate } from './certificate'
 import { type RemoteFarewell } from '@shared/remoteFarewell'
@@ -537,7 +540,9 @@ export class RemoteService {
       //
       // Rendered larger than it is displayed, so enlarging it stays sharp rather
       // than being upscaled from 320px.
-      qrDataUrl: await QRCode.toDataURL(uri, {
+      qrDataUrl: await (
+        await loadQrCode()
+      ).toDataURL(uri, {
         errorCorrectionLevel: 'M',
         margin: 2,
         width: 640,

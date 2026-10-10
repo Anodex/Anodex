@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { ImapFlow, type FetchMessageObject, type MailboxLockObject } from 'imapflow'
-import { simpleParser, type ParsedMail } from 'mailparser'
-import { createTransport, type SendMailOptions } from 'nodemailer'
+import type { FetchMessageObject, ImapFlow, MailboxLockObject } from 'imapflow'
+import type { ParsedMail } from 'mailparser'
+import type { SendMailOptions } from 'nodemailer'
+import { lazyImport } from '../../utils/lazyImport'
 import type {
   EmailAccount,
   EmailAttachmentSummary,
@@ -23,6 +24,12 @@ import { buildMimeMessage, htmlToPlainText } from '../mime'
 import { sanitizeEmailHtml, type InlineImage } from '../htmlBody'
 import { emailAuthStore } from '../EmailAuthStore'
 import { createLogger } from '../../utils/logger'
+
+// The mail libraries are about 35MB once loaded, and most launches never open
+// a mailbox. They are read when an account first connects or sends.
+const loadImapFlow = lazyImport(() => import('imapflow'))
+const loadMailParser = lazyImport(() => import('mailparser'))
+const loadNodemailer = lazyImport(() => import('nodemailer'))
 
 const log = createLogger('email:imap')
 
@@ -165,7 +172,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
         // A truncated source is not a complete MIME document; mailparser
         // tolerates that and returns whatever it could read, which is all a
         // preview needs.
-        const parsed = await simpleParser(raw.source)
+        const parsed = await (await loadMailParser()).simpleParser(raw.source)
         const text = parsed.text?.trim() || (parsed.html ? htmlToPlainText(parsed.html) : '')
         thread.snippet = text.replace(/\s+/g, ' ').slice(0, SNIPPET_CHARS).trim()
       }
@@ -463,7 +470,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     const smtp = requireEndpoint(account.smtp, account, 'SMTP')
     const password = requirePassword(account)
 
-    const transport = createTransport({
+    const transport = (await loadNodemailer()).createTransport({
       host: smtp.host,
       port: smtp.port,
       secure: smtp.security === 'tls',
@@ -534,10 +541,14 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       // Composed through nodemailer rather than `buildMimeMessage`, which emits
       // no From, Date or Message-ID — Gmail's API adds those server-side, so
       // its output would file as a headerless message here.
-      const composed = await createTransport({
-        streamTransport: true,
-        buffer: true
-      }).sendMail(mail)
+      const composed = await (
+        await loadNodemailer()
+      )
+        .createTransport({
+          streamTransport: true,
+          buffer: true
+        })
+        .sendMail(mail)
       const raw = (composed as { message?: unknown }).message
       if (!Buffer.isBuffer(raw)) return
 
@@ -767,7 +778,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       if (!raw || !raw.source) {
         throw new Error(`Message ${messageId} was not found in ${mailbox}.`)
       }
-      return { parsed: await simpleParser(raw.source) }
+      return { parsed: await (await loadMailParser()).simpleParser(raw.source) }
     })
   }
 
@@ -867,7 +878,7 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     const imap = requireEndpoint(account.imap, account, 'IMAP')
     const password = replacementPassword ?? requirePassword(account)
 
-    const client = new ImapFlow({
+    const client = new (await loadImapFlow()).ImapFlow({
       host: imap.host,
       port: imap.port,
       secure: imap.security === 'tls',
@@ -1195,7 +1206,7 @@ async function fromSource(
   mailbox: string
 ): Promise<EmailMessage> {
   if (!raw.source) return fromEnvelope(raw, account, mailbox)
-  const parsed = await simpleParser(raw.source)
+  const parsed = await (await loadMailParser()).simpleParser(raw.source)
   const html = typeof parsed.html === 'string' ? parsed.html : ''
   const body = parsed.text?.trim() || (html ? htmlToPlainText(html) : '')
   const subject = parsed.subject ?? ''
