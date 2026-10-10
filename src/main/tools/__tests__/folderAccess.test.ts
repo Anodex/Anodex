@@ -68,3 +68,14 @@ describe('sameFolder', () => {
     expect(sameFolder('/home/sam/game/', '/home/sam/game', 'linux')).toBe(true)
   })
 })
+
+describe("the user's own temp folder", () => {
+  it('is allowed even where it sits under a system folder, as on macOS', () => {
+    const mac = { home: '/Users/sam', temp: '/var/folders/36/xyz/T' }
+    expect(resolveRequestedFolder('/var/folders/36/xyz/T/scratch', mac, 'darwin')).toEqual({
+      ok: true,
+      path: '/var/folders/36/xyz/T/scratch'
+    })
+    expect(resolveRequestedFolder('/var/log', mac, 'darwin')).toMatchObject({ ok: false })
+  })
+})

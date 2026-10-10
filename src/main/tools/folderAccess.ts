@@ -1,8 +1,10 @@
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 
 /** Folders a request may name by their everyday name instead of a path. */
-export type KnownFolders = Partial<Record<'desktop' | 'documents' | 'downloads' | 'home', string>>
+export type KnownFolders = Partial<
+  Record<'desktop' | 'documents' | 'downloads' | 'home' | 'temp', string>
+>
 
 type PathApi = typeof path.posix
 
@@ -64,7 +66,7 @@ export function resolveRequestedFolder(
   }
   target = p.resolve(target)
 
-  const refused = tooBroadReason(target, home, platform, env)
+  const refused = tooBroadReason(target, home, known.temp ?? tmpdir(), platform, env)
   return refused ? { ok: false, reason: refused } : { ok: true, path: target }
 }
 
@@ -114,6 +116,7 @@ function systemFolders(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): strin
 function tooBroadReason(
   target: string,
   home: string,
+  temp: string,
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv
 ): string | null {
@@ -125,6 +128,10 @@ function tooBroadReason(
   if (norm === normalize(home, platform)) {
     return 'That is your whole home folder. Ask for the folder the work belongs in instead.'
   }
+  // The user's own temp folder is theirs to work in, even where it sits under
+  // a system folder: on macOS it is inside /var/folders.
+  const tempRoot = normalize(temp, platform)
+  if (norm !== tempRoot && norm.startsWith(tempRoot + p.sep)) return null
   for (const folder of systemFolders(platform, env)) {
     const root = normalize(folder, platform)
     if (norm === root || norm.startsWith(root + p.sep)) {
