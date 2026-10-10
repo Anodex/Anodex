@@ -72,10 +72,11 @@
   min-width: 0;
 }
 
+/* Wraps rather than truncating: "Lifetime tokens" and "Favorite model" were
+   cut to "LIFETIME TO…" and "FAVORITE M…" at ordinary widths. */
 .statLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
   font-size: var(--text-xs);
   color: var(--text-faint);
   text-transform: uppercase;
@@ -188,4 +189,11 @@
   .lowerGrid {
     grid-template-columns: 1fr;
   }
+}
+
+.emptyActivity {
+  padding: var(--space-6) var(--space-4);
+  font-size: var(--text-sm);
+  text-align: center;
+  color: var(--text-muted);
 }
