@@ -9,6 +9,7 @@ import { AnodexLogo } from '../../components/AnodexLogo'
 import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
 import { formatBytes } from '../../lib/format'
+import { shortHardwareName } from '../../lib/hardwareName'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
 import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
 import { Button } from '../../components/ui/Button'
@@ -45,22 +46,6 @@ interface SpecTile {
   full?: string
   /** Shown in the warning colour: this is what stops the recommendation. */
   warning?: boolean
-}
-
-/**
- * Hardware names as the OS reports them carry filler that pushes the part that
- * identifies the chip off the end of a small tile: "12-Core Processor" repeats
- * the core count shown above it, Intel adds trademark marks and a clock, and Mesa
- * appends its driver in parentheses.
- */
-function shortHardwareName(name: string): string {
-  return name
-    .replace(/\((R|TM)\)/gi, '')
-    .replace(/\s*\(.*\)\s*$/, '')
-    .replace(/\s+@\s*[\d.]+\s*GHz$/i, '')
-    .replace(/\s+\d+-Core Processor$/i, '')
-    .replace(/\s+(Processor|CPU)$/i, '')
-    .trim()
 }
 
 /**

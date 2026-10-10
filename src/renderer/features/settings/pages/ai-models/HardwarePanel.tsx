@@ -3,6 +3,7 @@ import type { HardwareInfo } from '@shared/system.types'
 import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { Spinner } from '../../../../components/ui/Spinner'
+import { shortHardwareName } from '../../../../lib/hardwareName'
 import { hardwareFitLabel, scoreHardwareProfile } from './scoring'
 import styles from './AiModelsSettings.module.css'
 
@@ -62,10 +63,14 @@ export function HardwarePanel({
             </div>
 
             <div className={styles.hardwareGrid}>
-              <Spec label="CPU" value={hardware.cpu} />
+              <Spec label="CPU" value={shortHardwareName(hardware.cpu)} full={hardware.cpu} />
               <Spec label="Cores" value={String(hardware.cores)} />
               <Spec label="RAM" value={hardware.ram} />
-              <Spec label="GPU" value={hardware.gpu ?? 'Not detected'} />
+              <Spec
+                label="GPU"
+                value={hardware.gpu ? shortHardwareName(hardware.gpu) : 'Not detected'}
+                full={hardware.gpu ?? undefined}
+              />
               <Spec label="GPU driver" value={hardware.gpuDriver ?? 'Not detected'} />
               <Spec label="VRAM" value={hardware.vram ?? 'Not detected'} />
               <Spec label="Free storage" value={hardware.storageFree ?? 'Unknown'} />
@@ -78,11 +83,20 @@ export function HardwarePanel({
   )
 }
 
-function Spec({ label, value }: { label: string; value: string }): JSX.Element {
+/** One reading. `full` is the name exactly as the OS reported it, kept for the tooltip. */
+function Spec({
+  label,
+  value,
+  full
+}: {
+  label: string
+  value: string
+  full?: string
+}): JSX.Element {
   return (
     <div className={styles.spec}>
       <div className={styles.specLabel}>{label}</div>
-      <div className={styles.specValue} title={value}>
+      <div className={styles.specValue} title={full ?? value}>
         {value}
       </div>
     </div>
