@@ -20,6 +20,7 @@ import type { McpServerState } from '@shared/mcp.types'
 import type { DiagnosticEntry, AppSettings } from '@shared/settings.types'
 import type { ProjectsState } from '@shared/project.types'
 import type { RemoteStatus } from '@shared/remote.types'
+import type { BackgroundProcessInfo } from '@shared/process.types'
 
 /**
  * The single, typed surface the renderer is allowed to touch. Exposed on
@@ -104,6 +105,13 @@ const api: AnodexApi = {
     list: () => ipcRenderer.invoke(IpcChannel.Personality.list),
     setActive: (id) => ipcRenderer.invoke(IpcChannel.Personality.setActive, id),
     image: (id) => ipcRenderer.invoke(IpcChannel.Personality.image, id)
+  },
+  processes: {
+    list: (projectId) => ipcRenderer.invoke(IpcChannel.Processes.list, projectId),
+    output: (id) => ipcRenderer.invoke(IpcChannel.Processes.output, id),
+    stop: (id) => ipcRenderer.invoke(IpcChannel.Processes.stop, id),
+    onChanged: (listener) =>
+      subscribe<BackgroundProcessInfo>(IpcChannel.Processes.changed, listener)
   },
   webSearch: {
     test: (config) => ipcRenderer.invoke(IpcChannel.WebSearch.test, config)

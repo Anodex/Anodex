@@ -5,6 +5,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useProjectStore } from '../../stores/projectStore'
 import { activityOf, isWorking, outputsOf, planProgress } from './dockActivity'
 import { useWorkspaceDockProjectId } from './useWorkspaceDockAvailability'
+import { useBackgroundProcesses } from './useBackgroundProcesses'
 
 const CHANGE_TOOLS = new Set(['propose_change', 'update_change_task', 'archive_change'])
 
@@ -19,6 +20,8 @@ export interface DockStatus {
   changeCount: number | null
   checkpointCount: number | null
   git: GitWorkspaceStatus | null
+  /** Background processes still running for the project. */
+  runningProcesses: number
 }
 
 /**
@@ -36,6 +39,8 @@ export function useDockStatus(): DockStatus {
   const [changeCount, setChangeCount] = useState<number | null>(null)
   const [checkpointCount, setCheckpointCount] = useState<number | null>(null)
   const [git, setGit] = useState<GitWorkspaceStatus | null>(null)
+  const processes = useBackgroundProcesses(projectId)
+  const runningProcesses = processes.filter((info) => info.status === 'running').length
 
   const refreshChanges = useCallback(async () => {
     const changes = await anodex.changes.list(activeProjectId)
@@ -85,7 +90,8 @@ export function useDockStatus(): DockStatus {
       outputCount: outputsOf(activity).length,
       changeCount,
       checkpointCount,
-      git
+      git,
+      runningProcesses
     }
-  }, [conversation, changeCount, checkpointCount, git])
+  }, [conversation, changeCount, checkpointCount, git, runningProcesses])
 }

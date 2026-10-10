@@ -269,6 +269,13 @@ const DIRECT_TOOL_PRIORITY = [
   'show_image',
   'create_directory',
   'run_project_check',
+  // After the builder loop, not in it: on a small window the first ten must
+  // stay read-edit-run, and a dev server is the step after something works.
+  // `run_command` names `start_process` when it refuses a server, so a window
+  // too small to hold it natively still reaches it through the gateway.
+  'start_process',
+  'read_process_output',
+  'stop_process',
   // Ahead of the git and stat tools deliberately: those three are each a
   // `run_command` away (`git diff`, `git status`, `dir`), so deferring one
   // costs a slightly longer call. Nothing in the catalogue substitutes for web

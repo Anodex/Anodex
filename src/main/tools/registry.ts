@@ -30,6 +30,12 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import {
+  listProcessesTool,
+  readProcessOutputTool,
+  startProcessTool,
+  stopProcessTool
+} from './processTools'
 import { runProjectCheckTool } from './diagnosticsTools'
 import { createDirectoryTool, deleteDirectoryTool } from './directoryTools'
 import { gitStatusTool, gitDiffTool } from './gitTools'
@@ -118,6 +124,8 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   create_directory: createDirectoryTool,
   delete_directory: deleteDirectoryTool,
   run_command: runCommandTool,
+  start_process: startProcessTool,
+  stop_process: stopProcessTool,
   run_project_check: runProjectCheckTool,
   update_project_notes: updateProjectNotesTool,
   propose_change: proposeChangeTool,
@@ -135,7 +143,9 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
  * deliberately a project action" framing doesn't misdescribe a read tool.
  */
 const PROJECT_READ_ONLY_FACTORIES: Record<string, WorkspaceToolFactory> = {
-  search_code: searchCodeTool
+  search_code: searchCodeTool,
+  list_processes: listProcessesTool,
+  read_process_output: readProcessOutputTool
 }
 
 /**

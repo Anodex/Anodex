@@ -1,7 +1,15 @@
 import type { IconName } from '../../components/Icon'
 
 export type DockPanelId =
-  'plan' | 'changes' | 'checkpoints' | 'git' | 'files' | 'activity' | 'outputs' | 'terminal'
+  | 'plan'
+  | 'changes'
+  | 'checkpoints'
+  | 'git'
+  | 'files'
+  | 'activity'
+  | 'outputs'
+  | 'processes'
+  | 'terminal'
 
 export interface DockPanelConfig {
   id: DockPanelId
@@ -17,5 +25,6 @@ export const DOCK_PANELS: DockPanelConfig[] = [
   { id: 'files', label: 'Files', icon: 'folder' },
   { id: 'activity', label: 'Activity', icon: 'activity' },
   { id: 'outputs', label: 'Outputs', icon: 'file' },
+  { id: 'processes', label: 'Processes', icon: 'zap' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' }
 ]

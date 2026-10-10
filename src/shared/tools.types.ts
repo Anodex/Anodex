@@ -398,6 +398,33 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'start_process',
+    kind: 'command',
+    description:
+      'Start a long-running command (dev server, watcher, local app) and keep it running in the background until stopped or Anodex quits. Approval depends on permission mode and risk. Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'stop_process',
+    kind: 'command',
+    description:
+      'Stop a background process Anodex started for this project, and everything it started (no approval needed). Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'list_processes',
+    kind: 'read',
+    description:
+      'List the background processes started for this project. Requires an open project.',
+    requiresProject: true
+  },
+  {
+    name: 'read_process_output',
+    kind: 'read',
+    description: 'Read the recent output of a background process. Requires an open project.',
+    requiresProject: true
+  },
+  {
     name: 'run_project_check',
     kind: 'command',
     description:

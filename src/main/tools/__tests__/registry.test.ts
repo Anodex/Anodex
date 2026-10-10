@@ -35,6 +35,8 @@ const PROJECT_WORKSPACE_TOOLS = [
   'create_directory',
   'delete_directory',
   'run_command',
+  'start_process',
+  'stop_process',
   'run_project_check',
   'update_project_notes',
   'propose_change',
@@ -96,7 +98,7 @@ const SESSION_VISUAL_WORKSPACE_TOOLS = ['computer_control']
 const EMAIL_VISUAL_TOOLS = ['view_email_attachment']
 
 /** Read-only, but project-gated (see `PROJECT_READ_ONLY_FACTORIES` in registry.ts). */
-const PROJECT_READ_ONLY_TOOLS = ['search_code']
+const PROJECT_READ_ONLY_TOOLS = ['search_code', 'list_processes', 'read_process_output']
 
 describe('buildTools', () => {
   it('registers only read-only workspace tools when no project is open', () => {

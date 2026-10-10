@@ -27,6 +27,7 @@ import { GitPanel } from './panels/GitPanel'
 import { FilesPanel } from './panels/FilesPanel'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { OutputsPanel } from './panels/OutputsPanel'
+import { ProcessesPanel } from './panels/ProcessesPanel'
 import { ScreenLoading } from '../../components/ui/ScreenLoading'
 import styles from './WorkspaceDock.module.css'
 
@@ -43,6 +44,7 @@ const PANEL_COMPONENTS: Record<DockPanelId, ComponentType> = {
   files: FilesPanel,
   activity: ActivityPanel,
   outputs: OutputsPanel,
+  processes: ProcessesPanel,
   terminal: TerminalPanel
 }
 
@@ -67,6 +69,8 @@ function badgeFor(panel: DockPanelId, status: DockStatus): string | null {
       return status.git?.filesChanged ? String(status.git.filesChanged) : null
     case 'outputs':
       return status.outputCount ? String(status.outputCount) : null
+    case 'processes':
+      return status.runningProcesses ? String(status.runningProcesses) : null
     default:
       return null
   }

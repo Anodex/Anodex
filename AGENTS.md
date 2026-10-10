@@ -152,6 +152,8 @@ The catalog shown in Settings is `TOOL_CATALOG` in `src/shared/tools.types.ts`.
    - File mutations → `mutationTools.ts`
    - Directory mutations → `directoryTools.ts`
    - Shell commands → `commandTools.ts`
+   - Long-running background processes → `processTools.ts` (the process lifecycle
+     lives in `src/main/processes/BackgroundProcessService.ts`)
    - Structured verification/check wrappers → `diagnosticsTools.ts`
    - Provider-visible image/HTML inspection → `visualInspectionTools.ts`
    - User-visible workspace image replies → `imageDisplayTools.ts`

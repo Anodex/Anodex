@@ -75,6 +75,13 @@ export const DENIED_CHANNEL_PREFIXES = [
   'web-search:',
 
   /**
+   * Background processes are seen and stopped from the dock, which the phone
+   * does not have. A phone can still ask the assistant to stop one, through the
+   * same approval flow as any other tool.
+   */
+  'processes:',
+
+  /**
    * A feature the phone does not have, in the direction nobody checked.
    *
    * The output side has been closed for a while — see `DENIED_EVENT_PREFIXES`,
@@ -88,7 +95,10 @@ export const DENIED_CHANNEL_PREFIXES = [
    * `critical-thinking:export-pdf` used to be listed one by one below, which is
    * now redundant — a prefix covers it and every sibling it was hiding among.
    */
-  'critical-thinking:'
+  'critical-thinking:',
+
+  /** No dock on the phone to show it; see `processes:` in `DENIED_CHANNEL_PREFIXES`. */
+  'processes:'
 ] as const
 
 /**
