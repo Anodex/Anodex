@@ -294,6 +294,9 @@ Write and mutation tools:
 - Create directories.
 - Delete directories.
 - Run shell commands.
+- Start long-running processes in the background (a dev server, a watcher, a local app),
+  read their output, and stop them. Each one is tied to its project, shown in the dock's
+  Processes panel with the address it serves, and stopped when Anodex quits.
 - Run structured project checks for test, typecheck, lint, build, or custom commands.
 - Update project notes.
 - Propose changes.
@@ -347,6 +350,8 @@ Panels include:
 - Checkpoints: snapshots created by assistant file edits.
 - Git: repository status, branches, commits, push/publish actions.
 - Files: searchable workspace file tree with edit attribution.
+- Processes: background processes Anodex started for the project, with their address,
+  output, and a Stop button.
 - Terminal: a local shell rooted in the active workspace.
 
 File viewer capabilities:

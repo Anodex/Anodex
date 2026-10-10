@@ -175,12 +175,20 @@ const LONG_RUNNING_SERVER_RE =
  * So this now says the true thing: serving is the *user's* to run, and telling
  * them the command is the useful move.
  */
-export function checkLongRunningServer(command: string): string | null {
+export function checkLongRunningServer(command: string, canStartProcess = false): string | null {
   if (!LONG_RUNNING_SERVER_RE.test(command)) return null
+  const head =
+    'That command starts a server and does not exit, so run_command would block until its timeout ' +
+    'and then kill it. Nothing was run, and nothing is wrong with the command itself.\n'
+  if (canStartProcess) {
+    return (
+      head +
+      'Use start_process to run it in the background instead: it keeps running after this reply, ' +
+      'returns the address it serves, and read_process_output shows what it prints later.'
+    )
+  }
   return (
-    'That command starts a server and does not exit, so it would block until the command timeout ' +
-    'and then be killed — it cannot still be serving anything by the time you call the next tool. ' +
-    'Nothing was run, and nothing is wrong with the command itself.\n' +
+    head +
     'If the user needs the site served, say so and give them the command to run in their own ' +
     'terminal — that is the fix, and it is theirs to run, not yours. Do not restructure the ' +
     'project to avoid needing a server unless the user asked for that.\n' +

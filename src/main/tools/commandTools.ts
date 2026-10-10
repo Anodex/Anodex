@@ -90,7 +90,10 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
 
           // A server started here is killed with the call, so the command can
           // only ever spend its whole timeout and produce nothing.
-          const server = checkLongRunningServer(args.command)
+          const server = checkLongRunningServer(
+            args.command,
+            availableTools(ctx, ['start_process']).length > 0
+          )
           if (server) {
             return {
               modelResult: server,

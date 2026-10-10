@@ -41,6 +41,7 @@ import { captureIpcHandlers } from '../remote/handlerRegistry'
 import { mcpManager } from '../mcp/McpManager'
 import { computerControlService } from '../computerControl/ComputerControlService'
 import { registerWebSearchHandlers } from './webSearch.handlers'
+import { registerProcessHandlers } from './processes.handlers'
 
 /**
  * Register every IPC handler and wire engine state broadcasts.
@@ -54,6 +55,7 @@ export function registerIpcHandlers(): void {
 
   registerModelHandlers()
   registerWebSearchHandlers()
+  registerProcessHandlers()
   registerChatHandlers()
   registerPersonalityHandlers()
   registerSettingsHandlers()

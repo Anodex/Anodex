@@ -12,6 +12,7 @@ import { projectMemoryStore } from './projects/ProjectMemoryStore'
 import { codeIndexStore } from './codeIndex/CodeIndexStore'
 import { memoryStore } from './memory/MemoryStore'
 import { conversationStore } from './conversations/ConversationStore'
+import { backgroundProcessService } from './processes/BackgroundProcessService'
 import { modelReliabilityStore } from './models/ModelReliabilityStore'
 import { tokenActivityStore } from './stats/TokenActivityStore'
 import { updateService } from './updates/UpdateService'
@@ -202,6 +203,9 @@ if (!app.requestSingleInstanceLock()) {
     agentRunService.stopAll()
     criticalThinkingService.stopAll()
     cancelAllDownloads()
+    // Dev servers and watchers Anodex started must not outlive it, holding
+    // ports with nothing left to show or stop them.
+    backgroundProcessService.killAllNow()
     // After everything above that might save a conversation on its way out:
     // writes normally land on the next tick, and there is no next tick now.
     conversationStore.flushSync()

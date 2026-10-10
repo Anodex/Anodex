@@ -148,6 +148,7 @@ import type {
   DesktopControlWindowInfo,
   StartComputerControlRequest
 } from './computerControl.types'
+import type { BackgroundProcessInfo } from './process.types'
 
 export const IpcChannel = {
   Speech: {
@@ -286,6 +287,15 @@ export const IpcChannel = {
     setActive: 'personality:set-active',
     /** One user personality's picture as a thumbnail, or null. For a phone. */
     image: 'personality:image'
+  },
+  Processes: {
+    /** Background processes Anodex started, for one project. */
+    list: 'processes:list',
+    /** The recent output of one. */
+    output: 'processes:output',
+    stop: 'processes:stop',
+    /** main → renderer: a process started, ended, or found its address. */
+    changed: 'processes:changed'
   },
   WebSearch: {
     /** Try search settings with one real query before they are saved. */
@@ -954,6 +964,14 @@ export interface AnodexApi {
     list(): Promise<RemotePersonalityState>
     setActive(id: string | null): Promise<RemotePersonalityState>
     image(id: string): Promise<RemotePersonalityImage | null>
+  }
+  processes: {
+    list(projectId: string | null): Promise<BackgroundProcessInfo[]>
+    /** The kept recent end of its output; empty for an unknown id. */
+    output(id: string): Promise<string>
+    /** Stop it and everything it started. */
+    stop(id: string): Promise<void>
+    onChanged(listener: (info: BackgroundProcessInfo) => void): () => void
   }
   webSearch: {
     /**

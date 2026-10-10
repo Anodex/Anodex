@@ -6793,6 +6793,77 @@
       }
     },
     {
+      "channel": "processes:changed",
+      "kind": "event",
+      "api": "processes.onChanged",
+      "args": [],
+      "payload": {
+        "$ref": "BackgroundProcessInfo"
+      }
+    },
+    {
+      "channel": "processes:list",
+      "kind": "invoke",
+      "api": "processes.list",
+      "args": [
+        {
+          "name": "projectId",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "kind": "array",
+        "of": {
+          "$ref": "BackgroundProcessInfo"
+        }
+      }
+    },
+    {
+      "channel": "processes:output",
+      "kind": "invoke",
+      "api": "processes.output",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "string"
+      }
+    },
+    {
+      "channel": "processes:stop",
+      "kind": "invoke",
+      "api": "processes.stop",
+      "args": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        }
+      ],
+      "result": {
+        "kind": "void"
+      }
+    },
+    {
       "channel": "projects:archive",
       "kind": "invoke",
       "api": "projects.archive",
@@ -11176,6 +11247,135 @@
         }
       }
     },
+    "BackgroundProcessInfo": {
+      "kind": "object",
+      "properties": {
+        "id": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "command": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "projectId": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "conversationId": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "cwd": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "startedAt": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "status": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "running"
+              },
+              {
+                "kind": "literal",
+                "value": "exited"
+              },
+              {
+                "kind": "literal",
+                "value": "stopped"
+              },
+              {
+                "kind": "literal",
+                "value": "failed"
+              }
+            ]
+          }
+        },
+        "exitCode": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "endedAt": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "url": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        }
+      }
+    },
     "BackupExclusionInfo": {
       "kind": "object",
       "properties": {
@@ -13562,11 +13762,11 @@
               },
               {
                 "kind": "literal",
-                "value": "paused"
+                "value": "stopped"
               },
               {
                 "kind": "literal",
-                "value": "stopped"
+                "value": "paused"
               },
               {
                 "kind": "literal",
@@ -16134,6 +16334,10 @@
               },
               {
                 "kind": "literal",
+                "value": "failed"
+              },
+              {
+                "kind": "literal",
                 "value": "needs-review"
               },
               {
@@ -16151,10 +16355,6 @@
               {
                 "kind": "literal",
                 "value": "validating"
-              },
-              {
-                "kind": "literal",
-                "value": "failed"
               }
             ]
           }
@@ -16440,11 +16640,11 @@
               },
               {
                 "kind": "literal",
-                "value": "researching"
+                "value": "failed"
               },
               {
                 "kind": "literal",
-                "value": "failed"
+                "value": "researching"
               },
               {
                 "kind": "literal",
@@ -18988,11 +19188,11 @@
             "of": [
               {
                 "kind": "literal",
-                "value": "ok"
+                "value": "failed"
               },
               {
                 "kind": "literal",
-                "value": "failed"
+                "value": "ok"
               },
               {
                 "kind": "literal",
