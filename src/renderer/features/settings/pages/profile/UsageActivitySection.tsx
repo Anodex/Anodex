@@ -33,7 +33,10 @@ interface StatCardProps {
 
 function StatCard({ icon, label, value, hint }: StatCardProps): JSX.Element {
   return (
-    <div className={styles.statCard}>
+    <div
+      className={styles.statCard}
+      title={hint ? `${label}: ${value} (${hint})` : `${label}: ${value}`}
+    >
       <div className={styles.statChip}>
         <Icon name={icon} size={18} />
       </div>
@@ -127,7 +130,13 @@ export function UsageActivitySection(): JSX.Element {
           </div>
 
           <div className={styles.heatmapPanel}>
-            <UsageHeatmap dailyActivity={profile.dailyActivity} />
+            {profile.dailyActivity.length === 0 ? (
+              <p className={styles.emptyActivity}>
+                Your activity shows up here after your first chat.
+              </p>
+            ) : (
+              <UsageHeatmap dailyActivity={profile.dailyActivity} />
+            )}
           </div>
 
           <TokenActivityChartSection />

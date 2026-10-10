@@ -1,10 +1,12 @@
-import { useEffect, useRef, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { AppSettings, SettingsPatch } from '@shared/settings.types'
 import { useEmailStore } from '../../../../stores/emailStore'
 import { useUiStore } from '../../../../stores/uiStore'
 import { Icon } from '../../../../components/Icon'
+import { Button } from '../../../../components/ui/Button'
+import { anodex } from '../../../../lib/anodex'
 import { SettingRow } from '../../SettingRow'
-import { SelectControl, TextControl, ToggleControl } from '../../controls'
+import { TextControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
 import { PersonalitySection } from './PersonalitySection'
 import pageStyles from '../../SettingsPage.module.css'
@@ -15,12 +17,6 @@ interface ProfileSettingsProps {
   settings: AppSettings
   update: (patch: SettingsPatch) => Promise<void>
 }
-
-const PLAN_OPTIONS = [
-  { label: 'Free', value: 'free' },
-  { label: 'Pro', value: 'pro' },
-  { label: 'Dev', value: 'dev' }
-]
 
 export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX.Element {
   const { profile } = settings
@@ -106,7 +102,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
           <h2 className={styles.heroName}>{profile.displayName || 'Anonymous'}</h2>
           <p className={styles.heroMeta}>
             {address ? `${address} · ` : ''}
-            {planLabel(profile.planTier)}
+            Local account
           </p>
         </div>
       </section>
@@ -149,53 +145,15 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             </button>
           }
         />
-        <SettingRow
-          label="Plan tier"
-          description="Displayed for transparency. Does not change features."
-          control={
-            <SelectControl
-              value={profile.planTier}
-              options={PLAN_OPTIONS}
-              onChange={(value) =>
-                void update({ profile: { planTier: value as typeof profile.planTier } })
-              }
-            />
-          }
-        />
       </section>
 
       <section className={pageStyles.section}>
-        <h2 className={pageStyles.sectionTitle}>Account</h2>
-        <p className={pageStyles.sectionDesc}>Local-first status and data sync controls.</p>
-        <SettingRow
-          label="Data sync"
-          description={syncDescription(profile.syncStatus)}
-          control={
-            <SelectControl
-              value={profile.syncStatus}
-              options={[
-                { label: 'Local only', value: 'local' },
-                { label: 'Syncing', value: 'syncing' },
-                { label: 'Synced', value: 'synced' }
-              ]}
-              onChange={(value) =>
-                void update({ profile: { syncStatus: value as typeof profile.syncStatus } })
-              }
-            />
-          }
-        />
-        <SettingRow
-          label="Account active"
-          description="Toggle to simulate account state in the UI."
-          control={
-            <ToggleControl
-              checked={profile.accountStatus === 'active'}
-              onChange={(value) =>
-                void update({ profile: { accountStatus: value ? 'active' : 'inactive' } })
-              }
-            />
-          }
-        />
+        <h2 className={pageStyles.sectionTitle}>Your data</h2>
+        <p className={pageStyles.sectionDesc}>
+          Chats, settings and models are stored on this computer. Anodex only sends your content out
+          when you use a cloud model, web search, email, or another connection you set up.
+        </p>
+        <DataFolderRow />
       </section>
 
       {/* A rejected settings write rolls the optimistic update back, so a
@@ -226,17 +184,44 @@ function initials(name: string): string {
     .toUpperCase()
 }
 
-function planLabel(tier: AppSettings['profile']['planTier']): string {
-  return PLAN_OPTIONS.find((option) => option.value === tier)?.label ?? tier
-}
+/** Where Anodex keeps everything, with a way to copy the path. */
+function DataFolderRow(): JSX.Element {
+  const [folder, setFolder] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
-function syncDescription(status: AppSettings['profile']['syncStatus']): string {
-  switch (status) {
-    case 'local':
-      return 'All data stays on this machine.'
-    case 'syncing':
-      return 'Sync is in progress.'
-    case 'synced':
-      return 'Data is synchronised.'
+  useEffect(() => {
+    let active = true
+    void anodex.system
+      .getInfo()
+      .then((info) => {
+        if (active) setFolder(info.userDataPath)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const copy = (): void => {
+    if (!folder) return
+    void navigator.clipboard
+      .writeText(folder)
+      .then(() => {
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
   }
+
+  return (
+    <SettingRow
+      label="Data folder"
+      description={folder ?? 'Finding the folder…'}
+      control={
+        <Button variant="secondary" size="sm" onClick={copy} disabled={!folder}>
+          {copied ? 'Copied' : 'Copy path'}
+        </Button>
+      }
+    />
+  )
 }
