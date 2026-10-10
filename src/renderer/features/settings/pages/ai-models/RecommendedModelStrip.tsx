@@ -30,8 +30,6 @@ export function RecommendedModelStrip({
   reliability: Map<string, ModelReliabilityRecord>
 }): JSX.Element {
   const downloads = useModelStore((s) => s.downloads)
-  const downloadModel = useModelStore((s) => s.downloadModel)
-  const cancelDownload = useModelStore((s) => s.cancelDownload)
 
   // Auto-populated from Hugging Face on mount (not a manual search, like
   // `DiscoverModelsPanel` — this strip is meant to always reflect current
@@ -129,29 +127,7 @@ export function RecommendedModelStrip({
                   <span>{slot.model.minRam} RAM</span>
                 </div>
 
-                {isDownloaded ? (
-                  <div className={styles.downloadedBadge}>
-                    <Icon name="check" size={14} />
-                    Downloaded
-                  </div>
-                ) : progress?.status === 'downloading' ? (
-                  <DownloadProgress
-                    progress={progress}
-                    onCancel={() => cancelDownload(slot.model.id)}
-                  />
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft={<Icon name="download" size={14} />}
-                    onClick={() => void downloadModel(slot.model)}
-                  >
-                    {progress?.status === 'error' ? 'Retry download' : 'Download'}
-                  </Button>
-                )}
-                {progress?.status === 'error' && (
-                  <p className={styles.errorText}>{progress.error ?? 'Download failed.'}</p>
-                )}
+                <DownloadAction model={slot.model} installed={isDownloaded} />
               </article>
             )
           })}
@@ -216,6 +192,93 @@ export function ModelDownloadIcon({
   )
 }
 
+/**
+ * A model card's download control, the same on every card that offers one:
+ * Downloaded, the progress bar while it runs, or the button — which resumes,
+ * and says how much is already here, when an earlier download was cancelled,
+ * failed, or cut off by quitting.
+ */
+export function DownloadAction({
+  model,
+  installed
+}: {
+  model: RecommendedModel
+  installed: boolean
+}): JSX.Element {
+  const progress = useModelStore((s) => s.downloads[model.id])
+  const partialBytes = useModelStore((s) => s.partials[model.id] ?? 0)
+  const downloadModel = useModelStore((s) => s.downloadModel)
+  const cancelDownload = useModelStore((s) => s.cancelDownload)
+  const refreshPartials = useModelStore((s) => s.refreshPartials)
+
+  useEffect(() => {
+    if (!installed) void refreshPartials([model])
+  }, [installed, model, refreshPartials])
+
+  if (installed) {
+    return (
+      <div className={styles.downloadedBadge}>
+        <Icon name="check" size={14} />
+        Downloaded
+      </div>
+    )
+  }
+  if (progress?.status === 'downloading') {
+    return <DownloadProgress progress={progress} onCancel={() => cancelDownload(model.id)} />
+  }
+  return (
+    <>
+      <Button
+        variant="secondary"
+        size="sm"
+        iconLeft={<Icon name="download" size={14} />}
+        onClick={() => void downloadModel(model)}
+      >
+        {partialBytes > 0
+          ? 'Resume download'
+          : progress?.status === 'error'
+            ? 'Retry download'
+            : 'Download'}
+      </Button>
+      {progress?.status === 'error' && (
+        <p className={styles.errorText}>{progress.error ?? 'Download failed.'}</p>
+      )}
+      {partialBytes > 0 && <PartialDownloadNote model={model} bytes={partialBytes} />}
+    </>
+  )
+}
+
+/**
+ * How much of a stopped download is already on disk, and the way to give the
+ * space back. Kept parts used to be deleted on Cancel precisely so nothing sat
+ * on disk unseen; now that they are kept, this is where they are seen.
+ */
+export function PartialDownloadNote({
+  model,
+  bytes,
+  className
+}: {
+  model: RecommendedModel
+  bytes: number
+  className?: string
+}): JSX.Element {
+  const discardPartial = useModelStore((s) => s.discardPartial)
+  return (
+    <p className={`${styles.partialNote} ${className ?? ''}`}>
+      <span>
+        {formatBytes(bytes)} of {model.approxSize} already downloaded
+      </span>
+      <button
+        type="button"
+        className={styles.partialDiscard}
+        onClick={() => void discardPartial(model)}
+      >
+        Discard
+      </button>
+    </p>
+  )
+}
+
 /** Exported for reuse by `DiscoverModelsPanel`, which shows the same download-in-progress UI. */
 export function DownloadProgress({
   progress,
@@ -243,7 +306,8 @@ export function DownloadProgress({
           type="button"
           className={styles.cancelButton}
           onClick={onCancel}
-          title="Cancel download"
+          aria-label="Stop download"
+          title="Stop download. What has arrived is kept, so it can resume."
         >
           <Icon name="close" size={12} />
         </button>

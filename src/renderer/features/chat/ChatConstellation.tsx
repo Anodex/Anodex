@@ -871,12 +871,18 @@ export function ChatConstellation(): JSX.Element {
   return (
     <>
       <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
-      <div className={styles.controls}>
+      {/* "Balanced" alone read like a model or performance setting; the group
+          says what the pills are about, and each button says what it does. */}
+      <div className={styles.controls} role="group" aria-label="Background animation">
+        <span className={styles.controlsLabel} aria-hidden="true">
+          Background
+        </span>
         <button
           type="button"
           className={styles.controlButton}
           onClick={cycleDensity}
-          title="Cycle background density"
+          aria-label={`Background density: ${DENSITY_LABEL[density]}. Change density`}
+          title="How busy the background animation is. Click to change."
         >
           {DENSITY_LABEL[density]}
         </button>
@@ -885,7 +891,14 @@ export function ChatConstellation(): JSX.Element {
           className={styles.controlButton}
           onClick={togglePause}
           disabled={motionDisabled}
-          title={motionDisabled ? 'Motion is off (reduced motion)' : 'Pause or resume the scene'}
+          aria-label={paused ? 'Play background animation' : 'Pause background animation'}
+          title={
+            motionDisabled
+              ? 'Motion is off (reduced motion)'
+              : paused
+                ? 'Play the background animation'
+                : 'Pause the background animation'
+          }
         >
           {paused ? 'Play' : 'Pause'}
         </button>

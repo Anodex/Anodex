@@ -983,11 +983,15 @@ export function ChatCircuit(): JSX.Element {
   return (
     <>
       <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
-      <div className={styles.controls}>
+      <div className={styles.controls} role="group" aria-label="Background animation">
+        <span className={styles.controlsLabel} aria-hidden="true">
+          Background
+        </span>
         <button
           type="button"
           className={styles.controlButton}
           onClick={() => regrowRef.current?.()}
+          aria-label="Regrow the background circuit"
           title="Fade the board out and grow a fresh circuit"
         >
           Regrow
@@ -997,7 +1001,14 @@ export function ChatCircuit(): JSX.Element {
           className={styles.controlButton}
           onClick={togglePause}
           disabled={motionDisabled}
-          title={motionDisabled ? 'Motion is off (reduced motion)' : 'Pause or resume the scene'}
+          aria-label={paused ? 'Play background animation' : 'Pause background animation'}
+          title={
+            motionDisabled
+              ? 'Motion is off (reduced motion)'
+              : paused
+                ? 'Play the background animation'
+                : 'Pause the background animation'
+          }
         >
           {paused ? 'Play' : 'Pause'}
         </button>

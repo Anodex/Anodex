@@ -138,10 +138,13 @@ function renderTextSegment(
  */
 export const MessageContent = memo(function MessageContent({
   content,
-  sources
+  sources,
+  streaming = false
 }: {
   content: string
   sources?: WebSource[]
+  /** Still arriving: its code blocks stay shut until it settles. */
+  streaming?: boolean
 }): JSX.Element {
   const segments = parseSegments(content)
   const sourceMap = useMemo(() => citedSourceMap(sources), [sources])
@@ -149,7 +152,12 @@ export const MessageContent = memo(function MessageContent({
     <div className={styles.content}>
       {segments.map((segment, index) =>
         segment.type === 'code' ? (
-          <CodeBlock key={index} code={segment.content} language={segment.language} />
+          <CodeBlock
+            key={index}
+            code={segment.content}
+            language={segment.language}
+            settled={!streaming}
+          />
         ) : (
           <Fragment key={index}>
             {renderTextSegment(segment.content, `s${index}`, sourceMap)}

@@ -176,6 +176,11 @@ const REACHABLE_FROM_A_PHONE = [
   'memory:update',
   'models:cancel-download',
   'models:delete',
+  // Deliberate, with `models:partial-downloads`: the phone can already start,
+  // cancel and delete a download, and a cancelled one now keeps its bytes.
+  // Seeing how much is kept is a read, and discarding a part file is milder
+  // than the `models:delete` it already has.
+  'models:discard-partial-download',
   'models:discover',
   'models:dismiss-load-recovery',
   'models:dismiss-load-refusal',
@@ -187,6 +192,7 @@ const REACHABLE_FROM_A_PHONE = [
   'models:get-state',
   'models:list',
   'models:load',
+  'models:partial-downloads',
   'models:recommend-settings',
   'models:state-changed',
   'models:unload',

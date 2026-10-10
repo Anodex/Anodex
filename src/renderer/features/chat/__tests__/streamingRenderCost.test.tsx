@@ -153,6 +153,27 @@ describe('a code block', () => {
     expect(container.querySelector('code.hljs span')).toBeTruthy()
   })
 
+  // A short board or snippet needed a click just to be seen.
+  it('opens a short block by itself once its reply has settled, highlighting it once', () => {
+    const before = highlight.calls
+    const { rerender } = render(<CodeBlock code={'a\nb'} language="js" settled={false} />)
+    rerender(<CodeBlock code={'a\nb\nc'} language="js" settled={false} />)
+    expect(highlight.calls).toBe(before)
+
+    rerender(<CodeBlock code={'a\nb\nc'} language="js" settled />)
+    expect(highlight.calls).toBe(before + 1)
+    expect(screen.getByRole('button', { name: /js/ }).getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('keeps a long block shut, and lets the person override either way', () => {
+    const long = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
+    render(<CodeBlock code={long} language="js" settled />)
+    const toggle = screen.getAllByRole('button', { name: /js/ }).at(-1)!
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('still names the language of an untagged block while shut', async () => {
     const code = '{\n  "name": "anodex",\n  "private": true\n}'
     const { highlightCode } = await import('../../../lib/highlight')

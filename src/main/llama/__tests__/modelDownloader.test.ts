@@ -7,7 +7,12 @@ import {
   recommendedModelFileName,
   recommendedVisionProjectorFileName
 } from '@shared/recommendedModels'
-import { cancelDownload, downloadModel } from '../modelDownloader'
+import {
+  cancelDownload,
+  discardPartialDownload,
+  downloadModel,
+  partialDownloadBytes
+} from '../modelDownloader'
 
 const MODEL: RecommendedModel = {
   id: 'test-model',
@@ -161,7 +166,7 @@ describe('downloadModel', () => {
     expect(await readdir(dir)).toEqual([])
   })
 
-  it('rejects and cleans up when canceled mid-download', async () => {
+  it('rejects and reports canceled when stopped before any bytes arrive', async () => {
     globalThis.fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
       return new Promise<Response>((_resolve, reject) => {
         if (init?.signal?.aborted) {
@@ -181,5 +186,52 @@ describe('downloadModel', () => {
     await expect(promise).rejects.toThrow()
     expect(progress.at(-1)).toBe('canceled')
     expect(await readdir(dir)).toEqual([])
+  })
+
+  describe('partial downloads', () => {
+    const modelFile = (): string => join(dir, recommendedModelFileName(MODEL))
+
+    it('reports the bytes a resume would start from, and only resumable ones', async () => {
+      expect(partialDownloadBytes(MODEL, dir)).toBe(0)
+
+      await writeFile(`${modelFile()}.part`, 'PARTIAL')
+      // No validator beside it means the next attempt starts over, so it is
+      // not offered as progress.
+      expect(partialDownloadBytes(MODEL, dir)).toBe(0)
+
+      await writeFile(`${modelFile()}.part.etag`, '"v1"')
+      expect(partialDownloadBytes(MODEL, dir)).toBe(7)
+    })
+
+    it('reports nothing for a model that is already installed', async () => {
+      await writeFile(modelFile(), 'WHOLE MODEL')
+      expect(partialDownloadBytes(MODEL, dir)).toBe(0)
+    })
+
+    it('counts a finished model toward a projector still to come', async () => {
+      const vision: RecommendedModel = {
+        ...MODEL,
+        id: 'vision-model',
+        visionProjectorUrl: 'https://example.com/models/resolve/main/mmproj-test-f16.gguf'
+      }
+      const projector = join(dir, recommendedVisionProjectorFileName(vision)!)
+      await writeFile(join(dir, recommendedModelFileName(vision)), 'MODEL')
+      expect(partialDownloadBytes(vision, dir)).toBe(0)
+
+      await writeFile(`${projector}.part`, 'PRO')
+      await writeFile(`${projector}.part.etag`, '"v1"')
+      expect(partialDownloadBytes(vision, dir)).toBe(8)
+    })
+
+    it('discards the part and its validator, and nothing else', async () => {
+      await writeFile(`${modelFile()}.part`, 'PARTIAL')
+      await writeFile(`${modelFile()}.part.etag`, '"v1"')
+      await writeFile(join(dir, 'other.gguf'), 'SOMEONE ELSE')
+
+      await discardPartialDownload(MODEL, dir)
+
+      expect(await readdir(dir)).toEqual(['other.gguf'])
+      expect(partialDownloadBytes(MODEL, dir)).toBe(0)
+    })
   })
 })

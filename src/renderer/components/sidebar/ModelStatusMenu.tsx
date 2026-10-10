@@ -10,6 +10,7 @@ import {
   cloudProviderState,
   type CloudProviderId
 } from '@shared/providerCatalog'
+import { readableModelName } from '../../lib/modelName'
 import { useLiveCloudModels } from '../../lib/useLiveCloudModels'
 import { useModelStore } from '../../stores/modelStore'
 import { useProviderUsageStore } from '../../stores/providerUsageStore'
@@ -145,14 +146,19 @@ function providerStatus(
   engine: EngineState,
   providerActive: ProviderSettings['active'] | undefined,
   cloudState: { model: string; apiKeySet: boolean } | null
-): { label: string; tone: string } {
+): { label: string; tone: string; full?: string } {
   if (providerActive && providerActive !== 'local') {
     const providerLabel = CLOUD_PROVIDER_LABELS[providerActive]
     return cloudState?.apiKeySet
       ? { label: `${providerLabel} — ${cloudState.model}`, tone: 'ready' }
       : { label: `${providerLabel} — no API key`, tone: 'error' }
   }
-  return { label: engine.model?.name ?? 'No model loaded', tone: statusTone(engine.status) }
+  const name = engine.model?.name
+  return {
+    label: name ? readableModelName(name) : 'No model loaded',
+    tone: statusTone(engine.status),
+    full: name
+  }
 }
 
 /**
@@ -261,7 +267,7 @@ export function ModelStatusMenu(): JSX.Element {
         className={styles.trigger}
         data-tour="model-status"
         onClick={() => openSettings('ai-models')}
-        title="Model status — click to open AI & Models settings"
+        title={`${footerStatus.full ?? 'Model status'} — click to open AI & Models settings`}
       >
         <CometStatusDot tone={footerTone} phase={dotPhase} />
         <ModelLabel text={footerStatus.label} />
@@ -278,7 +284,7 @@ export function ModelStatusMenu(): JSX.Element {
         onClick={() => setOpen((value) => !value)}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
-        title="Model status — click to switch models"
+        title={`${footerStatus.full ?? 'Model status'} — click to switch models`}
       >
         <CometStatusDot tone={footerTone} phase={dotPhase} />
         <ModelLabel text={footerStatus.label} />
@@ -318,7 +324,9 @@ export function ModelStatusMenu(): JSX.Element {
                     size={14}
                     className={isLoading ? styles.spinning : undefined}
                   />
-                  <span className={styles.itemLabel}>{model.name}</span>
+                  <span className={styles.itemLabel} title={model.name}>
+                    {readableModelName(model.name)}
+                  </span>
                 </button>
               )
             })
