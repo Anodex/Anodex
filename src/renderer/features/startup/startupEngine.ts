@@ -22,6 +22,12 @@ export interface StartupEngineOptions {
   settleCanvas: HTMLCanvasElement
   isFirstLaunch: () => boolean
   isReducedMotion: () => boolean
+  /**
+   * True when this launch should play the whole sequence: the first launch, and
+   * the first after an update. Every other launch takes the brief path, a beat of
+   * arrival and a crossfade, because a five-second scene on every start is a wait.
+   */
+  isFullIntro: () => boolean
   /** The sequence (or calm dismissal) fully finished — unmount the overlay. */
   onFinished: () => void
 }
@@ -38,6 +44,7 @@ const JUMP_TAIL_MS = 420 // deceleration before the field goes quiet
 const OUT_MS = 1200 // stardust settles over the revealed app
 const COMPLETE_LEAD_MS = 150 // start the overlay fade this long before hold ends
 const CALM_FADE_MS = 600 // reduced-motion / recovery crossfade
+const BRIEF_ARRIVE_MS = 450 // an ordinary launch: the mark resolves, then the app
 const DRIFT_SPEED = 0.05 // z-units per second while initialising
 const ARRIVE_SPEED = 2.2 // entry speed that dies away as the mark resolves
 const JUMP_SPEED = 4.2 // peak z-units per second at full warp
@@ -122,6 +129,9 @@ export class StartupEngine {
   private lastTime = 0
   private rafId = 0
   private calmTimer: ReturnType<typeof setTimeout> | undefined
+  private briefTimer: ReturnType<typeof setTimeout> | undefined
+  private startedAt = 0
+  private skipRequested = false
   private camX = 0
   private camY = 0
   private mouseX = 0
@@ -154,6 +164,7 @@ export class StartupEngine {
 
   /** Begin the arrival beat and the frame loop. */
   start(): void {
+    this.startedAt = performance.now()
     this.phase = 'arrive'
     this.phaseElapsed = 0
     this.camX = this.width / 2
@@ -166,11 +177,32 @@ export class StartupEngine {
   /** Real readiness arrived — jump once the minimum drift beat has played. */
   launch(): void {
     if (this.phase === 'off' || this.phase === 'out') return
-    if (this.opts.isReducedMotion()) {
+    if (this.opts.isReducedMotion() || this.skipRequested) {
       this.calmFinish()
       return
     }
+    if (!this.opts.isFullIntro()) {
+      // Let the mark resolve, then crossfade into the app.
+      const wait = Math.max(0, BRIEF_ARRIVE_MS - (performance.now() - this.startedAt))
+      this.briefTimer = setTimeout(() => this.calmFinish(), wait)
+      return
+    }
     this.readyRequested = true
+  }
+
+  /**
+   * A click or key press: end the intro as soon as the app is ready. Asked for
+   * before readiness, it is remembered, so the app is never revealed half-loaded.
+   */
+  skip(): void {
+    if (this.phase === 'off' || this.phase === 'error') return
+    this.skipRequested = true
+    const ready =
+      this.readyRequested ||
+      this.phase === 'charge' ||
+      this.phase === 'jump' ||
+      this.phase === 'out'
+    if (ready) this.calmFinish()
   }
 
   /** Hydration failed — settle the field and hold for the recovery actions. */
@@ -201,6 +233,7 @@ export class StartupEngine {
   destroy(): void {
     cancelAnimationFrame(this.rafId)
     if (this.calmTimer) clearTimeout(this.calmTimer)
+    if (this.briefTimer) clearTimeout(this.briefTimer)
     window.removeEventListener('resize', this.handleResize)
     window.removeEventListener('pointermove', this.handlePointerMove)
     this.phase = 'off'
