@@ -17,8 +17,15 @@
   right: var(--space-4);
   bottom: var(--space-3);
   display: flex;
+  align-items: center;
   gap: var(--space-2);
   user-select: none;
+}
+
+.controlsLabel {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
 }
 
 .controlButton {
