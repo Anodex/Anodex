@@ -202,6 +202,9 @@ if (!app.requestSingleInstanceLock()) {
     agentRunService.stopAll()
     criticalThinkingService.stopAll()
     cancelAllDownloads()
+    // After everything above that might save a conversation on its way out:
+    // writes normally land on the next tick, and there is no next tick now.
+    conversationStore.flushSync()
     closeToast()
     closeHtmlPreviewWindows()
     void closeProjectPageServers()

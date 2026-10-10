@@ -98,15 +98,33 @@ function sleepSync(ms: number): void {
  * rename with no retry. That is where both observed `EPERM` failures landed, so
  * the retry has to live on this path rather than only on the synchronous one.
  */
-export async function writeTextAtomicAsync(filePath: string, contents: string): Promise<void> {
+export async function writeTextAtomicAsync(
+  filePath: string,
+  contents: string,
+  options: AsyncWriteOptions = {}
+): Promise<void> {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
   try {
     await writeFile(tmpPath, contents, 'utf-8')
+    if (options.shouldCommit && !options.shouldCommit()) {
+      await rm(tmpPath, { force: true }).catch(() => undefined)
+      return
+    }
     await renameWithRetryAsync(tmpPath, filePath)
   } catch (error) {
     await rm(tmpPath, { force: true }).catch(() => undefined)
     throw error
   }
+}
+
+export interface AsyncWriteOptions {
+  /**
+   * Asked once the bytes are in the temp file and before it replaces the real
+   * one. False discards the temp file instead: something newer has already been
+   * written synchronously (a flush on quit), and renaming this older copy over
+   * it would undo that.
+   */
+  shouldCommit?: () => boolean
 }
 
 /** JSON convenience over {@link writeTextAtomicAsync}. */

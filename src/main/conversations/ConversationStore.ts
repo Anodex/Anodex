@@ -9,7 +9,7 @@ import {
 } from '@shared/chatSanitizer'
 import { abortGeneration } from '../chat/inflightGenerations'
 import { createLogger } from '../utils/logger'
-import { writeJsonAtomic } from '../utils/atomicWrite'
+import { writeJsonAtomic, writeTextAtomic, writeTextAtomicAsync } from '../utils/atomicWrite'
 import { conversationAssetStore } from './ConversationAssetStore'
 import { couldMatch, wordDigestOf } from './conversationWordDigest'
 
@@ -92,9 +92,29 @@ interface CacheEntry {
   unloaded?: boolean
   /** How many messages it has, known without holding them. */
   messageCount: number
-  /** Every word its messages could be searched for — see {@link wordDigestOf}. */
-  digest: string
+  /**
+   * Every word its messages could be searched for — see {@link wordDigestOf}.
+   * Only an unloaded entry needs one, since a held chat is searched directly,
+   * so it is null for those: building it was most of what a save cost.
+   */
+  digest: string | null
 }
+
+/** A conversation waiting to reach disk, and every save waiting on it. */
+interface PendingWrite {
+  conversation: Conversation
+  filePath: string
+  /** Files it used to live in, removed only once the new one has landed. */
+  staleFiles: Set<string>
+  /** Orders writes against a synchronous flush. See {@link ConversationStore.flushSync}. */
+  version: number
+  attempts: number
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>
+}
+
+/** How long a failed write waits before trying again, and how often it does. */
+const WRITE_RETRY_MS = 3_000
+const WRITE_ATTEMPTS = 3
 
 /**
  * Drop the messages of every chat past the newest {@link RECENT_CHATS_HELD}.
@@ -107,6 +127,7 @@ function unloadOlderChats(cache: Map<string, CacheEntry>): void {
     .filter((entry) => !entry.unloaded)
     .sort((a, b) => b.conversation.updatedAt - a.conversation.updatedAt)
   for (const entry of live.slice(RECENT_CHATS_HELD)) {
+    entry.digest ??= wordDigestOf(entry.conversation)
     entry.conversation = { ...entry.conversation, messages: [] }
     entry.unloaded = true
   }
@@ -115,16 +136,15 @@ function unloadOlderChats(cache: Map<string, CacheEntry>): void {
 /** What is kept in memory for a conversation read from, or written to, `filePath`. */
 function entryFor(conversation: Conversation, filePath: string): CacheEntry {
   const messageCount = conversation.messages.length
-  const digest = wordDigestOf(conversation)
   return conversation.archived
     ? {
         conversation: { ...conversation, messages: [] },
         filePath,
         unloaded: true,
         messageCount,
-        digest
+        digest: wordDigestOf(conversation)
       }
-    : { conversation, filePath, messageCount, digest }
+    : { conversation, filePath, messageCount, digest: null }
 }
 
 /**
@@ -166,6 +186,14 @@ const RECENT_CHATS_HELD = 25
  * write — so `list`/`delete` never rescan the disk. Conversation and project
  * ids are validated before they are used in a path, since they become file and
  * directory names.
+ *
+ * Writes leave the main process. A save used to stringify and write the whole
+ * conversation synchronously, on the thread that also streams the model's
+ * tokens, so a long chat stuttered every time it was saved: 135ms for an 8MB
+ * one, measured. The cache takes the new version at once, so every read sees
+ * it; the file follows on the next tick, one write per conversation at a
+ * time, and saves that arrive while one is in flight collapse into a single
+ * write of the newest. `flushSync` finishes them on quit.
  */
 class ConversationStore {
   private baseDir = ''
@@ -174,9 +202,18 @@ class ConversationStore {
   /** Conversations read whole from disk recently. See `UNLOADED_HOLD_MS`. */
   private readonly heldWhole = new Map<string, Conversation>()
   private heldRelease: ReturnType<typeof setTimeout> | null = null
+  /** Saves not yet started, newest per conversation. */
+  private readonly pending = new Map<string, PendingWrite>()
+  /** The write in flight for each conversation; at most one. */
+  private readonly writing = new Map<string, PendingWrite>()
+  /** The newest version `flushSync` wrote, so an older async write cannot land on it. */
+  private readonly flushedVersion = new Map<string, number>()
+  private nextVersion = 0
+  private flushQueued = false
 
   /** Must be called after `app.whenReady()`. */
   init(): void {
+    if (this.baseDir) this.flushSync()
     const userDataPath = app.getPath('userData')
     this.baseDir = join(userDataPath, 'conversations')
     conversationAssetStore.init(userDataPath)
@@ -227,12 +264,13 @@ class ConversationStore {
         found.push(entry.conversation)
         continue
       }
-      const held = this.heldWhole.get(entry.conversation.id)
+      const held =
+        this.unwritten(entry.conversation.id) ?? this.heldWhole.get(entry.conversation.id)
       if (held) {
         found.push(held)
         continue
       }
-      if (!couldMatch(entry.digest, queryWords)) continue
+      if (entry.digest !== null && !couldMatch(entry.digest, queryWords)) continue
       // Read, scored, and let go of: a search leaves memory as it found it. The
       // chat somebody opens from the results is what `whole` then holds.
       const read = this.readFile(entry.filePath)
@@ -306,19 +344,126 @@ class ConversationStore {
     this.ensureDir(dir)
     const filePath = join(dir, `${toWrite.id}.json`)
 
-    try {
-      writeJsonAtomic(filePath, toWrite)
-      this.ensureCache().set(normalized.id, entryFor(toWrite, filePath))
-      this.heldWhole.delete(normalized.id)
-    } catch (error) {
-      log.error('Failed to save conversation:', filePath, error)
-      throw error
-    }
+    // If the conversation moved between projects, the file it used to live in
+    // goes only once the new one is safely on disk: removing it first would
+    // turn a failed write into data loss rather than a duplicate.
+    const previous = this.pending.get(toWrite.id)
+    const staleFiles = new Set(previous?.staleFiles)
+    if (existing && existing.filePath !== filePath) staleFiles.add(existing.filePath)
+    staleFiles.delete(filePath)
 
-    // Only once the new file is safely on disk: if the conversation moved between
-    // projects, drop the file it used to live in. Doing this before the write
-    // would turn a failed write into data loss rather than a duplicate.
-    if (existing && existing.filePath !== filePath) this.removeFile(existing.filePath)
+    this.ensureCache().set(toWrite.id, entryFor(toWrite, filePath))
+    this.heldWhole.delete(toWrite.id)
+
+    this.pending.set(toWrite.id, {
+      conversation: toWrite,
+      filePath,
+      staleFiles,
+      version: ++this.nextVersion,
+      attempts: 0,
+      // A newer save carries the older one's waiters: its write is theirs too.
+      waiters: previous?.waiters ?? []
+    })
+    this.queueFlush()
+  }
+
+  /**
+   * Settles when the newest save of `id` has reached disk, rejecting if that
+   * write failed. A save returns before its file is written; this is for the
+   * caller that has to know, like the window that reports a failed save.
+   */
+  whenWritten(id: string): Promise<void> {
+    const job = this.pending.get(id) ?? this.writing.get(id)
+    if (!job) return Promise.resolve()
+    return new Promise<void>((resolve, reject) => job.waiters.push({ resolve, reject }))
+  }
+
+  /**
+   * Resolve once every save made so far has reached disk or given up. For tests
+   * and for anything about to read the files directly.
+   */
+  async flush(): Promise<void> {
+    const jobs = [...this.writing.values(), ...this.pending.values()]
+    await Promise.all(
+      jobs.map(
+        (job) =>
+          new Promise<void>((settle) =>
+            job.waiters.push({ resolve: () => settle(), reject: () => settle() })
+          )
+      )
+    )
+  }
+
+  /**
+   * Write everything still waiting, now, on this thread. Called on quit, when
+   * there is no next tick to wait for, and before the store is pointed at a
+   * different directory.
+   */
+  flushSync(): void {
+    const latest = new Map(this.writing)
+    for (const [id, job] of this.pending) latest.set(id, job)
+    this.pending.clear()
+    for (const [id, job] of latest) {
+      try {
+        writeTextAtomic(job.filePath, JSON.stringify(job.conversation))
+        this.flushedVersion.set(id, job.version)
+        this.finishWrite(id, job)
+      } catch (error) {
+        log.error('Failed to save conversation:', job.filePath, error)
+        for (const waiter of job.waiters) waiter.reject(error)
+      }
+    }
+  }
+
+  private queueFlush(): void {
+    if (this.flushQueued) return
+    this.flushQueued = true
+    setImmediate(() => {
+      this.flushQueued = false
+      for (const [id, job] of this.pending) {
+        if (this.writing.has(id)) continue
+        this.pending.delete(id)
+        this.writing.set(id, job)
+        void this.write(id, job)
+      }
+    })
+  }
+
+  private async write(id: string, job: PendingWrite): Promise<void> {
+    job.attempts += 1
+    let retry = false
+    try {
+      // Compact: half the bytes and a third less time than indented, for a
+      // file nobody reads by hand.
+      await writeTextAtomicAsync(job.filePath, JSON.stringify(job.conversation), {
+        shouldCommit: () => (this.flushedVersion.get(id) ?? 0) < job.version
+      })
+      this.finishWrite(id, job)
+    } catch (error) {
+      log.error('Failed to save conversation:', job.filePath, error)
+      for (const waiter of job.waiters) waiter.reject(error)
+      // Try again unless a newer save already replaced it or it was deleted.
+      retry = job.attempts < WRITE_ATTEMPTS && !this.pending.has(id) && this.ensureCache().has(id)
+      if (retry) this.pending.set(id, { ...job, waiters: [] })
+    } finally {
+      if (this.writing.get(id) === job) this.writing.delete(id)
+    }
+    if (retry) setTimeout(() => this.queueFlush(), WRITE_RETRY_MS).unref?.()
+    else if (this.pending.has(id)) this.queueFlush()
+  }
+
+  /** What follows a write landing: old files go, and the savers hear about it. */
+  private finishWrite(id: string, job: PendingWrite): void {
+    for (const stale of job.staleFiles) this.removeFile(stale)
+    // Permanently deleted while this was in flight: the write just put back
+    // the file the delete removed.
+    if (!this.ensureCache().has(id)) this.removeFile(job.filePath)
+    for (const waiter of job.waiters) waiter.resolve()
+  }
+
+  /** A conversation's newest version that is not on disk yet, if any. */
+  private unwritten(id: string): Conversation | undefined {
+    return (this.pending.get(id) ?? this.writing.get(id))?.conversation
   }
 
   /** Archive a single conversation so it can be restored later. */
@@ -364,6 +509,7 @@ class ConversationStore {
     assertSafeId(id, 'conversation id')
     const entry = this.ensureCache().get(id)
     if (!entry) return
+    this.dropPendingWrite(id)
     this.removeFile(entry.filePath)
     conversationAssetStore.removeConversation(id)
     this.ensureCache().delete(id)
@@ -457,6 +603,7 @@ class ConversationStore {
     const conversationIds = [...cache]
       .filter(([, entry]) => entry.conversation.projectId === projectId)
       .map(([id]) => id)
+    for (const id of conversationIds) this.dropPendingWrite(id)
     const dir = this.dirForProject(projectId)
     if (existsSync(dir)) {
       try {
@@ -542,6 +689,9 @@ class ConversationStore {
   private whole(entry: CacheEntry): Conversation {
     if (!entry.unloaded) return entry.conversation
     const id = entry.conversation.id
+    // Archived a moment ago: the file on disk is the version before that.
+    const unwritten = this.unwritten(id)
+    if (unwritten) return unwritten
     const held = this.heldWhole.get(id)
     if (held) {
       this.holdWhole()
@@ -617,6 +767,17 @@ class ConversationStore {
       log.warn('Failed to read conversation file:', filePath, error)
       return null
     }
+  }
+
+  /**
+   * Forget a save that has not started, for a conversation being deleted. One
+   * already in flight cannot be stopped; `finishWrite` removes what it wrote.
+   */
+  private dropPendingWrite(id: string): void {
+    const job = this.pending.get(id)
+    if (!job) return
+    this.pending.delete(id)
+    for (const waiter of job.waiters) waiter.resolve()
   }
 
   private removeFile(filePath: string): void {
