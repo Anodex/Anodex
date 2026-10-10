@@ -24,6 +24,7 @@ import {
   type SidebarMode
 } from '../stores/sidebarModeStore'
 import { matchesQuery, useBodyMatches } from './sidebar/conversationSearch'
+import { chatRowStatus } from './sidebar/chatRowStatus'
 import styles from './Sidebar.module.css'
 
 interface FilteredProject {
@@ -368,6 +369,11 @@ export function Sidebar(): JSX.Element {
                   active={conversation.id === activeConversationId}
                   running={isConversationRunning(conversation)}
                   unread={isConversationUnread(conversation)}
+                  status={chatRowStatus(
+                    conversation,
+                    isConversationRunning(conversation),
+                    isConversationUnread(conversation)
+                  )}
                   excerpt={matchExcerpts.get(conversation.id)}
                   onClick={() => void handleSelectConversation(conversation.id)}
                   onRename={(title) => void renameConversation(conversation.id, title)}

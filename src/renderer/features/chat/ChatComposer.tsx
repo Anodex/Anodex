@@ -11,6 +11,8 @@ import { canProviderSeeImages } from '../../lib/visionAvailability'
 import { agentRunProviderVendor } from '@shared/agentRunProviders'
 import { COMPOSER_INPUT_ATTR } from '../../hooks/useGlobalKeyboardShortcuts'
 import { Icon } from '../../components/Icon'
+import { ShortcutKeys } from '../../components/ShortcutKeys'
+import { DEFAULT_KEYBOARD_SHORTCUTS } from '@shared/keyboardShortcuts'
 import { MAX_ATTACHMENTS } from '../../lib/attachments'
 import { ContextMeter } from './ContextMeter'
 import { ToolConfirmCard } from './ToolConfirmCard'
@@ -75,6 +77,8 @@ export function ChatComposer(): JSX.Element {
     ? canProviderSeeImages(settings.provider.active, Boolean(engine.vision))
     : false
   const generating = activeConversation?.messages.some((message) => message.streaming) ?? false
+  const stopShortcut =
+    settings?.keyboard.shortcuts.stopGeneration ?? DEFAULT_KEYBOARD_SHORTCUTS.stopGeneration
 
   const autoGrow = (): void => {
     const input = textareaRef.current
@@ -292,11 +296,13 @@ export function ChatComposer(): JSX.Element {
               ? ''
               : attachments.dragActive
                 ? 'Drop to attach…'
-                : ready
-                  ? 'Message Anodex…'
-                  : settings && settings.provider.active !== 'local'
-                    ? `Add ${agentRunProviderVendor(settings.provider.active)} credentials in Settings → AI & Models to start chatting`
-                    : 'Load a model in Settings → AI & Models to start chatting'
+                : ready && generating
+                  ? 'Type to queue your next message…'
+                  : ready
+                    ? 'Message Anodex…'
+                    : settings && settings.provider.active !== 'local'
+                      ? `Add ${agentRunProviderVendor(settings.provider.active)} credentials in Settings → AI & Models to start chatting`
+                      : 'Load a model in Settings → AI & Models to start chatting'
           }
           onChange={(event) => {
             if (event.target.value.length > 0 && activeConversation) {
@@ -341,25 +347,34 @@ export function ChatComposer(): JSX.Element {
             <Icon name={compacting ? 'refresh' : 'archive'} size={13} />
           </button>
 
-          {generating && !hasContent ? (
+          {generating && (
+            // Labelled, and there for the whole reply: it used to be an unlabelled
+            // square that turned into the queue button the moment anything was
+            // typed, so the way to stop was gone exactly when someone was busy.
             <button
-              className={`${styles.action} ${styles.stop}`}
+              type="button"
+              className={styles.stopLabelled}
               onClick={stopGoalAndGeneration}
               title="Stop generating"
               aria-label="Stop generating"
             >
-              <Icon name="stop" size={15} />
+              <span className={styles.stopSquare} aria-hidden="true" />
+              Stop
+              {stopShortcut && <ShortcutKeys shortcut={stopShortcut} className={styles.stopKeys} />}
             </button>
-          ) : generating ? (
-            <button
-              className={`${styles.action} ${styles.send}`}
-              onClick={submit}
-              disabled={!canQueue}
-              title="Send after the current reply finishes"
-              aria-label="Queue message"
-            >
-              <Icon name="send-fill" size={16} />
-            </button>
+          )}
+          {generating ? (
+            hasContent && (
+              <button
+                className={`${styles.action} ${styles.send}`}
+                onClick={submit}
+                disabled={!canQueue}
+                title="Send after the current reply finishes"
+                aria-label="Queue message"
+              >
+                <Icon name="send-fill" size={16} />
+              </button>
+            )
           ) : (
             <button
               className={`${styles.action} ${styles.send}`}

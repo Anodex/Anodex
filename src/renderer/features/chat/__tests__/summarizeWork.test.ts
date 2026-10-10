@@ -100,4 +100,12 @@ describe('summarizeWork', () => {
   it('describes a change with no recorded path without inventing one', () => {
     expect(summarizeWork([call('write', { name: 'delete_file' })])).toBe('1 change')
   })
+
+  // The folded turn shows changed files as chips, so the sentence leaves them out.
+  it('can leave file changes to the caller', () => {
+    expect(summarizeWork([wrote('a.ts'), ran('npm test')], { omitEdits: true })).toBe(
+      'Ran npm test'
+    )
+    expect(summarizeWork([wrote('a.ts')], { omitEdits: true })).toBeNull()
+  })
 })

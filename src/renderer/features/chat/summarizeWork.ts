@@ -26,8 +26,14 @@ const SUBJECT_CHARS = 42
  *
  * Returns `null` when there is nothing worth naming, so the caller can keep its
  * own wording rather than render an empty phrase.
+ *
+ * `omitEdits` leaves file changes out, for a caller that shows those itself as
+ * one chip per file and would otherwise say the same thing twice.
  */
-export function summarizeWork(calls: readonly ToolCall[]): string | null {
+export function summarizeWork(
+  calls: readonly ToolCall[],
+  options: { omitEdits?: boolean } = {}
+): string | null {
   const settled = calls.filter((call) => call.status !== 'running')
   if (settled.length === 0) return null
 
@@ -38,7 +44,7 @@ export function summarizeWork(calls: readonly ToolCall[]): string | null {
 
   const parts: string[] = []
   // Changes first: what a turn altered matters more than what it looked at.
-  if (edits.length > 0) parts.push(describeEdits(edits))
+  if (edits.length > 0 && !options.omitEdits) parts.push(describeEdits(edits))
   if (commands.length > 0) parts.push(describeCommands(commands))
   if (web.length > 0) parts.push(describeSearches(web))
   if (reads.length > 0) parts.push(describeReads(reads))
@@ -46,6 +52,7 @@ export function summarizeWork(calls: readonly ToolCall[]): string | null {
   // Plan bookkeeping is never the interesting part of a turn, so it only
   // speaks up when it is the *only* thing that happened.
   if (parts.length === 0) {
+    if (edits.length > 0) return null
     const plans = settled.filter((call) => call.kind === 'plan')
     return plans.length > 0 ? 'Updated the plan' : null
   }

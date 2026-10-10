@@ -8,6 +8,7 @@ import { ChatBackground } from './ChatBackground'
 import { ChatComposer } from './ChatComposer'
 import { ChatEmptyState } from './ChatEmptyState'
 import { ContextHistoryMenu } from './ContextHistoryMenu'
+import { WorkingPill } from './WorkingPill'
 import { useSettingsStore } from '../../stores/settingsStore'
 import {
   normalizeSpeechText,
@@ -73,6 +74,7 @@ export function ChatView(): JSX.Element {
         eyebrow={activeProject?.name}
         actions={
           <>
+            <WorkingPill />
             {speechEnabled && speechAvailable && conversation && (
               <>
                 <button

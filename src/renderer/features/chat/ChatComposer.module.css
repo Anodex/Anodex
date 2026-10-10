@@ -106,6 +106,16 @@
   color: var(--text);
 }
 
+.pendingLead {
+  color: var(--text-faint);
+}
+
+.pendingWhen {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .pendingRemove {
   display: flex;
   flex-shrink: 0;
@@ -651,15 +661,43 @@
   cursor: not-allowed;
 }
 
-.stop {
-  color: var(--text);
-  background: var(--bg-surface-2);
+.stopLabelled {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0 8px 0 10px;
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.stop:hover {
-  color: var(--danger);
+.stopLabelled:hover {
   border-color: var(--danger-soft);
+}
+
+.stopLabelled:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.stopSquare {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--danger);
+}
+
+.stopKeys {
+  opacity: 0.8;
 }
 
 .contextMeter {
