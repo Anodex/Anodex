@@ -198,3 +198,7 @@
     grid-template-columns: 1fr;
   }
 }
+
+.searchSetup {
+  margin-bottom: var(--space-3);
+}

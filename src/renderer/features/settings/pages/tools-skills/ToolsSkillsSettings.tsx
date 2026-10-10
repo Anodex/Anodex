@@ -13,6 +13,9 @@ import { SettingRow } from '../../SettingRow'
 import { SubAgentSettings } from './SubAgentSettings'
 import { RangeControl, SelectControl, TextControl, ToggleControl } from '../../controls'
 import { VisualPreviewStorage } from './VisualPreviewStorage'
+import { Button } from '../../../../components/ui/Button'
+import { Icon } from '../../../../components/Icon'
+import { WebSearchSetupDialog } from '../../../web-search/WebSearchSetupDialog'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './ToolsSkillsSettings.module.css'
 
@@ -34,14 +37,16 @@ const TOOL_HEALTH_STATUS_TONE: Record<ToolHealthTone, StatusTone> = {
 const PROVIDER_HINTS: Record<string, string> = {
   none: 'Web search is disabled.',
   searxng: 'Run your own SearXNG instance. No API key is needed.',
-  brave: 'Free tier: 2,000 queries/month. Get a key at api.search.brave.com.',
-  tavily: 'Free tier: 1,000 API calls/month. Get a key at tavily.com.',
+  brave:
+    'Needs a card on file; includes some free credit each month. Key at api-dashboard.search.brave.com.',
+  tavily: 'Free plan, no card needed. Get a key at app.tavily.com.',
   google: 'Free tier: 100 queries/day. Requires an API key and Search Engine ID.'
 }
 
 export function ToolsSkillsSettings(): JSX.Element {
   const settings = useSettingsStore((state) => state.settings)
   const update = useSettingsStore((state) => state.update)
+  const [settingUpSearch, setSettingUpSearch] = useState(false)
   const mcpTools = useMcpStore((state) => state.tools)
   const [toolSearch, setToolSearch] = useState('')
 
@@ -228,6 +233,17 @@ export function ToolsSkillsSettings(): JSX.Element {
         <p className={pageStyles.sectionDesc}>
           Choose the provider used by the assistant&apos;s web_search tool.
         </p>
+        <div className={styles.searchSetup}>
+          <Button
+            variant={settings.webSearch.provider === 'none' ? 'primary' : 'secondary'}
+            size="sm"
+            iconLeft={<Icon name="web" size={14} />}
+            onClick={() => setSettingUpSearch(true)}
+          >
+            {settings.webSearch.provider === 'none' ? 'Set up web search' : 'Change and test'}
+          </Button>
+        </div>
+        {settingUpSearch && <WebSearchSetupDialog onClose={() => setSettingUpSearch(false)} />}
         <SettingRow
           label="Provider"
           description={PROVIDER_HINTS[settings.webSearch.provider]}

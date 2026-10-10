@@ -38,7 +38,8 @@ import type {
   MemoryUsageReport,
   PermissionMode,
   ProfileSettings,
-  SettingsPatch
+  SettingsPatch,
+  WebSearchTestConfig
 } from './settings.types'
 import type {
   CreateProjectRequest,
@@ -285,6 +286,10 @@ export const IpcChannel = {
     setActive: 'personality:set-active',
     /** One user personality's picture as a thumbnail, or null. For a phone. */
     image: 'personality:image'
+  },
+  WebSearch: {
+    /** Try search settings with one real query before they are saved. */
+    test: 'web-search:test'
   },
   Settings: {
     get: 'settings:get',
@@ -949,6 +954,13 @@ export interface AnodexApi {
     list(): Promise<RemotePersonalityState>
     setActive(id: string | null): Promise<RemotePersonalityState>
     image(id: string): Promise<RemotePersonalityImage | null>
+  }
+  webSearch: {
+    /**
+     * Run one real search with settings that are not saved yet. Resolves with
+     * how many results came back, or the provider's own error.
+     */
+    test(config: WebSearchTestConfig): Promise<Result<{ resultCount: number }>>
   }
   settings: {
     /** main → renderer: settings were changed by a paired phone. */

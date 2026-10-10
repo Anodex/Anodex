@@ -67,6 +67,14 @@ export const DENIED_CHANNEL_PREFIXES = [
   'terminal:',
 
   /**
+   * Setting up web search takes a search service's key, and is done where the
+   * key will be stored. Testing one is the step before saving it, so it stays
+   * at the computer with the key box; the phone already reads whether search
+   * is set up through `settings:get`.
+   */
+  'web-search:',
+
+  /**
    * A feature the phone does not have, in the direction nobody checked.
    *
    * The output side has been closed for a while — see `DENIED_EVENT_PREFIXES`,

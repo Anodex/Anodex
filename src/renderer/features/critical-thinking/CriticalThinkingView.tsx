@@ -19,6 +19,7 @@ import { useModelStore } from '../../stores/modelStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useUiStore } from '../../stores/uiStore'
 import { criticalThinkingAttention } from '../../lib/navigationBadges'
+import { WebSearchSetupDialog } from '../web-search/WebSearchSetupDialog'
 import { CriticalThinkingReport } from './CriticalThinkingReport'
 import { CriticalThinkingProgress } from './CriticalThinkingProgress'
 import styles from './CriticalThinkingView.module.css'
@@ -222,6 +223,7 @@ export function CriticalThinkingView(): JSX.Element {
   const [submitting, setSubmitting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [settingUpSearch, setSettingUpSearch] = useState(false)
   const reportRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -447,11 +449,14 @@ export function CriticalThinkingView(): JSX.Element {
               {!searchReady && (
                 <div className={styles.setupNotice}>
                   <Icon name="web" size={16} />
-                  <span>Critical Thinking needs a configured web search provider.</span>
-                  <button type="button" onClick={() => openSettings('tools-skills')}>
-                    Configure search
+                  <span>Critical Thinking researches on the web, so it needs web search.</span>
+                  <button type="button" onClick={() => setSettingUpSearch(true)}>
+                    Set up web search
                   </button>
                 </div>
+              )}
+              {settingUpSearch && (
+                <WebSearchSetupDialog onClose={() => setSettingUpSearch(false)} />
               )}
               {searchReady && !modelReady && (
                 <div className={styles.setupNotice}>

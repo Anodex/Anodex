@@ -384,6 +384,12 @@ export interface WebSearchSettings {
   requireApproval: boolean
 }
 
+/** What a "Test and save" in the search setup tries, before any of it is saved. */
+export type WebSearchTestConfig = Pick<
+  WebSearchSettings,
+  'provider' | 'apiKey' | 'baseUrl' | 'searchEngineId'
+>
+
 export interface DiagnosticEntry {
   id: string
   timestamp: number
