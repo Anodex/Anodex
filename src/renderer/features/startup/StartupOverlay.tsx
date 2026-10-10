@@ -3,7 +3,9 @@ import titleLogo from '../../assets/title-logo.png'
 import { retryStartup } from '../../hooks/useAnodexBridge'
 import { useStartupStore } from '../../stores/startupStore'
 import { useUiStore } from '../../stores/uiStore'
+import { anodex } from '../../lib/anodex'
 import { StartupEngine } from './startupEngine'
+import { introPlayedFor, rememberIntroPlayed } from './introMemory'
 import styles from './StartupOverlay.module.css'
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -31,18 +33,37 @@ export function StartupOverlay(): JSX.Element | null {
     const settleCanvas = settleCanvasRef.current
     if (!stage || !starCanvas || !settleCanvas) return
 
+    // The full sequence plays on the first launch and the first after an update.
+    // The version arrives asynchronously; until it does, a launch is ordinary.
+    let version: string | null = null
+    void anodex.system
+      .getInfo()
+      .then((info) => {
+        version = info.appVersion
+      })
+      .catch(() => {})
+    const isFullIntro = (): boolean =>
+      useStartupStore.getState().firstLaunch || (version !== null && introPlayedFor() !== version)
+
     const engine = new StartupEngine({
       stage,
       starCanvas,
       settleCanvas,
       isFirstLaunch: () => useStartupStore.getState().firstLaunch,
       isReducedMotion: () => prefersReducedMotion.matches,
+      isFullIntro,
       onFinished: () => {
+        if (version) rememberIntroPlayed(version)
         useStartupStore.getState().dismiss()
         setGone(true)
       }
     })
     engine.start()
+
+    // Any click or key ends the intro the moment the app is ready.
+    const skip = (): void => engine.skip()
+    window.addEventListener('keydown', skip)
+    stage.addEventListener('pointerdown', skip)
 
     const applyPhase = (phase: string): void => {
       if (phase === 'ready') engine.launch()
@@ -87,6 +108,8 @@ export function StartupOverlay(): JSX.Element | null {
 
     return () => {
       unsubscribe()
+      window.removeEventListener('keydown', skip)
+      stage.removeEventListener('pointerdown', skip)
       engine.destroy()
     }
   }, [])

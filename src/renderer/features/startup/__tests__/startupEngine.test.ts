@@ -102,6 +102,7 @@ async function engine(): Promise<{
     settleCanvas: fakeCanvas(),
     isFirstLaunch: () => false,
     isReducedMotion: () => false,
+    isFullIntro: () => true,
     onFinished: () => {}
   })
   return {
@@ -172,5 +173,76 @@ describe('startupEngine — resize', () => {
     destroy()
 
     expect(resizeListeners).toHaveLength(0)
+  })
+})
+
+async function lifecycle(fullIntro: boolean): Promise<{
+  engine: import('../startupEngine').StartupEngine
+  finished: () => boolean
+}> {
+  const { StartupEngine } = await import('../startupEngine')
+  let done = false
+  const engine = new StartupEngine({
+    stage: { dataset: {} } as unknown as HTMLElement,
+    starCanvas: fakeCanvas(),
+    settleCanvas: fakeCanvas(),
+    isFirstLaunch: () => false,
+    isReducedMotion: () => false,
+    isFullIntro: () => fullIntro,
+    onFinished: () => {
+      done = true
+    }
+  })
+  engine.start()
+  return { engine, finished: () => done }
+}
+
+describe('startupEngine — brief and skippable', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // Every launch used to play the whole 4.4 s sequence.
+  it('gets an ordinary launch into the app in about a second', async () => {
+    const { engine, finished } = await lifecycle(false)
+    engine.launch()
+    vi.advanceTimersByTime(1100)
+    expect(finished()).toBe(true)
+  })
+
+  it('keeps the full sequence for the first launch and after an update', async () => {
+    const { engine, finished } = await lifecycle(true)
+    engine.launch()
+    vi.advanceTimersByTime(1100)
+    expect(finished()).toBe(false)
+  })
+
+  it('ends a full intro on a click or key once the app is ready', async () => {
+    const { engine, finished } = await lifecycle(true)
+    engine.launch()
+    engine.skip()
+    vi.advanceTimersByTime(700)
+    expect(finished()).toBe(true)
+  })
+
+  it('remembers a skip asked for before the app is ready, without revealing it early', async () => {
+    const { engine, finished } = await lifecycle(true)
+    engine.skip()
+    vi.advanceTimersByTime(5000)
+    expect(finished()).toBe(false)
+    engine.launch()
+    vi.advanceTimersByTime(700)
+    expect(finished()).toBe(true)
+  })
+
+  it('does not skip past a startup error and its recovery actions', async () => {
+    const { engine, finished } = await lifecycle(true)
+    engine.fail()
+    engine.skip()
+    vi.advanceTimersByTime(5000)
+    expect(finished()).toBe(false)
   })
 })
