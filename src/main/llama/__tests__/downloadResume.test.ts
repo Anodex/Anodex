@@ -250,9 +250,10 @@ describe('downloadFile — resuming', () => {
     expect((await stat(`${target}.part`)).size).toBe(5)
   })
 
-  it('leaves nothing behind when the user cancels', async () => {
-    // Cancelling is someone saying stop, not a failure to recover from — a
-    // twenty-gigabyte orphan they cannot see is not a kindness.
+  it('keeps what arrived when the user cancels, so Resume can pick it up', async () => {
+    // Cancel used to delete the part, so stopping a big download for a minute
+    // to free the connection cost every byte of it. The card now offers to
+    // resume or discard, so nothing is left behind unseen.
     const controller = new AbortController()
     const fetchMock = vi.fn(() => {
       controller.abort()
@@ -266,8 +267,8 @@ describe('downloadFile — resuming', () => {
       downloadFile('https://example.com/m.gguf', target, controller.signal, () => {})
     ).rejects.toThrow()
 
-    expect(existsSync(`${target}.part`)).toBe(false)
-    expect(existsSync(`${target}.part.etag`)).toBe(false)
+    expect(await readFile(`${target}.part`, 'utf-8')).toBe('PARTIAL')
+    expect(existsSync(`${target}.part.etag`)).toBe(true)
   })
 
   it('cleans up the validator once the file is complete', async () => {

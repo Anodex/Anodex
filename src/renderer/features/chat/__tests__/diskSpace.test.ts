@@ -26,4 +26,9 @@ describe('downloadShortfallBytes', () => {
     expect(downloadShortfallBytes({ storageFreeBytes: null }, model)).toBe(0)
     expect(downloadShortfallBytes(null, model)).toBe(0)
   })
+
+  it('does not ask for room again for what a stopped download already kept', () => {
+    expect(downloadShortfallBytes({ storageFreeBytes: 10 * GB }, model)).toBeGreaterThan(0)
+    expect(downloadShortfallBytes({ storageFreeBytes: 10 * GB }, model, 15 * GB)).toBe(0)
+  })
 })

@@ -180,6 +180,10 @@ export const IpcChannel = {
     stateChanged: 'models:state-changed',
     download: 'models:download',
     cancelDownload: 'models:cancel-download',
+    /** Bytes already on disk toward each of a list of recommended models. */
+    partialDownloads: 'models:partial-downloads',
+    /** Throw away what a cancelled or failed download left behind. */
+    discardPartialDownload: 'models:discard-partial-download',
     /** main → renderer broadcast with download progress. */
     downloadProgress: 'models:download-progress',
     getReliability: 'models:get-reliability',
@@ -876,6 +880,14 @@ export interface AnodexApi {
     /** Download a recommended model into the models directory. */
     download(model: RecommendedModel): Promise<Result<ModelInfo>>
     cancelDownload(modelId: string): Promise<void>
+    /**
+     * Bytes already on disk toward each model, by `RecommendedModel.id`, for the
+     * models that have any. A cancelled or failed download keeps them, and the
+     * next `download` resumes from them.
+     */
+    partialDownloads(models: RecommendedModel[]): Promise<Record<string, number>>
+    /** Delete a model's partial download. Refused while it is still downloading. */
+    discardPartialDownload(model: RecommendedModel): Promise<Result<void>>
     onDownloadProgress(listener: (progress: ModelDownloadProgress) => void): () => void
     /** Usage-based reliability stats for every model that has actually been run. */
     getReliability(): Promise<Result<ModelReliabilityRecord[]>>

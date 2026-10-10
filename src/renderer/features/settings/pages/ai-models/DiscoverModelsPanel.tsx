@@ -10,7 +10,7 @@ import { Button } from '../../../../components/ui/Button'
 import { Icon } from '../../../../components/Icon'
 import { Spinner } from '../../../../components/ui/Spinner'
 import { basename } from './scoring'
-import { DownloadProgress, ModelDownloadIcon } from './RecommendedModelStrip'
+import { DownloadAction, ModelDownloadIcon } from './RecommendedModelStrip'
 import styles from './AiModelsSettings.module.css'
 
 /** `154325` → `154.3k`; kept local since nothing else in the app needs a compact-count formatter yet. */
@@ -44,8 +44,6 @@ export function DiscoverModelsPanel({
   const [searching, setSearching] = useState(false)
 
   const downloads = useModelStore((s) => s.downloads)
-  const downloadModel = useModelStore((s) => s.downloadModel)
-  const cancelDownload = useModelStore((s) => s.cancelDownload)
   const localFileNames = useMemo(
     () => new Set(installedModels.map((model) => basename(model.path).toLowerCase())),
     [installedModels]
@@ -148,26 +146,7 @@ export function DiscoverModelsPanel({
                   <span>~{model.minRam} RAM (estimated)</span>
                 </div>
 
-                {isDownloaded ? (
-                  <div className={styles.downloadedBadge}>
-                    <Icon name="check" size={14} />
-                    Downloaded
-                  </div>
-                ) : progress?.status === 'downloading' ? (
-                  <DownloadProgress progress={progress} onCancel={() => cancelDownload(model.id)} />
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft={<Icon name="download" size={14} />}
-                    onClick={() => void downloadModel(model)}
-                  >
-                    {progress?.status === 'error' ? 'Retry download' : 'Download'}
-                  </Button>
-                )}
-                {progress?.status === 'error' && (
-                  <p className={styles.errorText}>{progress.error ?? 'Download failed.'}</p>
-                )}
+                <DownloadAction model={model} installed={isDownloaded} />
               </article>
             )
           })}

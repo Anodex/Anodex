@@ -17,10 +17,10 @@ const log = createLogger('downloader')
 /** One in-flight download's abort controller, keyed by `RecommendedModel.id`. */
 const activeDownloads = new Map<string, AbortController>()
 
-/** Abort an in-progress download, if one is running for this model. No-op otherwise. */
 /** The most often a download reports progress to the window. */
 const PROGRESS_INTERVAL_MS = 150
 
+/** Abort an in-progress download, if one is running for this model. No-op otherwise. */
 export function cancelDownload(modelId: string): void {
   activeDownloads.get(modelId)?.abort()
 }
@@ -44,8 +44,10 @@ export function cancelAllDownloads(): void {
  * user already has.
  *
  * Resolves to the main model path and optional projector path on success.
- * Rejects (and cleans up the active partial file) on a network error, a
- * non-OK response, or cancellation via {@link cancelDownload}.
+ * Rejects on a network error, a non-OK response, or cancellation via
+ * {@link cancelDownload}. Either way what arrived stays on disk as a `.part`
+ * file the next attempt resumes from; {@link discardPartialDownload} is how
+ * a person says they do not want it.
  */
 export async function downloadModel(
   model: RecommendedModel,
@@ -141,7 +143,8 @@ export async function downloadModel(
     if (!canceled) log.warn('Model download failed', model.id, error)
     onProgress({
       modelId: model.id,
-      receivedBytes: 0,
+      // What a retry would resume from, so the card can offer it.
+      receivedBytes: partialDownloadBytes(model, targetDir),
       totalBytes: null,
       status: canceled ? 'canceled' : 'error',
       error: canceled ? undefined : error instanceof Error ? error.message : String(error)
@@ -150,6 +153,51 @@ export async function downloadModel(
   } finally {
     activeDownloads.delete(model.id)
   }
+}
+
+/**
+ * Bytes already on disk toward `model`: finished files of a two-file download
+ * plus any resumable `.part`. Zero when nothing would be resumed — a part with
+ * no validator beside it is discarded on the next attempt, so it is not
+ * offered as progress.
+ */
+export function partialDownloadBytes(model: RecommendedModel, targetDir: string): number {
+  const finalPath = resolveDownloadTarget(targetDir, recommendedModelFileName(model))
+  const projectorName = recommendedVisionProjectorFileName(model)
+  const projectorPath = projectorName ? resolveDownloadTarget(targetDir, projectorName) : undefined
+  const modelDone = existsSync(finalPath)
+  if (modelDone && (!projectorPath || existsSync(projectorPath))) return 0
+  const onDisk = (path: string): number =>
+    existsSync(path) ? statSync(path).size : resumableBytes(path)
+  const bytes = onDisk(finalPath) + (projectorPath ? onDisk(projectorPath) : 0)
+  // A finished model with no projector part yet is an installed text model as
+  // far as anything else can tell; only call it partial when a part exists.
+  return modelDone && projectorPath && !resumableBytes(projectorPath) ? 0 : bytes
+}
+
+/**
+ * Throw away what a cancelled or failed download left behind. Finished files
+ * are left alone: a model whose projector never arrived still works as a text
+ * model, and deleting it is what Delete in the model list is for.
+ */
+export async function discardPartialDownload(
+  model: RecommendedModel,
+  targetDir: string
+): Promise<void> {
+  if (activeDownloads.has(model.id)) throw new Error('This model is still downloading.')
+  const names = [recommendedModelFileName(model), recommendedVisionProjectorFileName(model)]
+  for (const name of names) {
+    if (!name) continue
+    const partPath = `${resolveDownloadTarget(targetDir, name)}.part`
+    await discardPartial(partPath, `${partPath}.etag`)
+  }
+}
+
+/** The size of `finalPath`'s resumable `.part`, or 0 when there is none to resume. */
+function resumableBytes(finalPath: string): number {
+  const partPath = `${finalPath}.part`
+  if (!existsSync(partPath) || !existsSync(`${partPath}.etag`)) return 0
+  return statSync(partPath).size
 }
 
 /**
@@ -179,7 +227,7 @@ function resolveDownloadTarget(targetDir: string, fileName: string): string {
  * `EmbeddingService`'s one-off small-model download doesn't need to fabricate
  * a fake `RecommendedModel` (chat-catalog-shaped: tier, family, quality/speed
  * ranks — none of it meaningful for an embedding model) just to reuse this
- * logic. Leaves no partial file behind on failure or abort.
+ * logic. Keeps what arrived as a resumable `.part` on failure or abort.
  */
 export async function downloadFile(
   url: string,
@@ -196,76 +244,71 @@ export async function downloadFile(
   const resumeFrom = existsSync(partPath) && existsSync(tagPath) ? statSync(partPath).size : 0
   const validator = resumeFrom > 0 ? readFileSync(tagPath, 'utf-8').trim() : ''
 
-  try {
-    const headers: Record<string, string> = {}
-    if (resumeFrom > 0 && validator) {
-      headers['range'] = `bytes=${resumeFrom}-`
-      // The whole safety of resuming. If the file changed since the part was
-      // written, the server ignores the Range and sends 200 with the new
-      // file, and the branch below starts over instead of splicing two
-      // different downloads into one corrupt GGUF.
-      headers['if-range'] = validator
-    }
-
-    const response = await fetch(url, { signal, headers })
-
-    // 416 means the part is at or past the end — a previous run that was
-    // killed between the last write and the rename, or a truncated remote
-    // file. Neither is resumable; start clean.
-    if (response.status === 416) {
-      await discardPartial(partPath, tagPath)
-      return downloadFile(url, finalPath, signal, onProgress)
-    }
-    if (!response.ok || !response.body) {
-      // A resource that is gone stays gone, so anything already on disk for
-      // it can never be finished and would sit there unreachable — the app
-      // shows no partials, so nobody would ever find it to delete. A 5xx or a
-      // dropped socket is the opposite: exactly what resuming is for.
-      if (response.status === 404 || response.status === 410) {
-        await discardPartial(partPath, tagPath)
-      }
-      throw new Error(`Download failed: HTTP ${response.status}`)
-    }
-
-    const resumed = response.status === 206 && resumeFrom > 0
-    if (!resumed && resumeFrom > 0) {
-      // Server ignored the Range, or the validator no longer matches. Either
-      // way the bytes on disk are not a prefix of what is arriving.
-      log.info('Resume refused by the server; starting this download again', finalPath)
-      await discardPartial(partPath, tagPath)
-    }
-
-    // On a 206 the content-length is what is *left*, not the file. Reporting
-    // it as the total made a resumed 30GB download claim it was 2GB and
-    // finish at 700%.
-    const totalBytes = totalFromHeaders(response.headers, resumed ? resumeFrom : 0)
-
-    // Recorded before any bytes land, so an interrupted run can resume from
-    // whatever did.
-    const nextValidator = response.headers.get('etag') ?? response.headers.get('last-modified')
-    if (nextValidator) writeFileSync(tagPath, nextValidator, 'utf-8')
-    else await rm(tagPath, { force: true }).catch(() => {})
-
-    let receivedBytes = resumed ? resumeFrom : 0
-    if (resumed) onProgress(receivedBytes, totalBytes)
-
-    const readable = Readable.fromWeb(response.body)
-    readable.on('data', (chunk: Buffer) => {
-      receivedBytes += chunk.length
-      onProgress(receivedBytes, totalBytes)
-    })
-
-    await pipeline(readable, createWriteStream(partPath, resumed ? { flags: 'a' } : {}))
-    await rename(partPath, finalPath)
-    await rm(tagPath, { force: true }).catch(() => {})
-  } catch (error) {
-    // A cancelled download is the user saying stop, so it leaves nothing
-    // behind. A *failed* one keeps its part file: the network dropping at 95%
-    // of a thirty-gigabyte model used to mean starting again from zero, which
-    // is the single roughest edge in the app.
-    if (signal.aborted) await discardPartial(partPath, tagPath)
-    throw error
+  // Failed or cancelled, the part file stays. The network dropping at 95% of
+  // a thirty-gigabyte model used to mean starting again from zero, and so did
+  // pressing Cancel to free the connection for a minute; both now pick up
+  // where they stopped, and the card offers to discard the part instead.
+  const headers: Record<string, string> = {}
+  if (resumeFrom > 0 && validator) {
+    headers['range'] = `bytes=${resumeFrom}-`
+    // The whole safety of resuming. If the file changed since the part was
+    // written, the server ignores the Range and sends 200 with the new
+    // file, and the branch below starts over instead of splicing two
+    // different downloads into one corrupt GGUF.
+    headers['if-range'] = validator
   }
+
+  const response = await fetch(url, { signal, headers })
+
+  // 416 means the part is at or past the end — a previous run that was
+  // killed between the last write and the rename, or a truncated remote
+  // file. Neither is resumable; start clean.
+  if (response.status === 416) {
+    await discardPartial(partPath, tagPath)
+    return downloadFile(url, finalPath, signal, onProgress)
+  }
+  if (!response.ok || !response.body) {
+    // A resource that is gone stays gone, so anything already on disk for
+    // it can never be finished and would sit there unreachable — the app
+    // shows no partials, so nobody would ever find it to delete. A 5xx or a
+    // dropped socket is the opposite: exactly what resuming is for.
+    if (response.status === 404 || response.status === 410) {
+      await discardPartial(partPath, tagPath)
+    }
+    throw new Error(`Download failed: HTTP ${response.status}`)
+  }
+
+  const resumed = response.status === 206 && resumeFrom > 0
+  if (!resumed && resumeFrom > 0) {
+    // Server ignored the Range, or the validator no longer matches. Either
+    // way the bytes on disk are not a prefix of what is arriving.
+    log.info('Resume refused by the server; starting this download again', finalPath)
+    await discardPartial(partPath, tagPath)
+  }
+
+  // On a 206 the content-length is what is *left*, not the file. Reporting
+  // it as the total made a resumed 30GB download claim it was 2GB and
+  // finish at 700%.
+  const totalBytes = totalFromHeaders(response.headers, resumed ? resumeFrom : 0)
+
+  // Recorded before any bytes land, so an interrupted run can resume from
+  // whatever did.
+  const nextValidator = response.headers.get('etag') ?? response.headers.get('last-modified')
+  if (nextValidator) writeFileSync(tagPath, nextValidator, 'utf-8')
+  else await rm(tagPath, { force: true }).catch(() => {})
+
+  let receivedBytes = resumed ? resumeFrom : 0
+  if (resumed) onProgress(receivedBytes, totalBytes)
+
+  const readable = Readable.fromWeb(response.body)
+  readable.on('data', (chunk: Buffer) => {
+    receivedBytes += chunk.length
+    onProgress(receivedBytes, totalBytes)
+  })
+
+  await pipeline(readable, createWriteStream(partPath, resumed ? { flags: 'a' } : {}))
+  await rename(partPath, finalPath)
+  await rm(tagPath, { force: true }).catch(() => {})
 }
 
 /** Remove a partial download and the validator that described it. */
