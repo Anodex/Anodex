@@ -6,15 +6,27 @@ import styles from './CodeBlock.module.css'
 /** How much of an untagged block its language is guessed from while it is shut. */
 const LANGUAGE_GUESS_CHARS = 2000
 
+/** A finished block this short opens by itself; a longer one stays a one-line summary. */
+const SHORT_BLOCK_LINES = 15
+
 interface CodeBlockProps {
   code: string
   language?: string
+  /**
+   * The block is complete (its reply has finished). Only then may a short block
+   * open by itself: open while streaming, it would be highlighted on every frame.
+   */
+  settled?: boolean
 }
 
 /** A fenced code block with a language label, copy button, and syntax highlighting. */
-export function CodeBlock({ code, language }: CodeBlockProps): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+export function CodeBlock({ code, language, settled = false }: CodeBlockProps): JSX.Element {
+  // What the person chose, if they have; until then a settled short block opens
+  // by itself. The four-line board in a reply needed a click just to be seen.
+  const [toggled, setToggled] = useState<boolean | null>(null)
   const [copied, setCopied] = useState(false)
+  const lineCount = useMemo(() => countLines(code), [code])
+  const expanded = toggled ?? (settled && lineCount <= SHORT_BLOCK_LINES)
   // Colouring is only drawn open, and a block streams in shut: highlighting every
   // frame of a block nobody can see cost the window a steady share of a core, and
   // the whole block again each time. Shut, only the label needs a language, and a
@@ -29,7 +41,6 @@ export function CodeBlock({ code, language }: CodeBlockProps): JSX.Element {
     () => (guessSample ? highlightCode(guessSample).language : null),
     [guessSample]
   )
-  const lineCount = useMemo(() => countLines(code), [code])
   const summary = `${lineCount} ${lineCount === 1 ? 'line' : 'lines'} - ${code.length} chars`
 
   const copy = async (): Promise<void> => {
@@ -48,7 +59,7 @@ export function CodeBlock({ code, language }: CodeBlockProps): JSX.Element {
         <button
           type="button"
           className={styles.toggle}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setToggled(!expanded)}
           aria-expanded={expanded}
         >
           <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={13} />

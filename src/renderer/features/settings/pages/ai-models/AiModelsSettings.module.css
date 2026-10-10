@@ -291,6 +291,38 @@
   color: var(--danger);
 }
 
+.partialNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.partialDiscard {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.partialDiscard:hover {
+  color: var(--danger);
+}
+
+.partialDiscard:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .keyField {
   display: flex;
   align-items: center;

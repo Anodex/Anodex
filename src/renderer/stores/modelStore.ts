@@ -33,6 +33,12 @@ interface ModelState {
    */
   downloadNames: Record<string, string>
   /**
+   * Bytes already on disk toward a model, by `RecommendedModel.id`, from a
+   * download that was cancelled, failed, or cut off when the app quit. Its next
+   * download resumes from them. Only models some card has asked about appear.
+   */
+  partials: Record<string, number>
+  /**
    * Set when the previous run died loading a model. While it is set, nothing
    * auto-loads — the whole point is to break the crash loop and let the user
    * choose.
@@ -46,6 +52,10 @@ interface ModelState {
   deleteModel: (model: ModelInfo) => Promise<void>
   downloadModel: (model: RecommendedModel) => Promise<void>
   cancelDownload: (modelId: string) => void
+  /** Ask the main process what is already on disk toward these models. */
+  refreshPartials: (models: RecommendedModel[]) => Promise<void>
+  /** Delete what a cancelled or failed download of `model` left behind. */
+  discardPartial: (model: RecommendedModel) => Promise<void>
   /** Called by the IPC bridge when the engine broadcasts a new state. */
   setEngineState: (state: EngineState) => void
   /** Called by the IPC bridge when a download reports progress. */
@@ -82,6 +92,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   pendingPath: null,
   downloads: {},
   downloadNames: {},
+  partials: {},
   loadRecovery: null,
 
   refresh: async () => {
@@ -205,7 +216,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set((s) => ({
       downloads: {
         ...s.downloads,
-        [model.id]: { modelId: model.id, receivedBytes: 0, totalBytes: null, status: 'downloading' }
+        // A resumed download starts its bar where the last one stopped.
+        [model.id]: {
+          modelId: model.id,
+          receivedBytes: s.partials[model.id] ?? 0,
+          totalBytes: null,
+          status: 'downloading'
+        }
       },
       downloadNames: { ...s.downloadNames, [model.id]: model.name }
     }))
@@ -260,6 +277,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       notifyError('Failed to download model', message)
     } finally {
       cancelRequested.delete(model.id)
+      void get().refreshPartials([model])
     }
   },
 
@@ -268,10 +286,47 @@ export const useModelStore = create<ModelState>((set, get) => ({
     void anodex.models.cancelDownload(modelId)
   },
 
+  refreshPartials: async (models) => {
+    if (models.length === 0) return
+    const found = await anodex.models.partialDownloads(models)
+    set((s) => {
+      const partials = { ...s.partials }
+      for (const model of models) {
+        if (found[model.id]) partials[model.id] = found[model.id]
+        else delete partials[model.id]
+      }
+      return { partials }
+    })
+  },
+
+  discardPartial: async (model) => {
+    const result = await anodex.models.discardPartialDownload(model)
+    if (!result.ok) {
+      notifyError('Could not discard the download', reasonFor(result.error))
+      return
+    }
+    set((s) => {
+      const { [model.id]: _discarded, ...partials } = s.partials
+      const { [model.id]: _ended, ...downloads } = s.downloads
+      return { partials, downloads }
+    })
+  },
+
   setEngineState: (state) => set({ engine: state }),
 
   setDownloadProgress: (progress) =>
-    set((s) => ({ downloads: { ...s.downloads, [progress.modelId]: progress } })),
+    set((s) => {
+      const downloads = { ...s.downloads, [progress.modelId]: progress }
+      if (progress.status === 'downloading') return { downloads }
+      // A download that ended reports what it left on disk to resume from.
+      const partials = { ...s.partials }
+      if (progress.status !== 'done' && progress.receivedBytes > 0) {
+        partials[progress.modelId] = progress.receivedBytes
+      } else {
+        delete partials[progress.modelId]
+      }
+      return { downloads, partials }
+    }),
 
   checkLoadRecovery: async () => {
     const recovery = await anodex.models.getLoadRecovery()

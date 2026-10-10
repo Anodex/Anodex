@@ -9,8 +9,12 @@ import { AnodexLogo } from '../../components/AnodexLogo'
 import { Icon } from '../../components/Icon'
 import { ModelLogo } from '../../components/ModelLogo'
 import { formatBytes } from '../../lib/format'
+import { shortHardwareName } from '../../lib/hardwareName'
 import { basename, buildRecommendedSlots } from '../settings/pages/ai-models/scoring'
-import { DownloadProgress } from '../settings/pages/ai-models/RecommendedModelStrip'
+import {
+  DownloadProgress,
+  PartialDownloadNote
+} from '../settings/pages/ai-models/RecommendedModelStrip'
 import { Button } from '../../components/ui/Button'
 import { DownloadTour } from './DownloadTour'
 import { downloadShortfallBytes } from './diskSpace'
@@ -45,22 +49,6 @@ interface SpecTile {
   full?: string
   /** Shown in the warning colour: this is what stops the recommendation. */
   warning?: boolean
-}
-
-/**
- * Hardware names as the OS reports them carry filler that pushes the part that
- * identifies the chip off the end of a small tile: "12-Core Processor" repeats
- * the core count shown above it, Intel adds trademark marks and a clock, and Mesa
- * appends its driver in parentheses.
- */
-function shortHardwareName(name: string): string {
-  return name
-    .replace(/\((R|TM)\)/gi, '')
-    .replace(/\s*\(.*\)\s*$/, '')
-    .replace(/\s+@\s*[\d.]+\s*GHz$/i, '')
-    .replace(/\s+\d+-Core Processor$/i, '')
-    .replace(/\s+(Processor|CPU)$/i, '')
-    .trim()
 }
 
 /**
@@ -174,6 +162,8 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
   const cancelDownload = useModelStore((s) => s.cancelDownload)
   const loadModel = useModelStore((s) => s.loadModel)
   const pendingPath = useModelStore((s) => s.pendingPath)
+  const partials = useModelStore((s) => s.partials)
+  const refreshPartials = useModelStore((s) => s.refreshPartials)
 
   const [hardware, setHardware] = useState<HardwareInfo | null>(null)
   const [loadingHardware, setLoadingHardware] = useState(true)
@@ -210,6 +200,13 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
       (slot) => slot.id === 'overall'
     )
   }, [hardware, loadingHardware, liveModels])
+
+  // A download stopped on an earlier run is still on disk; the card offers to
+  // resume it rather than presenting the model as untouched.
+  const bestModel = bestOverall?.model
+  useEffect(() => {
+    if (bestModel) void refreshPartials([bestModel])
+  }, [bestModel, refreshPartials])
 
   if (loadingHardware || loadingModels) {
     return (
@@ -249,9 +246,12 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
   const installed = models.find((model) => basename(model.path).toLowerCase() === fileName)
   const progress = downloads[bestOverall.model.id]
   const loading = installed && pendingPath === installed.path
+  const partialBytes = installed ? 0 : (partials[bestOverall.model.id] ?? 0)
   // A model already on disk needs no room; one that is not, and would not fit,
   // must not be offered as the first thing a new user does.
-  const spaceShort = installed ? 0 : downloadShortfallBytes(hardware, bestOverall.model)
+  const spaceShort = installed
+    ? 0
+    : downloadShortfallBytes(hardware, bestOverall.model, partialBytes)
 
   const handleAction = async (): Promise<void> => {
     if (installed) {
@@ -351,8 +351,21 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
           loading={loading}
           onClick={() => void handleAction()}
         >
-          {loading ? 'Loading…' : installed ? 'Load model' : 'Download and load'}
+          {loading
+            ? 'Loading…'
+            : installed
+              ? 'Load model'
+              : partialBytes > 0
+                ? 'Resume download'
+                : 'Download and load'}
         </Button>
+      )}
+      {partialBytes > 0 && (
+        <PartialDownloadNote
+          model={bestOverall.model}
+          bytes={partialBytes}
+          className={styles.partialNote}
+        />
       )}
 
       <Button variant="ghost" size="sm" className={styles.recommendLink} onClick={onOpenSettings}>

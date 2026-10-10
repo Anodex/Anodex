@@ -65,6 +65,9 @@ const api: AnodexApi = {
     onStateChanged: (listener) => subscribe<EngineState>(IpcChannel.Models.stateChanged, listener),
     download: (model) => ipcRenderer.invoke(IpcChannel.Models.download, model),
     cancelDownload: (modelId) => ipcRenderer.invoke(IpcChannel.Models.cancelDownload, modelId),
+    partialDownloads: (models) => ipcRenderer.invoke(IpcChannel.Models.partialDownloads, models),
+    discardPartialDownload: (model) =>
+      ipcRenderer.invoke(IpcChannel.Models.discardPartialDownload, model),
     onDownloadProgress: (listener) =>
       subscribe<ModelDownloadProgress>(IpcChannel.Models.downloadProgress, listener),
     getReliability: () => ipcRenderer.invoke(IpcChannel.Models.getReliability),

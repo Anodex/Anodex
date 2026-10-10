@@ -78,7 +78,7 @@ export function registerConversationHandlers(): void {
 
   ipcMain.handle(
     IpcChannel.Conversations.branchForEdit,
-    (event, conversationId: string, messageId: string) => {
+    async (event, conversationId: string, messageId: string) => {
       const outcome = branchForEdit(conversationStore.get(conversationId), messageId, Date.now())
       if (!outcome.ok) {
         return err(
@@ -97,6 +97,7 @@ export function registerConversationHandlers(): void {
           IpcChannel.Conversations.changed,
           conversationId
         )
+        await conversationStore.whenWritten(conversationId)
         return ok({ remainingMessages: outcome.conversation.messages.length })
       } catch (error) {
         return err(
@@ -136,7 +137,7 @@ export function registerConversationHandlers(): void {
       : archived.map(({ conversation }) => conversation)
   })
 
-  ipcMain.handle(IpcChannel.Conversations.save, (event, conversation: Conversation) => {
+  ipcMain.handle(IpcChannel.Conversations.save, async (event, conversation: Conversation) => {
     assertMessagesLoaded(conversation)
     try {
       // A remote client may only be holding the tail of this conversation, so its
@@ -159,6 +160,8 @@ export function registerConversationHandlers(): void {
         IpcChannel.Conversations.changed,
         conversation.id
       )
+      // The file is written off this thread; the writer still hears if it failed.
+      await conversationStore.whenWritten(conversation.id)
     } catch (error) {
       log.error('Failed to save conversation:', conversation.id, error)
       throw new Error('Could not save conversation.')

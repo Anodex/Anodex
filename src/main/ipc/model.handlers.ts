@@ -8,7 +8,12 @@ import { resolveModelContextSize } from '@shared/modelContextSize'
 import { llamaService } from '../llama/LlamaService'
 import { clearLoadRecovery, getLoadRecovery } from '../llama/loadSentinel'
 import { describeModel, isVisionProjectorFileName, scanModels } from '../llama/modelScanner'
-import { cancelDownload, downloadModel } from '../llama/modelDownloader'
+import {
+  cancelDownload,
+  discardPartialDownload,
+  downloadModel,
+  partialDownloadBytes
+} from '../llama/modelDownloader'
 import { searchHuggingFaceModels, fetchTopModels } from '../models/huggingFaceCatalog'
 import { recallTopModels, rememberTopModels } from '../models/topModelsCache'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
@@ -17,6 +22,9 @@ import { forgetModelSettings } from './modelSettingsCleanup'
 import { sendToWindow } from '../broadcast'
 import { getHardware } from './system.handlers'
 import { computerControlService } from '../computerControl/ComputerControlService'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('ipc:models')
 
 /** IPC handlers for discovering, adding, and (un)loading local models. */
 export function registerModelHandlers(): void {
@@ -199,6 +207,38 @@ export function registerModelHandlers(): void {
   ipcMain.handle(IpcChannel.Models.cancelDownload, (_event, modelId: string) => {
     cancelDownload(modelId)
   })
+
+  ipcMain.handle(IpcChannel.Models.partialDownloads, (_event, models: RecommendedModel[]) => {
+    const directory = settingsStore.get().modelsDirectory
+    const partials: Record<string, number> = {}
+    for (const model of Array.isArray(models) ? models : []) {
+      try {
+        const bytes = partialDownloadBytes(model, directory)
+        if (bytes > 0) partials[model.id] = bytes
+      } catch (error) {
+        // A catalogue entry whose file name the containment guard refuses has
+        // nothing on disk to report; it must not hide the others.
+        log.warn('Could not read partial download', model?.id, toErrorMessage(error))
+      }
+    }
+    return partials
+  })
+
+  ipcMain.handle(
+    IpcChannel.Models.discardPartialDownload,
+    async (_event, model: RecommendedModel) => {
+      try {
+        await discardPartialDownload(model, settingsStore.get().modelsDirectory)
+        return ok(undefined)
+      } catch (error) {
+        return err(
+          'models.discard-partial-failed',
+          'Could not discard the partial download.',
+          toErrorMessage(error)
+        )
+      }
+    }
+  )
 
   ipcMain.handle(IpcChannel.Models.getReliability, () => {
     try {

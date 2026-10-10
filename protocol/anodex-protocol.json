@@ -6195,6 +6195,59 @@
       }
     },
     {
+      "channel": "models:discard-partial-download",
+      "kind": "invoke",
+      "api": "models.discardPartialDownload",
+      "args": [
+        {
+          "name": "model",
+          "optional": false,
+          "type": {
+            "$ref": "RecommendedModel"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "models:discover",
       "kind": "invoke",
       "api": "models.discover",
@@ -6551,6 +6604,26 @@
             }
           }
         ]
+      }
+    },
+    {
+      "channel": "models:partial-downloads",
+      "kind": "invoke",
+      "api": "models.partialDownloads",
+      "args": [
+        {
+          "name": "models",
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "RecommendedModel"
+            }
+          }
+        }
+      ],
+      "result": {
+        "$ref": "Record<string, number>"
       }
     },
     {

@@ -153,7 +153,9 @@ const TurnSteps = memo(function TurnSteps({
         // Narration the model wrote between calls. Rendered as the prose
         // it is, so expanding a folded reply reads the way it did live.
         if (segment.type === 'text') {
-          return <MessageContent key={`text-${index}`} content={segment.text} />
+          return (
+            <MessageContent key={`text-${index}`} content={segment.text} streaming={streaming} />
+          )
         }
         return segment.calls.map((call) => <ToolCallCard key={call.id} call={call} />)
       })}

@@ -12,6 +12,8 @@ import type { RecommendedModel } from '@shared/recommendedModels'
 const list = vi.fn<() => Promise<unknown>>()
 const load = vi.fn<() => Promise<unknown>>()
 const download = vi.fn<() => Promise<unknown>>()
+const partialDownloads = vi.fn<() => Promise<Record<string, number>>>()
+const discardPartialDownload = vi.fn<() => Promise<unknown>>()
 const notify = vi.fn()
 const notifyError = vi.fn()
 const update = vi.fn()
@@ -27,6 +29,8 @@ vi.mock('../../lib/anodex', () => ({
       addVisionProjector: vi.fn(),
       delete: vi.fn(),
       cancelDownload: vi.fn(),
+      partialDownloads,
+      discardPartialDownload,
       getLoadRecovery: vi.fn(),
       dismissLoadRecovery: vi.fn(),
       dismissLoadRefusal: vi.fn()
@@ -64,6 +68,7 @@ function err(message = 'boom'): { ok: false; error: { code: string; message: str
 
 beforeEach(() => {
   vi.clearAllMocks()
+  partialDownloads.mockResolvedValue({})
   useModelStore.setState(initialState, true)
   list.mockResolvedValue(ok([]))
 })
@@ -187,6 +192,65 @@ describe('downloadModel', () => {
     await useModelStore.getState().downloadModel(recommended())
 
     expect(notifyError).toHaveBeenCalledWith('Failed to download model', expect.any(String))
+  })
+})
+
+describe('partial downloads', () => {
+  // Cancel used to delete what had arrived; it is kept now, and the cards
+  // offer to resume it.
+  it('keeps what a stopped download left, and starts the next bar from it', async () => {
+    partialDownloads.mockResolvedValue({ 'rec-1': 900 })
+    download.mockImplementation(() => {
+      useModelStore.getState().setDownloadProgress({
+        modelId: 'rec-1',
+        receivedBytes: 900,
+        totalBytes: null,
+        status: 'canceled'
+      })
+      return Promise.resolve(err('cancelled'))
+    })
+    await useModelStore.getState().downloadModel(recommended())
+    expect(useModelStore.getState().partials['rec-1']).toBe(900)
+
+    let finish: (value: unknown) => void = () => {}
+    download.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const resumed = useModelStore.getState().downloadModel(recommended())
+    expect(useModelStore.getState().downloads['rec-1']).toMatchObject({
+      status: 'downloading',
+      receivedBytes: 900
+    })
+
+    useModelStore.getState().setDownloadProgress({
+      modelId: 'rec-1',
+      receivedBytes: 2000,
+      totalBytes: 2000,
+      status: 'done'
+    })
+    partialDownloads.mockResolvedValue({})
+    list.mockResolvedValue(ok([]))
+    finish(ok(model()))
+    await resumed
+    expect(useModelStore.getState().partials['rec-1']).toBeUndefined()
+  })
+
+  it('forgets a partial once it is discarded', async () => {
+    partialDownloads.mockResolvedValue({ 'rec-1': 900 })
+    await useModelStore.getState().refreshPartials([recommended()])
+    expect(useModelStore.getState().partials['rec-1']).toBe(900)
+
+    discardPartialDownload.mockResolvedValue(ok(undefined))
+    await useModelStore.getState().discardPartial(recommended())
+    expect(useModelStore.getState().partials['rec-1']).toBeUndefined()
+  })
+
+  it('keeps the partial and says so when discarding fails', async () => {
+    partialDownloads.mockResolvedValue({ 'rec-1': 900 })
+    await useModelStore.getState().refreshPartials([recommended()])
+
+    discardPartialDownload.mockResolvedValue(err('still downloading'))
+    await useModelStore.getState().discardPartial(recommended())
+    expect(useModelStore.getState().partials['rec-1']).toBe(900)
+    expect(notifyError).toHaveBeenCalled()
   })
 })
 
