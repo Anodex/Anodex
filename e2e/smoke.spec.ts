@@ -4,30 +4,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AnodexApi } from '../src/shared/ipc'
+import { waitForStartup } from './helpers'
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64'
 )
-
-/**
- * Wait for the boot overlay to let go before touching anything.
- *
- * `StartupOverlay` covers the window while the app hydrates, and covering is
- * its job — the real shell renders underneath from the first frame, and an
- * opaque backdrop over a half-hydrated app is the point. Measured, it clears
- * about eight seconds after launch.
- *
- * A test that starts clicking before then is not testing anything: the click
- * lands on the starfield. Waiting for the overlay to unmount is the same
- * thing a person does by looking at the screen.
- */
-async function waitForStartup(window: Page): Promise<void> {
-  // Attach first: `firstWindow()` resolves before React has mounted, so a
-  // bare count-of-zero would pass against an empty document.
-  await window.waitForSelector('[data-state]', { state: 'attached', timeout: 10_000 })
-  await expect(window.locator('[data-state]')).toHaveCount(0, { timeout: 30_000 })
-}
 
 /**
  * Open every collapsed turn-activity panel.
@@ -438,7 +420,13 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     ).toHaveAttribute('aria-expanded', 'true')
     await expect(mainWindow.getByAltText('Before: page.html')).toBeVisible()
     await expect(mainWindow.getByAltText('After: page.html')).toBeVisible()
-    await expect(mainWindow.getByAltText('Assistant image of result.png')).toBeVisible()
+    // Beside the finished reply. With the turn unfolded the same image is also
+    // in the work log, which is where every tool result lives.
+    await expect(
+      mainWindow
+        .getByRole('region', { name: 'Images in this reply' })
+        .getByAltText('Assistant image of result.png')
+    ).toBeVisible()
 
     const beforePane = mainWindow.getByLabel('Before screenshot of page.html')
     const afterPane = mainWindow.getByLabel('After screenshot of page.html')
@@ -460,7 +448,11 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
     await expect(
       mainWindow.getByRole('button', { name: 'Re-inspect page.html' }).last()
     ).toBeVisible()
-    await expect(mainWindow.getByRole('button', { name: 'Show again result.png' })).toBeVisible()
+    await expect(
+      mainWindow
+        .getByRole('region', { name: 'Images in this reply' })
+        .getByRole('button', { name: 'Show again result.png' })
+    ).toBeVisible()
   } finally {
     await app.close()
     await rm(userDataDir, { recursive: true, force: true })
