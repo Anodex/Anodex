@@ -26,6 +26,7 @@ describe('describeComputer', () => {
     expect(eleven.shell?.howTo.join('\n')).toContain('Start-Process')
     expect(eleven.shell?.howTo.join('\n')).toContain('SendToRecycleBin')
     expect(eleven.shell?.howTo.join('\n')).toContain('winget install')
+    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command <name>')
 
     const ten = describeComputer(facts({ platform: 'win32', release: '10.0.19045' }), null)
     expect(ten.os).toBe('Windows 10')
@@ -77,6 +78,28 @@ describe('describeComputer', () => {
     const fedora = fedoraX11.shell?.howTo.join('\n') ?? ''
     expect(fedora).toContain('xclip -selection clipboard')
     expect(fedora).toContain('pkexec dnf install')
+  })
+})
+
+describe('installing', () => {
+  // An 8B asked "is Java installed?" read a bare "Install a program" line as
+  // the answer and tried to install it. Checking comes first, and installing
+  // is marked as something done only on request, on every system.
+  it('is offered only on request, after a way to check', () => {
+    for (const computer of [
+      describeComputer(facts({ platform: 'win32', release: '10.0.22631' }), shell('powershell')),
+      describeComputer(facts({ platform: 'darwin', release: '24.1.0' }), shell('/bin/zsh')),
+      describeComputer(facts({ osRelease: 'ID=ubuntu\n' }), shell('/bin/bash'))
+    ]) {
+      const howTo = computer.shell?.howTo ?? []
+      const check = howTo.findIndex((line) =>
+        line.startsWith('Check whether a program is installed')
+      )
+      const install = howTo.findIndex((line) => line.startsWith('Install a program'))
+      expect(check).toBeGreaterThanOrEqual(0)
+      expect(install).toBeGreaterThan(check)
+      expect(howTo[install]).toContain('only when the person asks you to install one')
+    }
   })
 })
 

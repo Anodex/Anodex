@@ -89,31 +89,46 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
+      "Find files: Get-ChildItem '<folder>' -Recurse -Filter '*.pdf'",
+      'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version',
       "Open a file, folder or web address: Start-Process '<path or url>'",
       "Copy text to the clipboard: Set-Clipboard -Value '<text>'",
       "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('<file>', 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
-      'Install a program: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)'
+      `${ONLY_WHEN_ASKED}: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)`
     ]
   }
   if (facts.platform === 'darwin') {
     return [
+      "Find files: find '<folder>' -iname '*.pdf'",
+      'Check whether a program is installed: command -v <name>, then <name> --version',
       "Open a file, folder or web address: open '<path or url>'",
       "Copy text to the clipboard: printf '%s' '<text>' | pbcopy",
       `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "<absolute path>"'`,
-      'Install a program: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed'
+      `${ONLY_WHEN_ASKED}: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed`
     ]
   }
   if (facts.platform === 'linux') {
     const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
     return [
+      "Find files: find '<folder>' -iname '*.pdf'",
+      'Check whether a program is installed: command -v <name>, then <name> --version',
       "Open a file, folder or web address: xdg-open '<path or url>'",
       `Copy text to the clipboard: printf '%s' '<text>' | ${wayland ? 'wl-copy' : 'xclip -selection clipboard'}`,
       "Move to the Trash: gio trash '<path>'",
-      `Install a program: flatpak install --user -y flathub <app-id>, or ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window`
+      `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
   }
   return []
 }
+
+/**
+ * Installing is a change to the computer, made only on request. Measured with
+ * an 8B: asked "is Java installed?", it read a bare "Install a program" line as
+ * the answer and tried to install Java over and over, each attempt opening a
+ * password window, and installed flatpak to try another way. Checking comes
+ * first in the list for the same reason.
+ */
+const ONLY_WHEN_ASKED = 'Install a program, only when the person asks you to install one'
 
 function linuxPackageInstall(osRelease: string | null): string {
   // ID names the distribution and ID_LIKE what it derives from (Mint: ubuntu debian).

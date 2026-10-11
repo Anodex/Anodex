@@ -143,7 +143,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           // outer truncation note report a meaningless intermediate length
           // instead of the command's real output size.
           return {
-            modelResult: `${describeOutcome(terminated, code, timeoutMs)}\n\n${combined}${emptySearchNote}`,
+            modelResult: `${describeOutcome(terminated, code, timeoutMs, args.command)}\n\n${combined}${emptySearchNote}`,
             detail: terminated ? TERMINATION_DETAIL[terminated] : `exit ${code}`,
             // `madeProgress` stays as it was: a command that changed the
             // workspace must count as progress for the finish_goal evidence
@@ -191,11 +191,45 @@ export function parseRunCommandVerification(
  * What the model is told a command did, leading with the reason it stopped
  * rather than a raw exit code that would be `null` for anything killed.
  */
+/**
+ * A command that asks the person for an administrator password in a window of
+ * its own: pkexec on Linux, an elevated Start-Process on Windows, an AppleScript
+ * "with administrator privileges" on macOS.
+ */
+const ASKS_FOR_PASSWORD = /\bpkexec\b|-Verb\s+RunAs\b|with administrator privileges/i
+
+/**
+ * Measured with an 8B in a plain chat: a pkexec install timed out while its
+ * password window sat unanswered, the generic advice said to pass a larger
+ * timeout, and the model retried with 60, 120, 180 and 240 seconds, opening a
+ * fresh password window on the person's screen each time. A password window
+ * that nobody answered, or one they closed, is the person's answer.
+ */
+function describePasswordOutcome(
+  command: string,
+  terminated: ShellResult['terminated'],
+  code: number | string | null
+): string | null {
+  if (!ASKS_FOR_PASSWORD.test(command)) return null
+  if (terminated === 'timeout') {
+    return 'Timed out waiting for the person to type their password in the window it opened, and nobody did. Do not run it again: ask the person whether they want this, and tell them a password window will appear.'
+  }
+  // pkexec's code for a dismissed window. Its 127 ("not authorised") is left
+  // out because a shell uses 127 for "command not found" as well.
+  if (code === 126) {
+    return `Exit code ${code}: the password window was closed or the password was refused, so the person did not approve this. Do not run it again unless they ask.`
+  }
+  return null
+}
+
 function describeOutcome(
   terminated: ShellResult['terminated'],
   code: number | string | null,
-  timeoutMs: number
+  timeoutMs: number,
+  command = ''
 ): string {
+  const password = describePasswordOutcome(command, terminated, code)
+  if (password) return password
   if (terminated === 'timeout') {
     return `Timed out after ${timeoutMs} ms and was killed. Re-running it unchanged will time out again — narrow the command, or pass a larger timeoutMs (up to ${MAX_COMMAND_TIMEOUT_MS}). Output up to that point:`
   }
