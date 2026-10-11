@@ -162,7 +162,10 @@ async function settle(id: string): Promise<BackgroundProcessInfo> {
 }
 
 /** A process from this project only: one project's chat cannot read or stop another's. */
-function ownProcess(projectId: string | null, id: string): BackgroundProcessInfo | undefined {
+export function ownProcess(
+  projectId: string | null,
+  id: string
+): BackgroundProcessInfo | undefined {
   const info = backgroundProcessService.get(id.trim())
   return info && info.projectId === projectId ? info : undefined
 }

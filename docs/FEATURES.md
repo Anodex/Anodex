@@ -324,6 +324,10 @@ Write and mutation tools:
   paired phone. Only files the search found in that chat, or files in the open project,
   can be sent, and only to the person's own linked address; it asks first except in
   Untethered mode. Hidden folders are never searched.
+- Tell the person when something is done: the reply they are waiting on, or a background
+  process (once a dev server is ready, or when a build exits), on the desktop, their paired
+  phone, or by email to their own address. It is delivered like a reminder, with the same
+  fallback to the desktop when the phone is away or the email fails. It never asks.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.

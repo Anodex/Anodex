@@ -10,6 +10,19 @@ export interface ReminderSenders {
   email: (subject: string, body: string) => Promise<void>
 }
 
+/** The words around the message: a reminder, or a "tell me when it's done" notice. */
+export interface NoticeWording {
+  /** The line under the title: "Reminder". */
+  label: string
+  /** The email's closing line. */
+  footer: string
+}
+
+const REMINDER_WORDING: NoticeWording = {
+  label: 'Reminder',
+  footer: 'Set as a reminder in Anodex.'
+}
+
 /**
  * Show a reminder where it was asked for, and say where it went.
  *
@@ -22,8 +35,10 @@ export async function deliverReminder(
   message: string,
   channels: readonly ReminderChannel[] | undefined,
   senders: ReminderSenders,
-  at: Date
+  at: Date,
+  wording: NoticeWording = REMINDER_WORDING
 ): Promise<string> {
+  const { label, footer } = wording
   const wanted = new Set(channels?.length ? channels : DEFAULT_REMINDER_CHANNELS)
   const reached: string[] = []
   const notes: string[] = []
@@ -31,26 +46,26 @@ export async function deliverReminder(
 
   if (wanted.has('phone')) {
     if (senders.phoneConnected()) {
-      senders.phone(message, 'Reminder')
+      senders.phone(message, label)
       reached.push('on your phone')
     } else {
       notes.push('the phone was not connected')
-      desktopNote = 'Reminder · your phone was not connected'
+      desktopNote = `${label} · your phone was not connected`
     }
   }
   if (wanted.has('email')) {
     try {
-      await senders.email(`Reminder: ${message}`, `${message}\n\nSet as a reminder in Anodex.`)
+      await senders.email(`${label}: ${message}`, `${message}\n\n${footer}`)
       reached.push('by email')
     } catch (error) {
       notes.push(
         `the email could not be sent (${error instanceof Error ? error.message : String(error)})`
       )
-      desktopNote = 'Reminder · the email could not be sent'
+      desktopNote = `${label} · the email could not be sent`
     }
   }
   if (wanted.has('desktop') || desktopNote) {
-    senders.desktop(message, wanted.has('desktop') ? 'Reminder' : (desktopNote ?? 'Reminder'))
+    senders.desktop(message, wanted.has('desktop') ? label : (desktopNote ?? label))
     reached.push('on the desktop')
   }
 

@@ -317,6 +317,9 @@ const DIRECT_TOOL_PRIORITY = [
   'find_cleanup',
   'move_to_trash',
   'open_item',
+  // "Tell me when it's done": an everyday chat ask with no project, which a
+  // model answers by apologising if it cannot see the tool.
+  'notify_me_when_done',
   // Setting a service up is a chat conversation ("here is my Tavily key"), and
   // a model that cannot see these answers by asking the person to go to Settings.
   'save_key',

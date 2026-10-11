@@ -470,6 +470,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Email a file the search found, or one from the open project, to the person's own linked address. Asks first except in Untethered mode."
   },
   {
+    name: 'notify_me_when_done',
+    kind: 'write',
+    description:
+      'Tell the person when this reply or a background process finishes, on the desktop, their phone or by email. Never asks.'
+  },
+  {
     name: 'check_computer',
     kind: 'read',
     description:

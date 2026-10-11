@@ -99,7 +99,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'move_to_trash',
   'open_item',
   'find_my_files',
-  'send_file_to_me'
+  'send_file_to_me',
+  'notify_me_when_done'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
