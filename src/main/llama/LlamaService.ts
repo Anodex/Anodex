@@ -69,6 +69,7 @@ import {
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
 import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
+import { installExactDetokenize, type NativeVocabulary } from './exactDetokenize'
 import {
   createNativeLogTail,
   describeNativeLoadFailure,
@@ -725,6 +726,16 @@ class LlamaService extends EventEmitter {
         modelPath: options.path,
         gpuLayers: options.gpuLayers === 'auto' ? undefined : options.gpuLayers
       })
+      // Before any text is generated: see `exactDetokenize.ts` for the spacing
+      // llama.cpp otherwise rewrites in every Llama 3 reply and command.
+      const native = (this.model as unknown as { _model?: NativeVocabulary })._model
+      if (native) {
+        installExactDetokenize(
+          native,
+          (text) => this.model?.tokenize(text) ?? [],
+          this.model.vocabularyType
+        )
+      }
       this.gpuLayersUsed = this.model.gpuLayers
       this.gpuLayersTotal = this.model.fileInsights.totalLayers
       this.context = await this.model.createContext({

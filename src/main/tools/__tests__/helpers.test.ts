@@ -347,13 +347,13 @@ describe('ctx.progress (finish_goal fabrication guard)', () => {
 describe('composeDenialMessage', () => {
   it('returns the generic message when no reason is given', () => {
     expect(composeDenialMessage()).toBe(
-      'The user denied this action. Do not retry it — ask how they would like to proceed.'
+      'The user denied this action. Do not retry it, and do not try another way to do the same thing: tell them it was not done and ask how they would like to proceed.'
     )
   })
 
   it('treats a whitespace-only reason as no reason', () => {
     expect(composeDenialMessage('   ')).toBe(
-      'The user denied this action. Do not retry it — ask how they would like to proceed.'
+      'The user denied this action. Do not retry it, and do not try another way to do the same thing: tell them it was not done and ask how they would like to proceed.'
     )
   })
 

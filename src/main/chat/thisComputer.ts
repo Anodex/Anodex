@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { PromptComputer } from '@shared/prompts'
 
 export interface ComputerFacts {
@@ -11,6 +11,10 @@ export interface ComputerFacts {
   osRelease: string | null
   folders: PromptComputer['folders']
   env: NodeJS.ProcessEnv
+  hostname: string
+  user: string
+  /** Whether a program is on the PATH, so a hint never names one that is missing. */
+  installed: (name: string) => boolean
 }
 
 /**
@@ -30,6 +34,8 @@ export function describeComputer(
       : 'other'
   const computer: PromptComputer = {
     os: osName(facts),
+    name: facts.hostname || undefined,
+    user: facts.user || undefined,
     platform,
     folders: facts.folders
   }
@@ -89,39 +95,110 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
-      "Find files: Get-ChildItem '<folder>' -Recurse -Filter '*.pdf'",
+      "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*budget*'",
+      'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version',
-      "Open a file, folder or web address: Start-Process '<path or url>'",
-      "Copy text to the clipboard: Set-Clipboard -Value '<text>'",
-      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('<file>', 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version',
+      "Memory in use, and the programs using most: Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 Name, @{n='MB'; e={[math]::Round($_.WorkingSet64 / 1MB)}}",
+      'Move or rename: Move-Item "$HOME\\Desktop\\<old>" "$HOME\\Desktop\\<new>"',
+      'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
+      'Open a file, folder or web address: Start-Process "$HOME\\Downloads"',
+      "Copy text to the clipboard: Set-Clipboard -Value 'some text'",
+      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(\"$HOME\\Downloads\\<file>\", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)`
     ]
   }
+  // macOS and Linux share the POSIX half. `~` stays outside quotes in every
+  // example: measured, an example written as find '<folder>' taught an 8B to
+  // write find '~/Downloads', where the quotes stop ~ from meaning home.
+  const posix = [
+    "Find files by part of the name: find ~ -iname '*budget*'",
+    'Folder sizes: du -sh ~/Documents/* | sort -h',
+    "Free space on the drive the person's files are on: df -h ~",
+    'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version',
+    // Placeholders, never realistic names, in anything that changes files:
+    // measured, a "gio trash ~/Downloads/old.zip" example was copied as the
+    // target of a real command.
+    // A backslash before a space does not survive a model's tool-call JSON:
+    // measured, `Big\ Project` arrived as `Big\nProject`. Quotes do.
+    "Move or rename, with quotes around a name that has spaces: mv ~/Documents/'<old name>' ~/Documents/'<new name>'"
+  ]
   if (facts.platform === 'darwin') {
     return [
-      "Find files: find '<folder>' -iname '*.pdf'",
-      "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version',
-      "Open a file, folder or web address: open '<path or url>'",
-      "Copy text to the clipboard: printf '%s' '<text>' | pbcopy",
-      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "<absolute path>"'`,
+      ...posix,
+      'Memory in use, and the programs using most: vm_stat; ps aux -m | head -n 6',
+      ...zipFolder(facts),
+      'Open a file, folder or web address: open ~/Downloads',
+      "Copy text to the clipboard: printf '%s' 'some text' | pbcopy",
+      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<you>/Downloads/<file>"'`,
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed`
     ]
   }
   if (facts.platform === 'linux') {
-    const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
     return [
-      "Find files: find '<folder>' -iname '*.pdf'",
-      "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version',
-      "Open a file, folder or web address: xdg-open '<path or url>'",
-      `Copy text to the clipboard: printf '%s' '<text>' | ${wayland ? 'wl-copy' : 'xclip -selection clipboard'}`,
-      "Move to the Trash: gio trash '<path>'",
+      ...posix,
+      'Memory in use, and the programs using most: free -h; ps aux --sort=-%mem | head -n 6',
+      ...zipFolder(facts),
+      'Open a file, folder or web address: xdg-open ~/Downloads',
+      linuxClipboard(facts),
+      'Move to the Trash: gio trash ~/Downloads/<file>',
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
   }
   return []
+}
+
+/**
+ * Zipping, with whatever this computer has. Measured: with no zip line, an 8B
+ * invented a `gio compress` from the gio examples beside it, and moved the
+ * folder it was asked to zip to the Trash along the way.
+ */
+function zipFolder(facts: ComputerFacts): string[] {
+  const line = 'Zip a folder, leaving it where it is: '
+  if (facts.installed('zip'))
+    return [`${line}cd ~/Pictures && zip -r ~/Desktop/<folder>.zip <folder>`]
+  if (facts.installed('python3')) {
+    return [`${line}cd ~/Pictures && python3 -m zipfile -c ~/Desktop/<folder>.zip <folder>`]
+  }
+  return []
+}
+
+/**
+ * How to make a smaller copy of a photo, with whatever this computer has.
+ * Measured: with no ImageMagick but ffmpeg and Python installed, an 8B tried
+ * convert, gm and mogrify and gave up, never thinking of ffmpeg. Named only
+ * when a tool exists, so the line never sends a model after a missing program.
+ */
+function photoResize(facts: ComputerFacts): string[] {
+  const line = 'Make a smaller copy of a photo (half size): '
+  if (facts.installed('magick')) return [`${line}magick in.jpg -resize 50% out.jpg`]
+  if (facts.platform === 'darwin') return [`${line}sips --resampleWidth 800 in.jpg --out out.jpg`]
+  if (facts.installed('ffmpeg')) return [`${line}ffmpeg -i in.jpg -vf scale=iw/2:-1 out.jpg`]
+  if (facts.installed('convert') && facts.platform !== 'win32') {
+    return [`${line}convert in.jpg -resize 50% out.jpg`]
+  }
+  return []
+}
+
+/**
+ * The clipboard command this Linux session can actually use. Measured: told
+ * to use wl-copy on a machine without it, an 8B tried wl-copy, then xclip,
+ * then xsel, none installed, and reported each failure in turn.
+ */
+function linuxClipboard(facts: ComputerFacts): string {
+  const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
+  const candidates = [
+    ...(wayland ? [['wl-copy', 'wl-copy']] : []),
+    ['xclip', 'xclip -selection clipboard'],
+    ['xsel', 'xsel --clipboard --input']
+  ]
+  const usable = candidates.find(([program]) => facts.installed(program))
+  return usable
+    ? `Copy text to the clipboard: printf '%s' 'some text' | ${usable[1]}`
+    : `Copy text to the clipboard: no clipboard program is installed (${wayland ? 'wl-copy' : 'xclip'} would do it), so say so rather than trying`
 }
 
 /**
@@ -179,6 +256,33 @@ export function liveComputerFacts(
       documents: folder('documents', 'Documents'),
       downloads: folder('downloads', 'Downloads')
     },
-    env: process.env
+    env: process.env,
+    hostname: os.hostname(),
+    user: currentUser(),
+    installed: onPath
   }
+}
+
+function currentUser(): string {
+  try {
+    return os.userInfo().username
+  } catch {
+    return ''
+  }
+}
+
+const pathLookups = new Map<string, boolean>()
+
+/** Whether `name` is an executable on the PATH. Cached: the PATH does not change under a running app. */
+function onPath(name: string): boolean {
+  const cached = pathLookups.get(name)
+  if (cached !== undefined) return cached
+  const extensions =
+    process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
+  const found = (process.env.PATH ?? '')
+    .split(delimiter)
+    .filter(Boolean)
+    .some((dir) => extensions.some((ext) => existsSync(join(dir, name + ext))))
+  pathLookups.set(name, found)
+  return found
 }

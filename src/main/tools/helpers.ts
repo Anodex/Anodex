@@ -175,7 +175,7 @@ function effectiveModelResultCap(
 export function composeDenialMessage(reason?: string): string {
   const trimmed = reason?.trim()
   if (!trimmed) {
-    return 'The user denied this action. Do not retry it — ask how they would like to proceed.'
+    return 'The user denied this action. Do not retry it, and do not try another way to do the same thing: tell them it was not done and ask how they would like to proceed.'
   }
   return `The user denied this action for this reason: "${trimmed}". Do not retry it — adjust your approach based on their feedback.`
 }

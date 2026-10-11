@@ -10,7 +10,17 @@ const folders = {
 }
 
 function facts(overrides: Partial<ComputerFacts>): ComputerFacts {
-  return { platform: 'linux', release: '6.8.0', osRelease: null, folders, env: {}, ...overrides }
+  return {
+    platform: 'linux',
+    release: '6.8.0',
+    osRelease: null,
+    folders,
+    env: {},
+    installed: () => true,
+    hostname: 'gort',
+    user: 'sam',
+    ...overrides
+  }
 }
 
 const shell = (command: string | undefined) => ({ command, startsIn: folders.home })
@@ -26,7 +36,7 @@ describe('describeComputer', () => {
     expect(eleven.shell?.howTo.join('\n')).toContain('Start-Process')
     expect(eleven.shell?.howTo.join('\n')).toContain('SendToRecycleBin')
     expect(eleven.shell?.howTo.join('\n')).toContain('winget install')
-    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command <name>')
+    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command python, python3, py')
 
     const ten = describeComputer(facts({ platform: 'win32', release: '10.0.19045' }), null)
     expect(ten.os).toBe('Windows 10')
@@ -81,6 +91,41 @@ describe('describeComputer', () => {
   })
 })
 
+describe('the clipboard on Linux', () => {
+  it('names a program that is installed, or says none is', () => {
+    const only = (name: string) => (program: string) => program === name
+    const wayland = { WAYLAND_DISPLAY: 'wayland-0' }
+    const line = (installed: (name: string) => boolean): string =>
+      describeComputer(facts({ env: wayland, installed }), shell('/bin/bash')).shell?.howTo.find(
+        (entry) => entry.startsWith('Copy text')
+      ) ?? ''
+
+    expect(line(only('wl-copy'))).toContain('| wl-copy')
+    expect(line(only('xsel'))).toContain('| xsel --clipboard --input')
+    expect(line(() => false)).toContain('no clipboard program is installed')
+  })
+})
+
+describe('everyday hints', () => {
+  const linux = (installed: (name: string) => boolean) =>
+    describeComputer(facts({ installed }), shell('/bin/bash')).shell?.howTo.join('\n') ?? ''
+
+  it('keep ~ outside quotes, and search by part of a name', () => {
+    expect(linux(() => true)).toContain("find ~ -iname '*budget*'")
+    expect(linux(() => true)).not.toMatch(/'~/)
+  })
+
+  it('name a photo resizer only when one is installed', () => {
+    expect(linux((name) => name === 'ffmpeg')).toContain('ffmpeg -i in.jpg -vf scale=iw/2:-1')
+    expect(linux(() => false)).not.toContain('smaller copy of a photo')
+    const mac = describeComputer(
+      facts({ platform: 'darwin', release: '24.1.0', installed: () => false }),
+      shell('/bin/zsh')
+    )
+    expect(mac.shell?.howTo.join('\n')).toContain('sips --resampleWidth')
+  })
+})
+
 describe('installing', () => {
   // An 8B asked "is Java installed?" read a bare "Install a program" line as
   // the answer and tried to install it. Checking comes first, and installing
@@ -112,6 +157,7 @@ describe('the This computer prompt section', () => {
     expect(prompt).toContain('# This computer')
     expect(prompt).toContain('run_command runs bash on this Linux computer, starting in /home/sam')
     expect(prompt).toContain('Downloads: /home/sam/Downloads')
+    expect(prompt).toContain('named gort, signed in as sam')
     expect(prompt).toContain(NO_PROJECT_SHELL_NOTE)
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })
