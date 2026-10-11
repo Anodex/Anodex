@@ -476,12 +476,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Tell the person when this reply or a background process finishes, on the desktop, their phone or by email. Never asks.'
   },
   {
-    name: 'copy_to_clipboard',
-    kind: 'write',
-    description:
-      "Put text on this computer's clipboard to paste. Write only: Anodex never reads the clipboard. Never asks."
-  },
-  {
     name: 'check_computer',
     kind: 'read',
     description:

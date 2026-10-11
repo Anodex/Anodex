@@ -1,12 +1,8 @@
-import { clipboard } from 'electron'
 import type { ToolFactory } from './types'
 import { runGuardedTool } from './helpers'
 import { ownProcess } from './processTools'
 import { noticeAfterReply } from '../notifications/replyNotices'
 import type { ReminderChannel } from '@shared/scheduledTask.types'
-
-/** Beyond this a clipboard copy is almost certainly a mistake, not a paste. */
-const MAX_CLIPBOARD_CHARS = 1_000_000
 
 const CHANNELS: readonly ReminderChannel[] = ['desktop', 'phone', 'email']
 
@@ -111,52 +107,6 @@ export const notifyMeWhenDoneTool: ToolFactory = (define, ctx) =>
               'The person is told when this reply finishes. Carry on with the request; there is nothing else to do for the notice.',
             madeProgress: true
           }
-        }
-      })
-  })
-
-/**
- * copy_to_clipboard — put text on this computer's clipboard so the person can
- * paste it: a command, an address, a drafted paragraph. Write only; Anodex
- * never reads the clipboard, which can hold anything the person copied.
- */
-export const copyToClipboardTool: ToolFactory = (define, ctx) =>
-  define({
-    description:
-      'Copy text to the clipboard on this computer so the person can paste it somewhere. Use it when they ask to copy something, or when handing over a command or address they will paste. Replaces what was on the clipboard.',
-    params: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: 'Exactly the text to copy.' }
-      },
-      required: ['text']
-    } as const,
-    handler: (args: { text: string }) =>
-      runGuardedTool(ctx, {
-        name: 'copy_to_clipboard',
-        kind: 'write',
-        title: `Copy "${truncate(args.text, 40)}"`,
-        args,
-        confirmDetail: `Copy to the clipboard:\n${truncate(args.text, 400)}`,
-        risk: 'trivial',
-        run() {
-          if (!args.text) {
-            return Promise.resolve({
-              modelResult: 'There was no text to copy.',
-              madeProgress: false
-            })
-          }
-          if (args.text.length > MAX_CLIPBOARD_CHARS) {
-            return Promise.resolve({
-              modelResult: 'That is too much text for the clipboard. Save it to a file instead.',
-              madeProgress: false
-            })
-          }
-          clipboard.writeText(args.text)
-          return Promise.resolve({
-            modelResult: `Copied ${args.text.length} characters to the clipboard.`,
-            madeProgress: true
-          })
         }
       })
   })

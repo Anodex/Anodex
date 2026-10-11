@@ -328,8 +328,6 @@ Write and mutation tools:
   process (once a dev server is ready, or when a build exits), on the desktop, their paired
   phone, or by email to their own address. It is delivered like a reminder, with the same
   fallback to the desktop when the phone is away or the email fails. It never asks.
-- Copy text to this computer's clipboard (a command, an address, a drafted paragraph) so
-  the person can paste it. Write only: Anodex never reads the clipboard. It never asks.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.

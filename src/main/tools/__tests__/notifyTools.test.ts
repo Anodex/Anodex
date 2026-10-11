@@ -3,14 +3,10 @@ import type { BackgroundProcessInfo } from '@shared/process.types'
 import type { ToolConfirmRequest } from '@shared/tools.types'
 
 const h = vi.hoisted(() => ({
-  copied: [] as string[],
   watched: [] as Array<{ id: string; when: string; message: string }>,
   processes: new Map<string, Partial<BackgroundProcessInfo>>()
 }))
 
-vi.mock('electron', () => ({
-  clipboard: { writeText: (text: string) => h.copied.push(text) }
-}))
 vi.mock('../../processes/BackgroundProcessService', () => ({
   backgroundProcessService: { get: (id: string) => h.processes.get(id) }
 }))
@@ -23,13 +19,13 @@ vi.mock('../../notifications', () => ({
   }
 }))
 
-const { copyToClipboardTool, notifyMeWhenDoneTool } = await import('../notifyTools')
+const { notifyMeWhenDoneTool } = await import('../notifyTools')
 const { takeReplyNotice } = await import('../../notifications/replyNotices')
 const { createMockContext, createMockDefine } = await import('./test-helpers')
 
 type Handler = (args: Record<string, unknown>) => Promise<string>
 
-function build(factory: typeof copyToClipboardTool, projectId: string | null = 'proj-1') {
+function build(factory: typeof notifyMeWhenDoneTool, projectId: string | null = 'proj-1') {
   const prompts: ToolConfirmRequest[] = []
   const ctx = {
     ...createMockContext('/work'),
@@ -45,26 +41,8 @@ function build(factory: typeof copyToClipboardTool, projectId: string | null = '
 }
 
 beforeEach(() => {
-  h.copied = []
   h.watched = []
   h.processes.clear()
-})
-
-describe('copy_to_clipboard', () => {
-  it('copies without asking, even in Ask mode', async () => {
-    const tool = build(copyToClipboardTool)
-    const result = await tool.handler({ text: 'npm run dev' })
-    expect(h.copied).toEqual(['npm run dev'])
-    expect(tool.prompts).toHaveLength(0)
-    expect(result).toContain('Copied 11 characters')
-  })
-
-  it('refuses empty and enormous text', async () => {
-    const tool = build(copyToClipboardTool)
-    await tool.handler({ text: '' })
-    await tool.handler({ text: 'x'.repeat(1_000_001) })
-    expect(h.copied).toEqual([])
-  })
 })
 
 describe('notify_me_when_done', () => {
