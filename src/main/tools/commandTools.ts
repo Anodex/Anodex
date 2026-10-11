@@ -47,7 +47,7 @@ interface ShellResult {
 export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Run a shell command on this computer and return its output. It starts in the open project, or in the home folder in a plain chat, and is not confined to either. Write it for the system and shell named in "This computer". Use it for builds, tests and git, and for everyday tasks: finding files, opening things, disk space, installing programs, the clipboard.',
+      'Run a shell command on this computer and return its output. It starts in the open project, or in the home folder in a plain chat, and is not confined to either. Write it for the system and shell named in "This computer". Use it for builds, tests and git, and for everyday tasks: finding files, opening things, disk space, installing programs, the clipboard. Not for answering a question that needs nothing from this computer, such as a fact, a sum or some writing: answer that directly.',
     params: {
       type: 'object',
       properties: {

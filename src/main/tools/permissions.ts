@@ -117,5 +117,23 @@ const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
  */
 export function classifyCommandRisk(command: string): ToolRisk {
   if (DESTRUCTIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(command))) return 'destructive'
+  if (isJustPrinting(command)) return 'trivial'
   return isReadOnlyCommand(command) ? 'safe' : 'sensitive'
+}
+
+/**
+ * `echo` or `printf` and nothing else: no redirect, pipe, chaining, substitution
+ * or expansion beyond a plain variable — text in, the same text out.
+ *
+ * Small models answer ordinary questions through the shell ("echo 'Canberra'"):
+ * Llama 3.1 8B did it for every fact, sum and synonym it was asked, and in Ask
+ * mode each one stopped for approval before the answer appeared. Nothing about
+ * such a command can change anything, so it runs the way `create_directory` does,
+ * without asking in any mode.
+ */
+function isJustPrinting(command: string): boolean {
+  const trimmed = command.trim()
+  if (!/^(?:echo|printf|Write-Output|Write-Host)\b/i.test(trimmed)) return false
+  // Anything that could write a file, run something else, or substitute a command.
+  return !/[>|;&`\n]|\$\(|<\(|\$\{[^}]*[:=!]/.test(trimmed)
 }

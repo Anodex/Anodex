@@ -203,3 +203,33 @@ describe('emptying the Trash', () => {
     expect(classifyCommandRisk('ls ~/.local/share/Trash/files')).toBe('safe')
   })
 })
+
+describe('a command that only prints', () => {
+  it('runs without asking, in every mode', () => {
+    for (const command of [
+      "echo 'The capital of Australia is Canberra.'",
+      'printf "%s\\n" joyful',
+      'echo $HOME',
+      "Write-Output 'Canberra'"
+    ]) {
+      expect(classifyCommandRisk(command), command).toBe('trivial')
+      expect(resolvePermission('ask', classifyCommandRisk(command))).toBe('auto')
+    }
+  })
+
+  it('is not trivial once it could write, run or substitute anything', () => {
+    for (const command of [
+      "echo 'x' > notes.txt",
+      "echo 'x' >> notes.txt",
+      'echo hi | sh',
+      'echo hi; rm notes.txt',
+      'echo hi && rm notes.txt',
+      'echo $(rm notes.txt)',
+      'echo `rm notes.txt`',
+      'echo ${X:=y}',
+      "printf 'a\nrm b'"
+    ]) {
+      expect(classifyCommandRisk(command), command).not.toBe('trivial')
+    }
+  })
+})
