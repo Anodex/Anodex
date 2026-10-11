@@ -90,6 +90,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     if (!isPowerShell(shell)) return []
     return [
       "Find files: Get-ChildItem '<folder>' -Recurse -Filter '*.pdf'",
+      "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
       'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version',
       "Open a file, folder or web address: Start-Process '<path or url>'",
       "Copy text to the clipboard: Set-Clipboard -Value '<text>'",
@@ -100,6 +101,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'darwin') {
     return [
       "Find files: find '<folder>' -iname '*.pdf'",
+      "Free space on the drive the person's files are on: df -h ~",
       'Check whether a program is installed: command -v <name>, then <name> --version',
       "Open a file, folder or web address: open '<path or url>'",
       "Copy text to the clipboard: printf '%s' '<text>' | pbcopy",
@@ -111,6 +113,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
     return [
       "Find files: find '<folder>' -iname '*.pdf'",
+      "Free space on the drive the person's files are on: df -h ~",
       'Check whether a program is installed: command -v <name>, then <name> --version',
       "Open a file, folder or web address: xdg-open '<path or url>'",
       `Copy text to the clipboard: printf '%s' '<text>' | ${wayland ? 'wl-copy' : 'xclip -selection clipboard'}`,
