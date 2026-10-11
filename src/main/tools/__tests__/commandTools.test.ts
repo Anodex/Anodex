@@ -259,7 +259,7 @@ describe('run_command', () => {
       handler: (args: { command: string }) => Promise<string>
     }
 
-    const result = await tool.handler({ command: 'echo should-not-run' })
+    const result = await tool.handler({ command: 'touch should-not-run' })
 
     expect(requests).toHaveLength(1)
     expect(result).toContain('denied')
@@ -279,7 +279,7 @@ describe('run_command', () => {
       handler: (args: { command: string; timeoutMs?: number }) => Promise<string>
     }
 
-    await tool.handler({ command: 'echo hello', timeoutMs: 120_000 })
+    await tool.handler({ command: 'node --version', timeoutMs: 120_000 })
 
     expect(requests[0]?.detail).toContain('Shell: custom-shell')
     expect(requests[0]?.detail).toContain('Timeout: 120000 ms')
@@ -288,7 +288,7 @@ describe('run_command', () => {
   it('bounds a long command in the transcript while preserving it for approval', async () => {
     const requests: ToolConfirmRequest[] = []
     const { calls, emit } = captureCalls()
-    const command = `echo ${'x'.repeat(2_000)}`
+    const command = `touch ${'x'.repeat(2_000)}`
     const ctx = {
       ...createMockContext(workspace),
       emit,
