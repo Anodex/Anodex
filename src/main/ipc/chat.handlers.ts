@@ -121,6 +121,14 @@ export function registerChatHandlers(): void {
         // workspace. See `composeSystemPrompt`.
         surface: 'chat',
         signal: controller.signal,
+        // Its presence is what offers folder access to this reply; see
+        // `RunGenerationIo.onProjectSwitched`.
+        onProjectSwitched: (projectId) => {
+          broadcastToWindows(IpcChannel.Chat.projectSwitched, {
+            conversationId: request.conversationId,
+            projectId
+          })
+        },
         onToken: (token) => {
           heartbeat.touch(
             broadcastLiveToken(IpcChannel.Chat.stream, {

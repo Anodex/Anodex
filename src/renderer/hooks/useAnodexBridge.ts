@@ -183,6 +183,27 @@ export function useAnodexBridge(): void {
       })
     })
 
+    // A reply that was granted folder access carries on in that folder's
+    // project, so the chat moves under it, and the sidebar follows when it is
+    // the chat on screen.
+    const offProjectSwitched = anodex.chat.onProjectSwitched(({ conversationId, projectId }) => {
+      void (async () => {
+        await useProjectStore.getState().load()
+        useChatStore.getState().moveConversationToProject(conversationId, projectId)
+        if (useChatStore.getState().activeId === conversationId) {
+          await useProjectStore.getState().setActive(projectId)
+        }
+        const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
+        if (project) {
+          useUiStore.getState().notify({
+            kind: 'info',
+            title: `Working in ${project.name}`,
+            message: project.folderPath
+          })
+        }
+      })()
+    })
+
     // A phone can now write conversations. Without this a chat started there did
     // not exist on the desktop until Anodex was restarted, which looks exactly like
     // it having failed to save.
@@ -332,6 +353,7 @@ export function useAnodexBridge(): void {
       offWorking()
       offProjectChanged()
       offConversationChanged()
+      offProjectSwitched()
       offSettingsChanged()
       offEngine()
       offDownloadProgress()

@@ -182,6 +182,15 @@ export interface ToolRuntimeContext {
    * `loopGuard.ts`) and by read-coverage escalation after repeated no-op reads.
    */
   abortGeneration?: () => void
+  /**
+   * Move the rest of this reply into another project. Present only on an
+   * interactive chat reply run by the bounded chat runner, which is the one
+   * caller that can carry a reply across into a project with a different tool
+   * set. Its presence is what registers `request_folder_access`: the grant
+   * ends the current cycle, and the next one starts with the folder's file
+   * and command tools.
+   */
+  switchProject?: (projectId: string) => void
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void

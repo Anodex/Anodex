@@ -120,6 +120,18 @@ export interface RunGenerationIo {
    * about how to run another one. Nothing else in the chain has to care.
    */
   delegate?: DelegateCapability
+  /**
+   * Hands tools a way to move the rest of this reply into another project.
+   * Set by `runBoundedChatGeneration` for each cycle; see
+   * `ToolRuntimeContext.switchProject`.
+   */
+  switchProject?: (projectId: string) => void
+  /**
+   * Told when a reply has moved into another project mid-way, so the window can
+   * file the chat under it. Only an interactive chat reply supplies this, and
+   * its presence is what lets that reply ask for folder access at all.
+   */
+  onProjectSwitched?: (projectId: string) => void
   /** Overrides the user's configured permission mode for this run (scheduled tasks force one). */
   permissionModeOverride?: PermissionMode
   /**
@@ -522,6 +534,7 @@ export async function runGeneration(
         goalRun: Boolean(request.goal?.trim()) || io.enabledTools != null,
         enabledTools: io.enabledTools ?? null,
         delegate: io.delegate,
+        switchProject: io.switchProject,
         // Interactive chats use the persisted opt-out list. Headless runs
         // already have an explicit allowlist, so their behavior stays stable
         // even if the user later changes normal-chat preferences.

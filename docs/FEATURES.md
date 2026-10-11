@@ -294,6 +294,10 @@ Write and mutation tools:
 - Create directories.
 - Delete directories.
 - Run shell commands.
+- Ask to work in a folder outside any open project (for example a folder on the Desktop).
+  Once allowed (asked first, except in Untethered mode), the folder becomes a project and
+  the chat carries on there in the same reply, with restore points for every edit. Drives,
+  the whole home folder and system folders are refused.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.

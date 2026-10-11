@@ -300,6 +300,10 @@ const DIRECT_TOOL_PRIORITY = [
   // email conversation is made of; the other eleven mailbox tools can wait
   // behind the gateway, which is what a gateway is for.
   'anodex_status',
+  // With chat's primaries: a plain chat asked to make something on the Desktop
+  // has no file tools at all until this is called, so on a small window it
+  // must not sit behind the gateway.
+  'request_folder_access',
   // The Scheduler pair sits with chat's own primaries, directly after the tool
   // that reads Anodex state, because a chat is usually asked about a task and
   // then asked to change it in the same breath.
