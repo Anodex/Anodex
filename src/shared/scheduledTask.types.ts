@@ -134,6 +134,13 @@ export interface ScheduledTask {
    * continues. See `continuationRequestFor`.
    */
   continuesSeriesId?: string
+  /**
+   * `'reminder'`: when due, show `prompt` as a notification on the desktop and
+   * the phone, and nothing else. No model runs and no conversation is made, so
+   * a reminder fires on time whether or not a model is loaded or a reply is
+   * generating. Absent for an ordinary task, which runs its prompt.
+   */
+  kind?: 'reminder'
   createdAt: number
   updatedAt: number
   /** When this task will next fire, or null once a `'once'` task has run or while disabled. */
@@ -159,6 +166,8 @@ export interface CreateScheduledTaskRequest {
   enabledTools: string[]
   /** Advance this agent series rather than run a chat turn — see `ScheduledTask`. */
   continuesSeriesId?: string
+  /** See `ScheduledTask.kind`. */
+  kind?: 'reminder'
 }
 
 export type UpdateScheduledTaskRequest = Partial<CreateScheduledTaskRequest> & {

@@ -170,6 +170,7 @@ function TaskCard({
       <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
         <div className={styles.taskTitleRow}>
           <span className={styles.taskName}>{task.name}</span>
+          {task.kind === 'reminder' && <span className={styles.reminderPill}>Reminder</span>}
           {projectName(task.projectId) && (
             <span className={styles.taskProject}>{projectName(task.projectId)}</span>
           )}

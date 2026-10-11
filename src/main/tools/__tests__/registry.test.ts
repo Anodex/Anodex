@@ -71,6 +71,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'find_skill',
   'load_skill',
   'schedule_task',
+  'set_reminder',
   'delete_scheduled_task',
   'remember_fact',
   'list_email_accounts',

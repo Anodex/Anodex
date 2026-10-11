@@ -91,6 +91,7 @@ class SchedulerStore {
       enabled: true,
       conversationId: null,
       ...(request.continuesSeriesId ? { continuesSeriesId: request.continuesSeriesId } : {}),
+      ...(request.kind === 'reminder' ? { kind: 'reminder' as const, enabledTools: [] } : {}),
       createdAt: now,
       updatedAt: now,
       nextRunAt: computeNextRunAt(recurrence, now, false),

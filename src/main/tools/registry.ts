@@ -58,7 +58,7 @@ import {
 import { finishGoalTool } from './agentTools'
 import { delegateTool } from './delegateTool'
 import { buildMcpToolFunction } from './mcpTools'
-import { deleteScheduledTaskTool, scheduleTaskTool } from './schedulerTools'
+import { deleteScheduledTaskTool, scheduleTaskTool, setReminderTool } from './schedulerTools'
 import { anodexStatusTool } from './anodexStatusTool'
 import {
   batchEmailTool,
@@ -165,6 +165,7 @@ const GLOBAL_FACTORIES: Record<string, ToolFactory> = {
   find_skill: findSkillTool,
   load_skill: loadSkillTool,
   schedule_task: scheduleTaskTool,
+  set_reminder: setReminderTool,
   delete_scheduled_task: deleteScheduledTaskTool,
   anodex_status: anodexStatusTool
 }
