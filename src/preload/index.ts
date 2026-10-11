@@ -88,6 +88,11 @@ const api: AnodexApi = {
     onThinkingStream: (listener) =>
       subscribe<ChatThinkingStreamChunk>(IpcChannel.Chat.thinkingStream, listener),
     onWorking: (listener) => subscribe<ChatWorkingEvent>(IpcChannel.Chat.working, listener),
+    onProjectSwitched: (listener) =>
+      subscribe<{ conversationId: string; projectId: string }>(
+        IpcChannel.Chat.projectSwitched,
+        listener
+      ),
     summarize: (text, maxWords) => ipcRenderer.invoke(IpcChannel.Chat.summarize, text, maxWords),
     title: (request) => ipcRenderer.invoke(IpcChannel.Chat.title, request),
     replaySuggestion: (request) => ipcRenderer.invoke(IpcChannel.Chat.replaySuggestion, request),

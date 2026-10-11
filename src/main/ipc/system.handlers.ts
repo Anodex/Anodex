@@ -1,21 +1,13 @@
 import { app, ipcMain } from 'electron'
 import os from 'node:os'
-import fs from 'node:fs'
-import path from 'node:path'
 import { execSync } from 'node:child_process'
 import { IpcChannel } from '@shared/ipc'
 import type { HardwareInfo, SystemInfo } from '@shared/system.types'
 import { llamaService } from '../llama/LlamaService'
 import { anodexVersion } from '../appVersion'
 import { settingsStore } from '../settings/SettingsStore'
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const value = bytes / Math.pow(1024, i)
-  return `${value.toFixed(i > 0 ? 1 : 0)} ${units[i]}`
-}
+import { formatBytes } from '@shared/format'
+import { freeBytesAt } from '../utils/diskSpace'
 
 function getCpuName(): string {
   const cpus = os.cpus()
@@ -32,21 +24,7 @@ function getCpuName(): string {
  * ordinary user cannot write to, so it overstated room by several percent.
  */
 export function getStorageFreeBytes(target: string | undefined): number | null {
-  const candidates = [target, app.getPath('userData'), os.homedir()].filter((dir): dir is string =>
-    Boolean(dir)
-  )
-  for (const candidate of candidates) {
-    // A models folder that does not exist yet is measured at its nearest existing parent.
-    let dir = candidate
-    while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
-    try {
-      const stats = fs.statfsSync(dir)
-      return Number(stats.bavail) * Number(stats.bsize)
-    } catch {
-      // try the next place
-    }
-  }
-  return null
+  return freeBytesAt(target, app.getPath('userData'), os.homedir())
 }
 
 function getOsLabel(): string {

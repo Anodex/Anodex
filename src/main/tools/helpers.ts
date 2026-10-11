@@ -207,7 +207,12 @@ interface ReadToolSpec {
    * which fails with "text not found" even though nothing else is wrong.
    */
   modelResultCap?: number
-  run: () => Promise<ToolOutcome>
+  /**
+   * `progress` updates the running card's detail line, for a call that takes
+   * long enough to want one (a download). Guarded tools receive it; read tools
+   * finish too quickly to need it.
+   */
+  run: (progress?: (detail: string) => void) => Promise<ToolOutcome>
 }
 
 interface GuardedToolSpec extends ReadToolSpec {
@@ -593,7 +598,16 @@ export async function runGuardedTool(
       checkpointChanges,
       madeProgress = true,
       provesChange
-    } = await spec.run()
+    } = await spec.run((progressDetail) =>
+      ctx.emit({
+        id,
+        name: spec.name,
+        kind: spec.kind,
+        title: spec.title,
+        status: 'running',
+        detail: progressDetail
+      })
+    )
     ctx.ledger.recordOutcome({
       name: spec.name,
       kind: effectiveToolKind(spec, 'read'),
@@ -720,7 +734,7 @@ export async function runGuardedToolWithPrepare<TData>(
     'name' | 'kind' | 'title' | 'risk' | 'touch' | 'forceConfirm' | 'requiresHumanApproval' | 'args'
   >,
   prepare: () => Promise<PreparedGuardedCall<TData>>,
-  run: (data: TData) => Promise<ToolOutcome>
+  run: (data: TData, progress?: (detail: string) => void) => Promise<ToolOutcome>
 ): Promise<string> {
   const preflight = beginToolCall(ctx, spec)
   if (preflight.blocked) return preflight.blocked
@@ -763,7 +777,7 @@ export async function runGuardedToolWithPrepare<TData>(
       confirmDetail: prepared.confirmDetail,
       confirmDiff: prepared.confirmDiff,
       confirmEmailDraft: prepared.confirmEmailDraft,
-      run: () => run(prepared.data)
+      run: (progress) => run(prepared.data, progress)
     },
     preflight
   )

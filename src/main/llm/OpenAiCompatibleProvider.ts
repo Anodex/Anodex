@@ -181,6 +181,7 @@ export async function runChatCompletionsLoop(
         // Its presence is what registers the `delegate` tool, so a transport
         // that drops it silently turns sub-agents off for that provider.
         delegate: params.tools.delegate,
+        switchProject: params.tools.switchProject,
         disabledTools: params.tools.disabledTools,
         mcpTools: params.tools.mcpTools,
         evidenceFocus: params.tools.evidenceFocus,

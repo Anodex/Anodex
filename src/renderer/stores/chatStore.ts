@@ -210,6 +210,12 @@ interface ChatState {
    */
   clearOrphanedProjectId: (id: string) => Promise<void>
   /**
+   * File a conversation under the project its reply moved into after being
+   * granted folder access. Saved with the rest of the reply when it finishes,
+   * so a reply still streaming is not written half-way.
+   */
+  moveConversationToProject: (id: string, projectId: string) => void
+  /**
    * `conversationIdOverride` targets a specific conversation instead of the
    * active one — used when auto-dispatching a queued message so it lands in
    * the conversation it was queued for, even if the user has since switched
@@ -924,6 +930,15 @@ export const useChatStore = create<ChatState>()(
         }
       })
       return get().conversations.find((c) => c.id === id) ?? null
+    },
+
+    moveConversationToProject: (id, projectId) => {
+      set((state) => {
+        const conversation = state.conversations.find((c) => c.id === id)
+        if (!conversation || conversation.projectId === projectId) return
+        conversation.projectId = projectId
+        conversation.updatedAt = Date.now()
+      })
     },
 
     clearOrphanedProjectId: async (id) => {

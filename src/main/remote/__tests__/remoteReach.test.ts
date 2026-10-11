@@ -56,6 +56,9 @@ const REACHABLE_FROM_A_PHONE = [
   'chat:compact',
   'chat:context-usage',
   'chat:history-compacted',
+  // Deliberate: told that a chat it may be following moved into a project after
+  // a folder-access grant, so it can file the chat in the right place too.
+  'chat:project-switched',
   'chat:replay-suggestion',
   'chat:send',
   'chat:set-live-thinking',
