@@ -194,6 +194,12 @@ export interface ToolConfirmRequest {
     getUrl?: string
     placeholder: string
   }
+  /**
+   * Present when the prompt is a list to tick rather than a yes/no: each item
+   * starts ticked, and the ones left ticked come back in
+   * `ToolConfirmResponse.chosenIds`. See `move_to_trash`.
+   */
+  choices?: Array<{ id: string; label: string; detail?: string; size?: string }>
 }
 
 /** The user's answer to a `ToolConfirmRequest`. */
@@ -206,6 +212,8 @@ export interface ToolConfirmResponse {
   reason?: string
   /** The key pasted into a `secret` prompt. Never shown to the model. */
   secretValue?: string
+  /** The `choices` left ticked. Absent means all of them. */
+  chosenIds?: string[]
 }
 
 /** Static metadata about the available tools, for the Settings UI. */
@@ -430,6 +438,18 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'write',
     description:
       'Store a key the person pasted into the chat after checking it works; refuses a key they did not type. Asks first except in Untethered mode.'
+  },
+  {
+    name: 'find_cleanup',
+    kind: 'read',
+    description:
+      'Find things that can safely be cleared to free disk space (package caches, old temp files, year-old downloads), with sizes. Read-only.'
+  },
+  {
+    name: 'move_to_trash',
+    kind: 'write',
+    description:
+      'Move cleanup items or files in the open project to the Trash, never a permanent delete. Shows a list to tick first, except in Untethered mode.'
   },
   {
     name: 'check_computer',

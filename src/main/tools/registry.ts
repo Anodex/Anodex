@@ -30,6 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { findCleanupTool, moveToTrashTool } from './cleanupTools'
 import { requestKeyTool, saveKeyTool } from './keyTools'
 import { requestFolderAccessTool } from './folderAccessTools'
 import { downloadFileTool } from './downloadTools'
@@ -349,6 +350,12 @@ export function buildTools(
   // message they typed to check the key against, which only a chat reply has.
   if (isEnabled('request_key')) tools.request_key = requestKeyTool(define, ctx)
   if (ctx.userProvided && isEnabled('save_key')) tools.save_key = saveKeyTool(define, ctx)
+
+  // Freeing space is an everyday chat request. find_cleanup only reads;
+  // move_to_trash only ever moves to the Trash, and only what find_cleanup
+  // offers or files inside the open project.
+  if (isEnabled('find_cleanup')) tools.find_cleanup = findCleanupTool(define, ctx)
+  if (isEnabled('move_to_trash')) tools.move_to_trash = moveToTrashTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)
