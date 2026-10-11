@@ -30,6 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { findMyFilesTool, sendFileToMeTool } from './personalFileTools'
 import { findCleanupTool, moveToTrashTool } from './cleanupTools'
 import { openItemTool } from './openItemTools'
 import { requestKeyTool, saveKeyTool } from './keyTools'
@@ -361,6 +362,11 @@ export function buildTools(
   // URLs work in any chat; files and folders need a project, which the tool
   // itself checks so it can say how to get one.
   if (isEnabled('open_item')) tools.open_item = openItemTool(define, ctx)
+
+  // "Send me the budget for Friday's meeting", often from the phone: find it
+  // in the person's own folders, then email it to their own address.
+  if (isEnabled('find_my_files')) tools.find_my_files = findMyFilesTool(define, ctx)
+  if (isEnabled('send_file_to_me')) tools.send_file_to_me = sendFileToMeTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)
