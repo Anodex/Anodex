@@ -98,11 +98,13 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*budget*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version (try the other names it goes by, such as python3 or py for python)',
-      'Move or rename: Move-Item "$HOME\\Desktop\\old.txt" "$HOME\\Desktop\\new.txt"',
+      'Check whether a program is installed, under every name it goes by: Get-Command python, python3, py -ErrorAction SilentlyContinue',
+      "Memory in use, and the programs using most: Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 Name, @{n='MB'; e={[math]::Round($_.WorkingSet64 / 1MB)}}",
+      'Move or rename: Move-Item "$HOME\\Desktop\\<old>" "$HOME\\Desktop\\<new>"',
+      'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
       'Open a file, folder or web address: Start-Process "$HOME\\Downloads"',
       "Copy text to the clipboard: Set-Clipboard -Value 'some text'",
-      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(\"$HOME\\Downloads\\old.zip\", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(\"$HOME\\Downloads\\<file>\", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)`
     ]
@@ -114,15 +116,20 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     "Find files by part of the name: find ~ -iname '*budget*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
     "Free space on the drive the person's files are on: df -h ~",
-    'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
-    'Move or rename: mv ~/Desktop/old.txt ~/Desktop/new.txt'
+    'Check whether a program is installed, under every name it goes by: command -v python3 python',
+    // Placeholders, never realistic names, in anything that changes files:
+    // measured, a "gio trash ~/Downloads/old.zip" example was copied as the
+    // target of a real command.
+    'Move or rename: mv ~/Desktop/<old> ~/Desktop/<new>'
   ]
   if (facts.platform === 'darwin') {
     return [
       ...posix,
+      'Memory in use, and the programs using most: vm_stat; ps aux -m | head -n 6',
+      ...zipFolder(facts),
       'Open a file, folder or web address: open ~/Downloads',
       "Copy text to the clipboard: printf '%s' 'some text' | pbcopy",
-      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<name>/Downloads/old.zip"'`,
+      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<you>/Downloads/<file>"'`,
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed`
     ]
@@ -130,12 +137,29 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'linux') {
     return [
       ...posix,
+      'Memory in use, and the programs using most: free -h; ps aux --sort=-%mem | head -n 6',
+      ...zipFolder(facts),
       'Open a file, folder or web address: xdg-open ~/Downloads',
       linuxClipboard(facts),
-      'Move to the Trash: gio trash ~/Downloads/old.zip',
+      'Move to the Trash: gio trash ~/Downloads/<file>',
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
+  }
+  return []
+}
+
+/**
+ * Zipping, with whatever this computer has. Measured: with no zip line, an 8B
+ * invented a `gio compress` from the gio examples beside it, and moved the
+ * folder it was asked to zip to the Trash along the way.
+ */
+function zipFolder(facts: ComputerFacts): string[] {
+  const line = 'Zip a folder, leaving it where it is: '
+  if (facts.installed('zip'))
+    return [`${line}cd ~/Pictures && zip -r ~/Desktop/<folder>.zip <folder>`]
+  if (facts.installed('python3')) {
+    return [`${line}cd ~/Pictures && python3 -m zipfile -c ~/Desktop/<folder>.zip <folder>`]
   }
   return []
 }

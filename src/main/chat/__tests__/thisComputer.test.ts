@@ -36,7 +36,7 @@ describe('describeComputer', () => {
     expect(eleven.shell?.howTo.join('\n')).toContain('Start-Process')
     expect(eleven.shell?.howTo.join('\n')).toContain('SendToRecycleBin')
     expect(eleven.shell?.howTo.join('\n')).toContain('winget install')
-    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command <name>')
+    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command python, python3, py')
 
     const ten = describeComputer(facts({ platform: 'win32', release: '10.0.19045' }), null)
     expect(ten.os).toBe('Windows 10')
