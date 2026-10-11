@@ -182,6 +182,8 @@ export async function runChatCompletionsLoop(
         // that drops it silently turns sub-agents off for that provider.
         delegate: params.tools.delegate,
         switchProject: params.tools.switchProject,
+        userProvided: params.tools.userProvided,
+        onSecretSaved: params.tools.onSecretSaved,
         disabledTools: params.tools.disabledTools,
         mcpTools: params.tools.mcpTools,
         evidenceFocus: params.tools.evidenceFocus,

@@ -58,26 +58,116 @@ export function ToolConfirmCard(): JSX.Element | null {
             <button
               type="button"
               className={styles.batchApprove}
-              onClick={() => visible.forEach((request) => resolve(request.id, { approved: true }))}
+              // A key box is skipped: approving it in bulk can only send it
+              // back empty, which reads as the person not having a key.
+              onClick={() =>
+                visible
+                  .filter((request) => !request.secret)
+                  .forEach((request) => resolve(request.id, { approved: true }))
+              }
             >
               Approve all
             </button>
           </div>
         </div>
       )}
-      {visible.map((request) => (
-        <ConfirmItem
-          key={request.id}
-          request={request}
-          diffViewMode={diffViewMode}
-          // Escape-to-deny only makes sense when there's exactly one pending
-          // item to target — with several pending, which one Escape should
-          // resolve is ambiguous, so the shortcut is omitted in favor of the
-          // explicit approve-all/deny-all buttons above.
-          listenForEscape={!isBatch}
-          onResolve={(response) => resolve(request.id, response)}
+      {visible.map((request) =>
+        request.secret ? (
+          <SecretItem
+            key={request.id}
+            request={request}
+            secret={request.secret}
+            onResolve={(response) => resolve(request.id, response)}
+          />
+        ) : (
+          <ConfirmItem
+            key={request.id}
+            request={request}
+            diffViewMode={diffViewMode}
+            // Escape-to-deny only makes sense when there's exactly one pending
+            // item to target — with several pending, which one Escape should
+            // resolve is ambiguous, so the shortcut is omitted in favor of the
+            // explicit approve-all/deny-all buttons above.
+            listenForEscape={!isBatch}
+            onResolve={(response) => resolve(request.id, response)}
+          />
+        )
+      )}
+    </div>
+  )
+}
+
+/**
+ * A box to paste a key into, in place of a yes/no. The key goes back to the
+ * main process with the answer, where it is checked and stored encrypted; the
+ * model is told only whether it worked. See `request_key`.
+ */
+function SecretItem({
+  request,
+  secret,
+  onResolve
+}: {
+  request: ToolConfirmRequest
+  secret: NonNullable<ToolConfirmRequest['secret']>
+  onResolve: (response: ToolConfirmResponse) => void
+}): JSX.Element {
+  const [value, setValue] = useState('')
+  const entered = value.trim()
+  const save = (): void => {
+    if (entered) onResolve({ approved: true, secretValue: entered })
+  }
+  return (
+    <div className={styles.card} role="dialog" aria-label={request.title}>
+      <div className={styles.header}>
+        <span className={`${styles.badge} ${styles.write}`}>
+          <Icon name="unlock-keyhole" size={14} />
+        </span>
+        <span className={styles.title}>{request.title}</span>
+      </div>
+      <p className={styles.secretHelp}>
+        {secret.getUrl ? (
+          <>
+            Get one at{' '}
+            <a href={secret.getUrl} target="_blank" rel="noreferrer">
+              {secret.getUrl.replace(/^https:\/\//, '')}
+            </a>
+            , then paste it here.
+          </>
+        ) : (
+          'Paste it here.'
+        )}{' '}
+        It is checked, then stored encrypted on this computer. Anodex never sees it.
+      </p>
+      <form
+        className={styles.secretRow}
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
+        <input
+          className={styles.secretInput}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+          aria-label={`${secret.service} key`}
+          placeholder={secret.placeholder}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
         />
-      ))}
+        <button
+          type="button"
+          className={styles.deny}
+          onClick={() => onResolve({ approved: false })}
+        >
+          Not now
+        </button>
+        <button type="submit" className={styles.approve} disabled={!entered}>
+          <Icon name="check" size={14} />
+          Save key
+        </button>
+      </form>
     </div>
   )
 }

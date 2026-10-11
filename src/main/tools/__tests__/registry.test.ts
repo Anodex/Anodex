@@ -92,7 +92,9 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'move_email',
   'batch_email',
   'request_folder_access',
-  'check_computer'
+  'check_computer',
+  'request_key',
+  'save_key'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']

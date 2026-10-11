@@ -88,6 +88,8 @@ const api: AnodexApi = {
     onThinkingStream: (listener) =>
       subscribe<ChatThinkingStreamChunk>(IpcChannel.Chat.thinkingStream, listener),
     onWorking: (listener) => subscribe<ChatWorkingEvent>(IpcChannel.Chat.working, listener),
+    onSecretSaved: (listener) =>
+      subscribe<{ conversationId: string; secret: string }>(IpcChannel.Chat.secretSaved, listener),
     onProjectSwitched: (listener) =>
       subscribe<{ conversationId: string; projectId: string }>(
         IpcChannel.Chat.projectSwitched,

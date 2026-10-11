@@ -216,6 +216,12 @@ interface ChatState {
    */
   moveConversationToProject: (id: string, projectId: string) => void
   /**
+   * Replace a key the person pasted with "•••• (saved)" in their messages,
+   * once Anodex has stored it, so the chat does not keep it in plain text or
+   * send it again with later turns.
+   */
+  redactSecret: (id: string, secret: string) => void
+  /**
    * `conversationIdOverride` targets a specific conversation instead of the
    * active one — used when auto-dispatching a queued message so it lands in
    * the conversation it was queued for, even if the user has since switched
@@ -549,6 +555,9 @@ async function persistActiveState(activeId: string | null): Promise<void> {
 }
 
 /** Renderer mirror of persisted conversations, kept in sync with the main process. */
+/** What a stored key is replaced with in the person's message. */
+export const REDACTED_SECRET = '•••• (saved)'
+
 export const useChatStore = create<ChatState>()(
   immer((set, get) => ({
     conversations: [],
@@ -939,6 +948,28 @@ export const useChatStore = create<ChatState>()(
         conversation.projectId = projectId
         conversation.updatedAt = Date.now()
       })
+    },
+
+    redactSecret: (id, secret) => {
+      const needle = secret.trim()
+      if (!needle) return
+      let changed = false
+      set((state) => {
+        const conversation = state.conversations.find((c) => c.id === id)
+        if (!conversation) return
+        for (const message of conversation.messages) {
+          if (message.role === 'user' && message.content.includes(needle)) {
+            message.content = message.content.split(needle).join(REDACTED_SECRET)
+            changed = true
+          }
+        }
+      })
+      // A reply still running saves the conversation when it ends; one that
+      // already has needs saving now, or the key would come back on reload.
+      const conversation = get().conversations.find((c) => c.id === id)
+      if (changed && conversation && !conversation.messages.some((m) => m.streaming)) {
+        void persistConversation(conversation)
+      }
     },
 
     clearOrphanedProjectId: async (id) => {

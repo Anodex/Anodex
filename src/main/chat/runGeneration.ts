@@ -132,6 +132,8 @@ export interface RunGenerationIo {
    * its presence is what lets that reply ask for folder access at all.
    */
   onProjectSwitched?: (projectId: string) => void
+  /** Told a key the person pasted was stored; see `ToolRuntimeContext.onSecretSaved`. */
+  onSecretSaved?: (secret: string) => void
   /** Overrides the user's configured permission mode for this run (scheduled tasks force one). */
   permissionModeOverride?: PermissionMode
   /**
@@ -535,6 +537,15 @@ export async function runGeneration(
         enabledTools: io.enabledTools ?? null,
         delegate: io.delegate,
         switchProject: io.switchProject,
+        // Only what the person typed: this request's own prompt and the user
+        // turns of its history, never tool output.
+        userProvided: (text: string) =>
+          text.trim().length > 0 &&
+          [
+            request.prompt,
+            ...request.history.filter((turn) => turn.role === 'user').map((turn) => turn.content)
+          ].some((content) => typeof content === 'string' && content.includes(text.trim())),
+        onSecretSaved: io.onSecretSaved,
         // Interactive chats use the persisted opt-out list. Headless runs
         // already have an explicit allowlist, so their behavior stays stable
         // even if the user later changes normal-chat preferences.

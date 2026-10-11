@@ -4,7 +4,9 @@ import type {
   ToolCallDiff,
   ToolCallPreview,
   ToolKind,
-  ToolRisk
+  ToolRisk,
+  ToolConfirmRequest,
+  ToolConfirmResponse
 } from '@shared/tools.types'
 import type { CheckpointFileChange } from '@shared/checkpoint.types'
 import type { FileTouchAction } from '@shared/projectMemory.types'
@@ -212,7 +214,10 @@ interface ReadToolSpec {
    * long enough to want one (a download). Guarded tools receive it; read tools
    * finish too quickly to need it.
    */
-  run: (progress?: (detail: string) => void) => Promise<ToolOutcome>
+  run: (
+    progress?: (detail: string) => void,
+    confirmation?: ToolConfirmResponse
+  ) => Promise<ToolOutcome>
 }
 
 interface GuardedToolSpec extends ReadToolSpec {
@@ -246,6 +251,11 @@ interface GuardedToolSpec extends ReadToolSpec {
    * can only ever be refused.
    */
   requiresHumanApproval?: boolean
+  /**
+   * Show the prompt as a box to paste a key into. Its answer reaches `run` as
+   * `confirmation.secretValue`; see `request_key`.
+   */
+  confirmSecret?: ToolConfirmRequest['secret']
 }
 
 /**
@@ -547,6 +557,7 @@ export async function runGuardedTool(
   try {
     const permissionDecision = resolvePermission(ctx.permissionMode, spec.risk)
     const gatedByTurnStart = needsTurnGate(ctx.permissionMode, spec.risk, ctx.turnGate.approved)
+    let confirmation: ToolConfirmResponse | undefined
     const needsConfirm =
       spec.forceConfirm === true ||
       spec.requiresHumanApproval === true ||
@@ -568,8 +579,10 @@ export async function runGuardedTool(
         diff: spec.confirmDiff,
         emailDraft: spec.confirmEmailDraft,
         turnGate: gatedByTurnStart,
-        requiresHumanApproval: spec.requiresHumanApproval
+        requiresHumanApproval: spec.requiresHumanApproval,
+        secret: spec.confirmSecret
       })
+      confirmation = response
       if (!response.approved) {
         ctx.emit({
           id,
@@ -598,15 +611,17 @@ export async function runGuardedTool(
       checkpointChanges,
       madeProgress = true,
       provesChange
-    } = await spec.run((progressDetail) =>
-      ctx.emit({
-        id,
-        name: spec.name,
-        kind: spec.kind,
-        title: spec.title,
-        status: 'running',
-        detail: progressDetail
-      })
+    } = await spec.run(
+      (progressDetail) =>
+        ctx.emit({
+          id,
+          name: spec.name,
+          kind: spec.kind,
+          title: spec.title,
+          status: 'running',
+          detail: progressDetail
+        }),
+      confirmation
     )
     ctx.ledger.recordOutcome({
       name: spec.name,
