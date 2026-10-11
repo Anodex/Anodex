@@ -1,6 +1,7 @@
 import { readJsonSync } from '../utils/jsonFile'
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { writeJsonAtomic } from '../utils/atomicWrite'
 import { hostname } from 'node:os'
 import { collectHostAddresses, connectionRoute, primaryHostAddress } from './addresses'
 import { join } from 'node:path'
@@ -656,11 +657,34 @@ export class RemoteService {
    * stops answering — was invisible to the phone. The listener is not stopped: the
    * sockets will not survive the suspend anyway, and the point is only to get a
    * reason out while there is still a connection to carry it.
+   *
+   * It did stop it, despite saying otherwise, and nothing started it on waking, so
+   * after one sleep a paired phone could not connect again until Anodex restarted.
    */
   async sleeping(): Promise<void> {
     if (!this.bridge?.listening) return
-    await this.bridge.stop('sleeping')
-    this.bridge = null
+    await this.bridge.goodbye('sleeping')
+  }
+
+  /**
+   * The computer woke up.
+   *
+   * The listener survives a suspend, but the world around it may not have: the
+   * router may have dropped the port mapping while the lease ran out, or handed out
+   * a new public address. Asking again is cheap and is what makes "reachable from
+   * anywhere" still true after a night asleep. A listener that did not survive is
+   * started again.
+   */
+  async woke(): Promise<void> {
+    if (!this.state.enabled) return
+    try {
+      if (!this.bridge?.listening) await this.start()
+      if (this.state.internetEnabled) await this.acquireInternetRoute()
+    } catch (error) {
+      log.error('could not restore remote access after waking:', error)
+      return
+    }
+    this.onStatusChanged?.(this.status())
   }
 
   private async ensureCertificate(): Promise<RemoteCertificate> {
@@ -813,7 +837,17 @@ export class RemoteService {
     try {
       this.state = readJsonSync(this.filePath) as PersistedState
     } catch (error) {
-      log.warn('remote.json is unreadable; starting from a clean state:', error)
+      // Kept aside before anything can overwrite it. This file is the only copy of
+      // the identity every paired phone has pinned, and the next save would replace
+      // it with a clean state: a damaged file that might have been recovered by hand
+      // would become a lost identity and a re-pair on every phone.
+      const aside = `${this.filePath}.unreadable-${Date.now()}`
+      try {
+        copyFileSync(this.filePath, aside)
+      } catch {
+        // Nothing more to save.
+      }
+      log.warn(`remote.json is unreadable; kept it as ${aside} and starting clean:`, error)
       this.state = { enabled: false }
     }
   }
@@ -821,7 +855,10 @@ export class RemoteService {
   private persist(): void {
     try {
       mkdirSync(app.getPath('userData'), { recursive: true })
-      writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf-8')
+      // Atomic, like every other store that cannot afford to lose its file: a save
+      // cut off half-written left an unreadable file, which loaded as a clean state
+      // and took the identity, and every pairing, with it.
+      writeJsonAtomic(this.filePath, this.state)
     } catch (error) {
       log.error('could not save remote settings:', error)
     }

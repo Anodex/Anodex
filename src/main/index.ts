@@ -192,6 +192,9 @@ if (!app.requestSingleInstanceLock()) {
   powerMonitor.on('suspend', () => {
     void remoteService.sleeping()
   })
+  powerMonitor.on('resume', () => {
+    void remoteService.woke()
+  })
 
   app.on('will-quit', () => {
     appShuttingDown = true

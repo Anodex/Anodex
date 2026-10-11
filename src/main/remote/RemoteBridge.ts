@@ -75,6 +75,28 @@ const HANDSHAKE_TIMEOUT_MS = 10_000
 const FAREWELL_GRACE_MS = 250
 
 /**
+ * How often the desktop checks that each phone is still there.
+ *
+ * The phone pings every eight seconds, but nothing here ever listened, so a phone
+ * that left Wi-Fi or died held its socket open — and counted as connected — until
+ * the operating system gave up on the TCP connection, which can take a quarter of
+ * an hour. Everything that asks "is a phone connected?" was wrong for that long:
+ * a reminder meant for the phone went into the dead socket instead of falling back
+ * to the desktop. A phone that misses a whole interval is dropped, so the answer is
+ * right within thirty seconds.
+ */
+export const HEARTBEAT_INTERVAL_MS = 15_000
+
+/**
+ * What may queue for one phone before it is treated as gone.
+ *
+ * `send` never blocks: a phone that cannot keep up — or one that vanished without a
+ * close — has every frame held in memory on this side. Generous, because a phone on
+ * a weak signal does catch up, and a single result may be four megabytes.
+ */
+export const MAX_BUFFERED_BYTES = 16 * 1024 * 1024
+
+/**
  * Frames smaller than this go uncompressed. Low, because with the window kept
  * between frames even a hundred-byte token frame shrinks to a fraction; only a
  * ping-sized one is not worth the call into zlib.
@@ -83,6 +105,9 @@ const COMPRESS_FROM_BYTES = 48
 
 export class RemoteBridge {
   private server: HttpsServer | null = null
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  /** Sockets heard from since the last heartbeat check. */
+  private readonly heard = new WeakSet<WebSocket>()
   private sockets: WebSocketServer | null = null
   /** Which paired device each authenticated socket belongs to. */
   private readonly socketDevice = new WeakMap<WebSocket, string>()
@@ -227,6 +252,8 @@ export class RemoteBridge {
 
     this.server = server
     this.sockets = sockets
+    this.heartbeat = setInterval(() => this.checkHeartbeats(), HEARTBEAT_INTERVAL_MS)
+    this.heartbeat.unref?.()
     log.info(
       `listening on port ${this.port} (fingerprint ${this.certificate.sha256.slice(0, 16)}…)`
     )
@@ -247,6 +274,54 @@ export class RemoteBridge {
     const sockets = this.sockets
     this.server = null
     this.sockets = null
+    if (this.heartbeat) clearInterval(this.heartbeat)
+    this.heartbeat = null
+    await this.closeClients(sockets, farewell)
+    if (sockets) await new Promise<void>((resolve) => sockets.close(() => resolve()))
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+    log.info('stopped')
+  }
+
+  /**
+   * Tell every phone why it is being disconnected, and keep listening.
+   *
+   * For sleep. The sockets will not survive a suspend, so the point is only to get
+   * the reason out while there is a connection to carry it; the listener itself is
+   * left up, so a phone reconnects the moment the computer wakes. It used to call
+   * `stop` — closing the listener — and nothing started it again, so after one
+   * sleep the phone could not connect until Anodex was restarted.
+   */
+  async goodbye(farewell: RemoteFarewell): Promise<void> {
+    await this.closeClients(this.sockets, farewell)
+  }
+
+  /**
+   * Drop every phone that has not been heard from since the last check, and ask
+   * the rest to answer. A WebSocket ping is answered by the phone's own socket
+   * library, so this works with every version of the app ever shipped.
+   */
+  checkHeartbeats(): void {
+    for (const socket of this.sockets?.clients ?? []) {
+      if (!this.heard.has(socket)) {
+        log.info('a phone stopped answering; dropping its connection')
+        socket.terminate()
+        continue
+      }
+      this.heard.delete(socket)
+      try {
+        socket.ping()
+      } catch {
+        socket.terminate()
+      }
+    }
+  }
+
+  private async closeClients(
+    sockets: WebSocketServer | null,
+    farewell: RemoteFarewell
+  ): Promise<void> {
     detachAllRemoteClients()
 
     if (sockets) {
@@ -274,16 +349,18 @@ export class RemoteBridge {
         ).then(() => undefined)
       ])
       for (const socket of sockets.clients) socket.terminate()
-      await new Promise<void>((resolve) => sockets.close(() => resolve()))
     }
-    if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
-    log.info('stopped')
   }
 
   private onConnection(socket: WebSocket, peerAddress: string | undefined): void {
     let client: ClientChannel | null = null
+    // Any sign of life counts: a frame, a pong to our ping, or the phone's own ping.
+    const alive = (): void => {
+      this.heard.add(socket)
+    }
+    alive()
+    socket.on('pong', alive)
+    socket.on('ping', alive)
 
     // An unauthenticated socket is a stranger holding a connection open. Give it
     // exactly long enough to say who it is.
@@ -295,6 +372,7 @@ export class RemoteBridge {
     }, HANDSHAKE_TIMEOUT_MS)
 
     socket.on('message', (raw) => {
+      alive()
       const parsed = parseClientFrame(raw as Buffer)
       if (!parsed.ok) {
         this.refuse(socket, parsed.code, parsed.message)
@@ -573,6 +651,14 @@ export class RemoteBridge {
           `That reply was ${Math.round(size / 1024 / 1024)}MB, too large to send to a phone.`
         )
       }
+      return
+    }
+
+    if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+      log.warn(
+        `a phone has ${Math.round(socket.bufferedAmount / 1024 / 1024)}MB waiting; treating it as gone`
+      )
+      socket.terminate()
       return
     }
 
