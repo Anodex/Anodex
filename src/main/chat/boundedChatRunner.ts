@@ -28,6 +28,7 @@ import { buildContextEpochHandoff } from './contextEpochHandoff'
 import { createLogger } from '../utils/logger'
 import { identityToCapture } from '@shared/statedIdentity'
 import { memoryStore } from '../memory/MemoryStore'
+import { takeReplyNotice } from '../notifications/replyNotices'
 
 /**
  * Cycle boundaries were invisible in the log. Only the provider transports
@@ -291,6 +292,26 @@ export async function runBoundedChatGeneration(
   request: ChatRequest,
   io: RunGenerationIo
 ): Promise<RunGenerationResult> {
+  let outcome = 'finished'
+  try {
+    const result = await runBounded(request, io)
+    if (io.signal?.aborted) outcome = 'stopped before finishing'
+    return result
+  } catch (error) {
+    outcome = io.signal?.aborted ? 'stopped before finishing' : 'stopped with an error'
+    throw error
+  } finally {
+    // "Tell me when you're done", set by notify_me_when_done during this reply.
+    const notice = takeReplyNotice(request.messageId)
+    if (notice) {
+      void import('../notifications')
+        .then(({ doneNotices }) => doneNotices.deliver(notice, outcome))
+        .catch((error: unknown) => log.warn('Could not deliver the done notice:', error))
+    }
+  }
+}
+
+async function runBounded(request: ChatRequest, io: RunGenerationIo): Promise<RunGenerationResult> {
   // One tracker for the whole bounded reply, shared by every cycle's read
   // tools — see `ReadCoverageTracker`'s doc comment. This is what actually
   // stops a later cycle from re-reading territory an earlier cycle already

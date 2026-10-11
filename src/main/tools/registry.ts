@@ -33,6 +33,7 @@ import { runCommandTool } from './commandTools'
 import { findMyFilesTool, sendFileToMeTool } from './personalFileTools'
 import { findCleanupTool, moveToTrashTool } from './cleanupTools'
 import { openItemTool } from './openItemTools'
+import { copyToClipboardTool, notifyMeWhenDoneTool } from './notifyTools'
 import { requestKeyTool, saveKeyTool } from './keyTools'
 import { requestFolderAccessTool } from './folderAccessTools'
 import { downloadFileTool } from './downloadTools'
@@ -367,6 +368,12 @@ export function buildTools(
   // in the person's own folders, then email it to their own address.
   if (isEnabled('find_my_files')) tools.find_my_files = findMyFilesTool(define, ctx)
   if (isEnabled('send_file_to_me')) tools.send_file_to_me = sendFileToMeTool(define, ctx)
+
+  // "Let me know when it's done" and "copy that for me" are asked in any chat.
+  if (isEnabled('notify_me_when_done')) {
+    tools.notify_me_when_done = notifyMeWhenDoneTool(define, ctx)
+  }
+  if (isEnabled('copy_to_clipboard')) tools.copy_to_clipboard = copyToClipboardTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)
