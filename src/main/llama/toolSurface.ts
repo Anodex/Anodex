@@ -308,6 +308,10 @@ const DIRECT_TOOL_PRIORITY = [
   // "Do I have Java?" is answered by this or guessed at with platform-specific
   // shell commands; a chat should not have to reach behind the gateway for it.
   'check_computer',
+  // "Send me the budget" from the phone is a plain chat with no project, so
+  // these must be visible there without the gateway.
+  'find_my_files',
+  'send_file_to_me',
   // "My disk is full" is answered by these, or by guessing at deletions
   // through the shell, which is the thing they exist to prevent.
   'find_cleanup',

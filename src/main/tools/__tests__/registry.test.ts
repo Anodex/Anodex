@@ -97,7 +97,9 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'save_key',
   'find_cleanup',
   'move_to_trash',
-  'open_item'
+  'open_item',
+  'find_my_files',
+  'send_file_to_me'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']

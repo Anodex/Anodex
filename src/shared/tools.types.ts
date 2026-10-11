@@ -458,6 +458,18 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Open an http(s) address in the browser, or a folder or document from the open project in its usual app. Never opens programs or scripts.'
   },
   {
+    name: 'find_my_files',
+    kind: 'read',
+    description:
+      "Search the person's own folders (Documents, Desktop, Downloads, OneDrive) for a file by name and inside documents. Read-only."
+  },
+  {
+    name: 'send_file_to_me',
+    kind: 'web',
+    description:
+      "Email a file the search found, or one from the open project, to the person's own linked address. Asks first except in Untethered mode."
+  },
+  {
     name: 'check_computer',
     kind: 'read',
     description:

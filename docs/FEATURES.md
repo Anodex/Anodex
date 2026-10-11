@@ -318,6 +318,12 @@ Write and mutation tools:
 - Open things for the person: an http(s) address in their browser (such as a dev server
   it started), or a folder or document from the open project in its usual app. Programs
   and scripts are never opened.
+- Find a file in the person's own folders (Documents, Desktop, Downloads, OneDrive) by
+  name and inside documents (text, PDF, Word, Excel, PowerPoint, OpenDocument), and email
+  it to their own address, so "send me the budget for Friday's meeting" works from the
+  paired phone. Only files the search found in that chat, or files in the open project,
+  can be sent, and only to the person's own linked address; it asks first except in
+  Untethered mode. Hidden folders are never searched.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.
