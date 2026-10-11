@@ -431,7 +431,7 @@ export function renderComputerSection(computer: PromptComputer): string {
   ]
   if (computer.shell) {
     lines.push(
-      `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project. There is no terminal for anyone to type into, so never use sudo or a command that waits for input.`
+      `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project. There is no terminal for anyone to type into, so never use sudo or a command that waits for input. When a command fails or is not found, read the error and try another way before answering, and check a result before reporting it. For a vague request such as "tidy up", say what you would do and ask before moving or removing anything.`
     )
     if (computer.shell.howTo.length) lines.push(...computer.shell.howTo.map((line) => `- ${line}`))
   }

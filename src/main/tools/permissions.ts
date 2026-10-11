@@ -98,7 +98,15 @@ const DESTRUCTIVE_COMMAND_PATTERNS: RegExp[] = [
   // unstages, which the index and the object store both survive.
   /\bgit\s+restore\b(?![^\r\n|;&]*--staged\b)/i,
   // The same act as the `> /dev/sd` redirect above, in dd's own syntax.
-  /\bdd\b[^\r\n|;&]*\sof=\/dev\//i
+  /\bdd\b[^\r\n|;&]*\sof=\/dev\//i,
+  // Emptying the Trash is the one delete nothing can undo: everything else
+  // Anodex removes goes there precisely so it can be put back. Measured: asked
+  // to "empty my Trash", an 8B ran `gio trash --empty` with no question asked.
+  /\bgio\s+trash\b[^\r\n|;&]*--empty\b/i,
+  /\btrash-empty\b/i,
+  /\bClear-RecycleBin\b/i,
+  /\bosascript\b[^\r\n]*\bempty\s+(?:the\s+)?trash\b/i,
+  /\b(?:rm|remove-item|del|rd|rmdir)\b[^\r\n|;&]*(?:\.local[\\/]share[\\/]Trash|~[\\/]\.Trash|\$Recycle\.Bin)/i
 ]
 
 /**

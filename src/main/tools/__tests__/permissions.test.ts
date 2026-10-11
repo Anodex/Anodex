@@ -181,3 +181,25 @@ describe('destructive commands the list had missed', () => {
     expect(classifyCommandRisk('dd if=/dev/zero of=./test.img bs=1M count=10')).toBe('sensitive')
   })
 })
+
+describe('emptying the Trash', () => {
+  it('always asks, in every spelling, because nothing can undo it', () => {
+    for (const command of [
+      'gio trash --empty',
+      'trash-empty',
+      'Clear-RecycleBin -Force',
+      `osascript -e 'tell application "Finder" to empty the trash'`,
+      'rm -r ~/.local/share/Trash/files/*',
+      'rm -r ~/.Trash/*',
+      "Remove-Item 'C:\\$Recycle.Bin\\*' -Recurse"
+    ]) {
+      expect(classifyCommandRisk(command), command).toBe('destructive')
+    }
+  })
+
+  it('leaves moving things to the Trash, and reading it, as they were', () => {
+    expect(classifyCommandRisk("gio trash '~/Downloads/old.zip'")).toBe('sensitive')
+    expect(classifyCommandRisk('gio list trash://')).not.toBe('destructive')
+    expect(classifyCommandRisk('ls ~/.local/share/Trash/files')).toBe('safe')
+  })
+})

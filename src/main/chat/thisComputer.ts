@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { PromptComputer } from '@shared/prompts'
 
 export interface ComputerFacts {
@@ -11,6 +11,8 @@ export interface ComputerFacts {
   osRelease: string | null
   folders: PromptComputer['folders']
   env: NodeJS.ProcessEnv
+  /** Whether a program is on the PATH, so a hint never names one that is missing. */
+  installed: (name: string) => boolean
 }
 
 /**
@@ -91,7 +93,8 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     return [
       "Find files: Get-ChildItem '<folder>' -Recurse -Filter '*.pdf'",
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version',
+      'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version (try the other names it goes by, such as python3 or py for python)',
+      "Move or rename: Move-Item '<from>' '<to>'",
       "Open a file, folder or web address: Start-Process '<path or url>'",
       "Copy text to the clipboard: Set-Clipboard -Value '<text>'",
       "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('<file>', 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
@@ -102,7 +105,8 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     return [
       "Find files: find '<folder>' -iname '*.pdf'",
       "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version',
+      'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
+      "Move or rename: mv '<from>' '<to>'",
       "Open a file, folder or web address: open '<path or url>'",
       "Copy text to the clipboard: printf '%s' '<text>' | pbcopy",
       `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "<absolute path>"'`,
@@ -110,18 +114,36 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     ]
   }
   if (facts.platform === 'linux') {
-    const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
     return [
       "Find files: find '<folder>' -iname '*.pdf'",
       "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version',
+      'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
+      "Move or rename: mv '<from>' '<to>'",
       "Open a file, folder or web address: xdg-open '<path or url>'",
-      `Copy text to the clipboard: printf '%s' '<text>' | ${wayland ? 'wl-copy' : 'xclip -selection clipboard'}`,
+      linuxClipboard(facts),
       "Move to the Trash: gio trash '<path>'",
       `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
   }
   return []
+}
+
+/**
+ * The clipboard command this Linux session can actually use. Measured: told
+ * to use wl-copy on a machine without it, an 8B tried wl-copy, then xclip,
+ * then xsel, none installed, and reported each failure in turn.
+ */
+function linuxClipboard(facts: ComputerFacts): string {
+  const wayland = Boolean(facts.env.WAYLAND_DISPLAY)
+  const candidates = [
+    ...(wayland ? [['wl-copy', 'wl-copy']] : []),
+    ['xclip', 'xclip -selection clipboard'],
+    ['xsel', 'xsel --clipboard --input']
+  ]
+  const usable = candidates.find(([program]) => facts.installed(program))
+  return usable
+    ? `Copy text to the clipboard: printf '%s' '<text>' | ${usable[1]}`
+    : `Copy text to the clipboard: no clipboard program is installed (${wayland ? 'wl-copy' : 'xclip'} would do it), so say so rather than trying`
 }
 
 /**
@@ -179,6 +201,23 @@ export function liveComputerFacts(
       documents: folder('documents', 'Documents'),
       downloads: folder('downloads', 'Downloads')
     },
-    env: process.env
+    env: process.env,
+    installed: onPath
   }
+}
+
+const pathLookups = new Map<string, boolean>()
+
+/** Whether `name` is an executable on the PATH. Cached: the PATH does not change under a running app. */
+function onPath(name: string): boolean {
+  const cached = pathLookups.get(name)
+  if (cached !== undefined) return cached
+  const extensions =
+    process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
+  const found = (process.env.PATH ?? '')
+    .split(delimiter)
+    .filter(Boolean)
+    .some((dir) => extensions.some((ext) => existsSync(join(dir, name + ext))))
+  pathLookups.set(name, found)
+  return found
 }

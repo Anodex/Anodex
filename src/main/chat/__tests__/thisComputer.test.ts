@@ -10,7 +10,15 @@ const folders = {
 }
 
 function facts(overrides: Partial<ComputerFacts>): ComputerFacts {
-  return { platform: 'linux', release: '6.8.0', osRelease: null, folders, env: {}, ...overrides }
+  return {
+    platform: 'linux',
+    release: '6.8.0',
+    osRelease: null,
+    folders,
+    env: {},
+    installed: () => true,
+    ...overrides
+  }
 }
 
 const shell = (command: string | undefined) => ({ command, startsIn: folders.home })
@@ -78,6 +86,21 @@ describe('describeComputer', () => {
     const fedora = fedoraX11.shell?.howTo.join('\n') ?? ''
     expect(fedora).toContain('xclip -selection clipboard')
     expect(fedora).toContain('pkexec dnf install')
+  })
+})
+
+describe('the clipboard on Linux', () => {
+  it('names a program that is installed, or says none is', () => {
+    const only = (name: string) => (program: string) => program === name
+    const wayland = { WAYLAND_DISPLAY: 'wayland-0' }
+    const line = (installed: (name: string) => boolean): string =>
+      describeComputer(facts({ env: wayland, installed }), shell('/bin/bash')).shell?.howTo.find(
+        (entry) => entry.startsWith('Copy text')
+      ) ?? ''
+
+    expect(line(only('wl-copy'))).toContain('| wl-copy')
+    expect(line(only('xsel'))).toContain('| xsel --clipboard --input')
+    expect(line(() => false)).toContain('no clipboard program is installed')
   })
 })
 
