@@ -30,6 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { openItemTool } from './openItemTools'
 import { requestKeyTool, saveKeyTool } from './keyTools'
 import { requestFolderAccessTool } from './folderAccessTools'
 import { downloadFileTool } from './downloadTools'
@@ -349,6 +350,10 @@ export function buildTools(
   // message they typed to check the key against, which only a chat reply has.
   if (isEnabled('request_key')) tools.request_key = requestKeyTool(define, ctx)
   if (ctx.userProvided && isEnabled('save_key')) tools.save_key = saveKeyTool(define, ctx)
+
+  // URLs work in any chat; files and folders need a project, which the tool
+  // itself checks so it can say how to get one.
+  if (isEnabled('open_item')) tools.open_item = openItemTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)

@@ -432,6 +432,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Store a key the person pasted into the chat after checking it works; refuses a key they did not type. Asks first except in Untethered mode.'
   },
   {
+    name: 'open_item',
+    kind: 'command',
+    description:
+      'Open an http(s) address in the browser, or a folder or document from the open project in its usual app. Never opens programs or scripts.'
+  },
+  {
     name: 'check_computer',
     kind: 'read',
     description:

@@ -94,7 +94,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'request_folder_access',
   'check_computer',
   'request_key',
-  'save_key'
+  'save_key',
+  'open_item'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
