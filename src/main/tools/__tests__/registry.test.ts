@@ -37,6 +37,7 @@ const PROJECT_WORKSPACE_TOOLS = [
   'run_command',
   'start_process',
   'stop_process',
+  'download_file',
   'run_project_check',
   'update_project_notes',
   'propose_change',
@@ -89,7 +90,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'manage_email',
   'move_email',
   'batch_email',
-  'request_folder_access'
+  'request_folder_access',
+  'check_computer'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']

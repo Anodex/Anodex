@@ -31,6 +31,8 @@ import {
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
 import { requestFolderAccessTool } from './folderAccessTools'
+import { downloadFileTool } from './downloadTools'
+import { checkComputerTool } from './computerCheckTools'
 import {
   listProcessesTool,
   readProcessOutputTool,
@@ -126,6 +128,7 @@ const PROJECT_WORKSPACE_FACTORIES: Record<string, WorkspaceToolFactory> = {
   delete_directory: deleteDirectoryTool,
   run_command: runCommandTool,
   start_process: startProcessTool,
+  download_file: downloadFileTool,
   stop_process: stopProcessTool,
   run_project_check: runProjectCheckTool,
   update_project_notes: updateProjectNotesTool,
@@ -332,6 +335,12 @@ export function buildTools(
   // and Critical Thinking do not, so they never see this tool.
   if (ctx.switchProject && isEnabled('request_folder_access')) {
     tools.request_folder_access = requestFolderAccessTool(define, ctx)
+  }
+
+  // Facts about this machine, wanted in any chat ("do I have Java?"), and
+  // read-only, so it needs neither a project nor a permission.
+  if (isEnabled('check_computer')) {
+    tools.check_computer = checkComputerTool(define, ctx)
   }
 
   if (ctx.delegate && isEnabled('delegate')) {
