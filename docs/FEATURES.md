@@ -526,6 +526,10 @@ The Scheduler page lets Anodex run recurring prompts while the app is open.
 Key capabilities:
 
 - Create one-time, daily, weekly, or interval-based tasks.
+- Set reminders ("remind me at 3pm to call Sam"), from chat or the Scheduler page. A
+  reminder is a notification on the desktop and the paired phone at that time; nothing
+  runs, so it fires on time with no model loaded and never waits for a reply in progress.
+  Setting one never asks for approval.
 - Use intervals as short as five minutes.
 - Select weekdays for weekly tasks.
 - Assign a task to a project.

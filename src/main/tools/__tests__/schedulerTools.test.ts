@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ScheduledTask, CreateScheduledTaskRequest } from '@shared/scheduledTask.types'
-import { deleteScheduledTaskTool, scheduleTaskTool } from '../schedulerTools'
+import { deleteScheduledTaskTool, scheduleTaskTool, setReminderTool } from '../schedulerTools'
 import { headlessConfirm } from '../headlessConfirm'
 import { captureConfirmations, createMockContext, createMockDefine } from './test-helpers'
 
@@ -278,5 +278,41 @@ describe('delete_scheduled_task', () => {
     await tool.handler({ name: 'Interval test' })
 
     expect(deleteMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('set_reminder', () => {
+  beforeEach(() => {
+    createMock.mockReset()
+    notifyMock.mockReset()
+    createMock.mockImplementation(taskFrom)
+  })
+
+  it('never asks, even in Ask mode, and saves a reminder that runs nothing', async () => {
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), permissionMode: 'ask' as const, confirm }
+    const tool = setReminderTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { when: string; message: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ when: 'in 20 minutes', message: 'Call Sam' })
+
+    expect(requests).toHaveLength(0)
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'Call Sam', kind: 'reminder', enabledTools: [] })
+    )
+    expect(notifyMock).toHaveBeenCalled()
+    expect(result).toContain('Reminder set: "Call Sam"')
+  })
+
+  it('says how to phrase a time it cannot read', async () => {
+    const ctx = createMockContext('/workspace')
+    const tool = setReminderTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { when: string; message: string }) => Promise<string>
+    }
+    expect(await tool.handler({ when: 'whenever', message: 'Call Sam' })).toContain(
+      'Could not read "whenever" as a time'
+    )
+    expect(createMock).not.toHaveBeenCalled()
   })
 })

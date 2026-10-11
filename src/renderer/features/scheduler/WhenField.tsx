@@ -42,6 +42,8 @@ interface WhenFieldProps {
   /** Raw text the user typed, lifted so the editor can keep it across re-renders. */
   text: string
   onTextChange: (text: string) => void
+  /** The field's question; a reminder asks when to remind rather than when to run. */
+  label?: string
 }
 
 function timeToInput(hour: number, minute: number): string {
@@ -62,7 +64,13 @@ function inputToTime(value: string): { hour: number; minute: number } {
  * sync with whatever the text parsed to — the text field is a faster front
  * door, not a replacement for being able to say precisely what you mean.
  */
-export function WhenField({ value, onChange, text, onTextChange }: WhenFieldProps): JSX.Element {
+export function WhenField({
+  value,
+  onChange,
+  text,
+  onTextChange,
+  label = 'When should this run?'
+}: WhenFieldProps): JSX.Element {
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const parsed = useMemo(() => parseWhen(text), [text])
@@ -103,7 +111,7 @@ export function WhenField({ value, onChange, text, onTextChange }: WhenFieldProp
   return (
     <div className={styles.field}>
       <label className={styles.label} htmlFor="when-input">
-        When should this run?
+        {label}
       </label>
 
       <input

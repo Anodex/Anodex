@@ -8,7 +8,7 @@ import { useSchedulerStore } from '../../stores/schedulerStore'
 import { Overlay } from '../../components/ui/Overlay'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/Icon'
-import { SelectControl } from '../settings/controls'
+import { SegmentedControl, SelectControl } from '../settings/controls'
 import { WhenField } from './WhenField'
 import styles from './SchedulerTaskEditor.module.css'
 
@@ -58,6 +58,11 @@ export function SchedulerTaskEditor({
 
   const [name, setName] = useState(task?.name ?? seed?.name ?? '')
   const [prompt, setPrompt] = useState(task?.prompt ?? seed?.prompt ?? '')
+  // A reminder is only a message at a time: no project, no tools, no run.
+  const [kind, setKind] = useState<'task' | 'reminder'>(
+    task?.kind === 'reminder' ? 'reminder' : 'task'
+  )
+  const isReminder = kind === 'reminder'
   const [projectId, setProjectId] = useState<string | null>(task?.projectId ?? null)
   const [recurrence, setRecurrence] = useState<TaskRecurrence>(initialRecurrence)
   // Seeded from the schedule's own description so an existing task opens with
@@ -98,15 +103,24 @@ export function SchedulerTaskEditor({
     if (!canSave || saving) return
     setSaving(true)
 
-    const request = {
-      name: name.trim() || undefined,
-      prompt: prompt.trim(),
-      projectId,
-      recurrence,
-      enabledTools: [...enabledTools].filter((toolName) =>
-        availableTools.some((tool) => tool.name === toolName)
-      )
-    }
+    const request = isReminder
+      ? {
+          name: name.trim() || undefined,
+          prompt: prompt.trim(),
+          projectId: null,
+          recurrence,
+          enabledTools: [],
+          kind: 'reminder' as const
+        }
+      : {
+          name: name.trim() || undefined,
+          prompt: prompt.trim(),
+          projectId,
+          recurrence,
+          enabledTools: [...enabledTools].filter((toolName) =>
+            availableTools.some((tool) => tool.name === toolName)
+          )
+        }
 
     if (task) {
       await updateTask(task.id, request)
@@ -126,11 +140,27 @@ export function SchedulerTaskEditor({
   return (
     <Overlay
       onClose={onClose}
-      ariaLabel={task ? 'Edit scheduled task' : 'New scheduled task'}
+      ariaLabel={
+        task
+          ? isReminder
+            ? 'Edit reminder'
+            : 'Edit scheduled task'
+          : isReminder
+            ? 'New reminder'
+            : 'New scheduled task'
+      }
       cardClassName={styles.card}
     >
       <div className={styles.header}>
-        <h2 className={styles.title}>{task ? 'Edit task' : 'New scheduled task'}</h2>
+        <h2 className={styles.title}>
+          {task
+            ? isReminder
+              ? 'Edit reminder'
+              : 'Edit task'
+            : isReminder
+              ? 'New reminder'
+              : 'New scheduled task'}
+        </h2>
         <button
           type="button"
           className={styles.close}
@@ -143,17 +173,40 @@ export function SchedulerTaskEditor({
       </div>
 
       <div className={styles.body}>
+        {!task && (
+          <SegmentedControl
+            ariaLabel="Kind of scheduled item"
+            value={kind}
+            onChange={(value) => setKind(value as 'task' | 'reminder')}
+            options={[
+              { label: 'Run a task', value: 'task' },
+              { label: 'Just remind me', value: 'reminder' }
+            ]}
+          />
+        )}
         <label className={styles.field}>
-          <span className={styles.label}>What should Anodex do?</span>
+          <span className={styles.label}>
+            {isReminder ? 'What should the reminder say?' : 'What should Anodex do?'}
+          </span>
           <textarea
             className={styles.textarea}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="e.g. Summarize what changed in this project since yesterday."
-            rows={3}
+            placeholder={
+              isReminder
+                ? 'e.g. Call Sam'
+                : 'e.g. Summarize what changed in this project since yesterday.'
+            }
+            rows={isReminder ? 2 : 3}
             autoFocus
           />
         </label>
+        {isReminder && (
+          <p className={styles.hint}>
+            Shows as a notification on this computer and your paired phone. Nothing runs, so it
+            works with no model loaded.
+          </p>
+        )}
 
         <label className={styles.field}>
           <span className={styles.label}>Name (optional)</span>
@@ -165,84 +218,91 @@ export function SchedulerTaskEditor({
           />
         </label>
 
-        <label className={styles.field}>
-          <span className={styles.label}>Project</span>
-          <SelectControl
-            value={projectId ?? ''}
-            onChange={(value) => setProjectId(value || null)}
-            options={[
-              { label: 'No project (plain chat)', value: '' },
-              ...projects.map((project) => ({ label: project.name, value: project.id }))
-            ]}
-          />
-        </label>
+        {!isReminder && (
+          <label className={styles.field}>
+            <span className={styles.label}>Project</span>
+            <SelectControl
+              value={projectId ?? ''}
+              onChange={(value) => setProjectId(value || null)}
+              options={[
+                { label: 'No project (plain chat)', value: '' },
+                ...projects.map((project) => ({ label: project.name, value: project.id }))
+              ]}
+            />
+          </label>
+        )}
 
         <WhenField
           value={recurrence}
           onChange={setRecurrence}
           text={whenText}
           onTextChange={setWhenText}
+          label={isReminder ? 'When should it remind you?' : undefined}
         />
 
-        <div className={styles.field}>
-          <div className={styles.toolsHeader}>
-            <span className={styles.label}>Tools this task can use unattended</span>
-            <div className={styles.toolsActions}>
-              <button type="button" className={styles.linkButton} onClick={selectAllTools}>
-                Select all
-              </button>
-              <button type="button" className={styles.linkButton} onClick={clearAllTools}>
-                Clear
-              </button>
+        {!isReminder && (
+          <div className={styles.field}>
+            <div className={styles.toolsHeader}>
+              <span className={styles.label}>Tools this task can use unattended</span>
+              <div className={styles.toolsActions}>
+                <button type="button" className={styles.linkButton} onClick={selectAllTools}>
+                  Select all
+                </button>
+                <button type="button" className={styles.linkButton} onClick={clearAllTools}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            {!hasProject && (
+              <p className={styles.hint}>
+                Select a project above to enable file and command tools.
+              </p>
+            )}
+            <div className={styles.toolGroups}>
+              {KIND_ORDER.map((kind) => {
+                const toolsInKind = TOOL_CATALOG.filter((tool) => tool.kind === kind)
+                if (toolsInKind.length === 0) return null
+                return (
+                  <div key={kind} className={styles.toolGroup}>
+                    <span className={styles.toolGroupLabel}>{KIND_LABELS[kind]}</span>
+                    {KIND_RISK_NOTE[kind] && (
+                      <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>
+                    )}
+                    <div className={styles.toolList}>
+                      {toolsInKind.map((tool) => {
+                        // A scheduled run has no one to approve a send, so those
+                        // tools are shown disabled rather than hidden — ticking
+                        // one would only ever produce a refusal mid-run.
+                        const disabled =
+                          (Boolean(tool.requiresProject) && !hasProject) ||
+                          Boolean(tool.requiresHumanApproval)
+                        return (
+                          <label
+                            key={tool.name}
+                            className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
+                            title={
+                              tool.requiresHumanApproval
+                                ? `${tool.description} Unavailable in scheduled tasks: it needs a person to approve each action.`
+                                : tool.description
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={enabledTools.has(tool.name) && !disabled}
+                              disabled={disabled}
+                              onChange={() => toggleTool(tool.name)}
+                            />
+                            <code className={styles.toolName}>{tool.name}</code>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
-          {!hasProject && (
-            <p className={styles.hint}>Select a project above to enable file and command tools.</p>
-          )}
-          <div className={styles.toolGroups}>
-            {KIND_ORDER.map((kind) => {
-              const toolsInKind = TOOL_CATALOG.filter((tool) => tool.kind === kind)
-              if (toolsInKind.length === 0) return null
-              return (
-                <div key={kind} className={styles.toolGroup}>
-                  <span className={styles.toolGroupLabel}>{KIND_LABELS[kind]}</span>
-                  {KIND_RISK_NOTE[kind] && (
-                    <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>
-                  )}
-                  <div className={styles.toolList}>
-                    {toolsInKind.map((tool) => {
-                      // A scheduled run has no one to approve a send, so those
-                      // tools are shown disabled rather than hidden — ticking
-                      // one would only ever produce a refusal mid-run.
-                      const disabled =
-                        (Boolean(tool.requiresProject) && !hasProject) ||
-                        Boolean(tool.requiresHumanApproval)
-                      return (
-                        <label
-                          key={tool.name}
-                          className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
-                          title={
-                            tool.requiresHumanApproval
-                              ? `${tool.description} Unavailable in scheduled tasks: it needs a person to approve each action.`
-                              : tool.description
-                          }
-                        >
-                          <input
-                            type="checkbox"
-                            checked={enabledTools.has(tool.name) && !disabled}
-                            disabled={disabled}
-                            onChange={() => toggleTool(tool.name)}
-                          />
-                          <code className={styles.toolName}>{tool.name}</code>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        )}
       </div>
 
       <div className={styles.footer}>
@@ -261,7 +321,7 @@ export function SchedulerTaskEditor({
             disabled={!canSave}
             loading={saving}
           >
-            {task ? 'Save' : 'Create task'}
+            {task ? 'Save' : isReminder ? 'Create reminder' : 'Create task'}
           </Button>
         </div>
       </div>

@@ -80,19 +80,54 @@ class SchedulerService {
     this.tick().catch((error) => log.error('Scheduler tick failed:', error))
   }
 
+  /**
+   * Show a reminder and record that it fired, which is what moves it to its
+   * next time (or retires a one-off). A notification needs no model, so this
+   * never waits on the run lock or a foreground reply.
+   */
+  private remind(task: ScheduledTask): void {
+    const startedAt = Date.now()
+    log.info('Reminder due:', task.id, task.name)
+    // `'finished'` is the phone's ordinary notification; a new kind would change
+    // the protocol the phone app is built against for no difference on screen.
+    notifyUser({ title: task.prompt, body: 'Reminder' }, 'finished')
+    schedulerStore.recordRun(task.id, {
+      status: 'success',
+      summary: `Reminded at ${new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      conversationId: null,
+      messageId: null,
+      userMessageId: null,
+      startedAt
+    })
+  }
+
   /** Manually trigger a task right now, regardless of its schedule. */
   async runNow(taskId: string): Promise<void> {
     const task = schedulerStore.get(taskId)
     if (!task) throw new Error(`Scheduled task not found: ${taskId}`)
+    if (task.kind === 'reminder') {
+      this.remind(task)
+      this.notifyTasksChanged()
+      return
+    }
     if (this.runningTaskId) throw new Error('Another scheduled task is currently running.')
     await this.runTask(task)
   }
 
   private async tick(): Promise<void> {
     const now = Date.now()
-    const due = schedulerStore
+    const allDue = schedulerStore
       .list()
       .filter((task) => task.enabled && task.nextRunAt !== null && task.nextRunAt <= now)
+    if (allDue.length === 0) return
+
+    // Reminders first, and past every lock below: "call Sam at 3" is late if
+    // it waits for a reply to finish, and showing a notification contends
+    // with nothing.
+    const reminders = allDue.filter((task) => task.kind === 'reminder')
+    for (const reminder of reminders) this.remind(reminder)
+    if (reminders.length > 0) this.notifyTasksChanged()
+    const due = allDue.filter((task) => task.kind !== 'reminder')
     if (due.length === 0) return
 
     // Never contend with a foreground reply. A due task waits (its `nextRunAt`

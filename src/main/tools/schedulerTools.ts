@@ -20,7 +20,7 @@ import type { CreateScheduledTaskRequest } from '@shared/scheduledTask.types'
 export const scheduleTaskTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Schedule a prompt to run automatically later, once or on a repeat. Use for reminders and recurring work ("remind me at 5pm", "every weekday at 9am summarize my inbox"). The scheduled run happens with nobody watching, so it cannot send email — have it draft and notify instead.',
+      'Schedule a prompt for Anodex to run automatically later, once or on a repeat ("every weekday at 9am summarize my inbox"). For a plain reminder ("remind me at 3pm to call Sam") use set_reminder instead, which needs no run. The scheduled run happens with nobody watching, so it cannot send email — have it draft and notify instead.',
     params: {
       type: 'object',
       properties: {
@@ -113,6 +113,90 @@ export const scheduleTaskTool: ToolFactory = (define, ctx) =>
               'The user can edit or delete it on the Scheduler page.'
             ].join('\n'),
             detail: `${task.name} — ${label}`
+          })
+        }
+      )
+  })
+
+/**
+ * set_reminder — "remind me at 3pm to call Sam".
+ *
+ * A reminder used to be a scheduled task, which meant waking the model at 3pm
+ * to produce the words "call Sam": heavy, dependent on a model being loaded,
+ * and held back while any other reply was generating. A reminder is now just a
+ * notification at that time, on the desktop and the phone, listed on the
+ * Scheduler page with the other tasks.
+ *
+ * `trivial` risk: it runs nothing and changes nothing but a list the person
+ * can see and edit, so it never asks in any mode.
+ */
+export const setReminderTool: ToolFactory = (define, ctx) =>
+  define({
+    description:
+      'Set a reminder: at the given time Anodex shows the message as a notification on this computer and the paired phone. Nothing runs. Once or on a repeat ("in 20 minutes", "tomorrow at 9am", "every Monday at 8am").',
+    params: {
+      type: 'object',
+      properties: {
+        when: {
+          type: 'string',
+          description:
+            'When, in plain language: "in 20 minutes", "at 3pm", "tomorrow at 9am", "September 4 at 9am", "every weekday at 8am". For a specific day, say the date.'
+        },
+        message: {
+          type: 'string',
+          description: 'What the notification says, written for the person: "Call Sam".'
+        }
+      },
+      required: ['when', 'message']
+    } as const,
+    handler: (args: { when: string; message: string }) =>
+      runGuardedToolWithPrepare<{ request: CreateScheduledTaskRequest; label: string }>(
+        ctx,
+        {
+          name: 'set_reminder',
+          kind: 'write',
+          title: `Remind: ${truncate(args.message, 40)}`,
+          args,
+          risk: 'trivial'
+        },
+        () => {
+          const message = args.message.trim()
+          if (!message) throw new Error('A reminder needs a message.')
+          const parsed = parseWhen(args.when)
+          if (!parsed) {
+            throw new Error(
+              `Could not read "${args.when}" as a time. Try a form like "in 20 minutes", "at 3pm", "tomorrow at 9am", or "every Monday at 8am".`
+            )
+          }
+          const label = parsed.note ? `${parsed.label} (${parsed.note})` : parsed.label
+          return Promise.resolve({
+            confirmDetail: `Remind "${message}" ${label}`,
+            data: {
+              request: {
+                name: truncate(message, 60),
+                prompt: message,
+                projectId: null,
+                recurrence: parsed.recurrence,
+                enabledTools: [],
+                kind: 'reminder'
+              },
+              label
+            }
+          })
+        },
+        ({ request, label }) => {
+          const task = schedulerStore.create(request)
+          schedulerService.notifyTasksChanged()
+          const next =
+            task.nextRunAt === null ? 'not scheduled' : new Date(task.nextRunAt).toLocaleString()
+          return Promise.resolve({
+            modelResult: [
+              `Reminder set: "${task.prompt}".`,
+              `When: ${describeRecurrence(task.recurrence)}`,
+              `Next: ${next}`,
+              'It shows as a notification; the person can edit or delete it on the Scheduler page.'
+            ].join('\n'),
+            detail: label
           })
         }
       )
