@@ -410,6 +410,13 @@ export function renderRuntimeSection(runtime: PromptRuntime): string {
 export interface PromptComputer {
   /** "Windows 11", "macOS 15", "Ubuntu 24.04.1 LTS". */
   os: string
+  /**
+   * The computer's own name and the account Anodex runs as. Measured: without
+   * them, asked what the computer is called, an 8B answered "This computer",
+   * the heading of this very section.
+   */
+  name?: string
+  user?: string
   platform: 'win32' | 'darwin' | 'linux' | 'other'
   folders: { home: string; desktop: string; documents: string; downloads: string }
   /** Present only when run_command is available this turn. */
@@ -427,11 +434,11 @@ export function renderComputerSection(computer: PromptComputer): string {
   const { home, desktop, documents, downloads } = computer.folders
   const lines = [
     '# This computer',
-    `${computer.os}. Home folder: ${home}. Desktop: ${desktop}. Documents: ${documents}. Downloads: ${downloads}.`
+    `${computer.os}${computer.name ? `, named ${computer.name}` : ''}${computer.user ? `, signed in as ${computer.user}` : ''}. Home folder: ${home}. Desktop: ${desktop}. Documents: ${documents}. Downloads: ${downloads}.`
   ]
   if (computer.shell) {
     lines.push(
-      `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project. There is no terminal for anyone to type into, so never use sudo or a command that waits for input. When a command fails or is not found, read the error and try another way before answering, and check a result before reporting it. For a vague request such as "tidy up", say what you would do and ask before moving or removing anything.`
+      `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project. There is no terminal for anyone to type into, so never use sudo or a command that waits for input. When a command fails or is not found, read the error and try another way before answering; when a file or folder is not found, list the folder around it to see its exact name. Check a result before reporting it. For a vague request such as "tidy up", say what you would do and ask before moving or removing anything.`
     )
     if (computer.shell.howTo.length) lines.push(...computer.shell.howTo.map((line) => `- ${line}`))
   }

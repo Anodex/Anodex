@@ -17,6 +17,8 @@ function facts(overrides: Partial<ComputerFacts>): ComputerFacts {
     folders,
     env: {},
     installed: () => true,
+    hostname: 'gort',
+    user: 'sam',
     ...overrides
   }
 }
@@ -104,6 +106,26 @@ describe('the clipboard on Linux', () => {
   })
 })
 
+describe('everyday hints', () => {
+  const linux = (installed: (name: string) => boolean) =>
+    describeComputer(facts({ installed }), shell('/bin/bash')).shell?.howTo.join('\n') ?? ''
+
+  it('keep ~ outside quotes, and search by part of a name', () => {
+    expect(linux(() => true)).toContain("find ~ -iname '*budget*'")
+    expect(linux(() => true)).not.toMatch(/'~/)
+  })
+
+  it('name a photo resizer only when one is installed', () => {
+    expect(linux((name) => name === 'ffmpeg')).toContain('ffmpeg -i in.jpg -vf scale=iw/2:-1')
+    expect(linux(() => false)).not.toContain('smaller copy of a photo')
+    const mac = describeComputer(
+      facts({ platform: 'darwin', release: '24.1.0', installed: () => false }),
+      shell('/bin/zsh')
+    )
+    expect(mac.shell?.howTo.join('\n')).toContain('sips --resampleWidth')
+  })
+})
+
 describe('installing', () => {
   // An 8B asked "is Java installed?" read a bare "Install a program" line as
   // the answer and tried to install it. Checking comes first, and installing
@@ -135,6 +157,7 @@ describe('the This computer prompt section', () => {
     expect(prompt).toContain('# This computer')
     expect(prompt).toContain('run_command runs bash on this Linux computer, starting in /home/sam')
     expect(prompt).toContain('Downloads: /home/sam/Downloads')
+    expect(prompt).toContain('named gort, signed in as sam')
     expect(prompt).toContain(NO_PROJECT_SHELL_NOTE)
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
   })

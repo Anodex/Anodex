@@ -11,6 +11,8 @@ export interface ComputerFacts {
   osRelease: string | null
   folders: PromptComputer['folders']
   env: NodeJS.ProcessEnv
+  hostname: string
+  user: string
   /** Whether a program is on the PATH, so a hint never names one that is missing. */
   installed: (name: string) => boolean
 }
@@ -32,6 +34,8 @@ export function describeComputer(
       : 'other'
   const computer: PromptComputer = {
     os: osName(facts),
+    name: facts.hostname || undefined,
+    user: facts.user || undefined,
     platform,
     folders: facts.folders
   }
@@ -91,39 +95,64 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
-      "Find files: Get-ChildItem '<folder>' -Recurse -Filter '*.pdf'",
+      "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*budget*'",
+      'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
       'Check whether a program is installed: Get-Command <name> -ErrorAction SilentlyContinue, then <name> --version (try the other names it goes by, such as python3 or py for python)',
-      "Move or rename: Move-Item '<from>' '<to>'",
-      "Open a file, folder or web address: Start-Process '<path or url>'",
-      "Copy text to the clipboard: Set-Clipboard -Value '<text>'",
-      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('<file>', 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      'Move or rename: Move-Item "$HOME\\Desktop\\old.txt" "$HOME\\Desktop\\new.txt"',
+      'Open a file, folder or web address: Start-Process "$HOME\\Downloads"',
+      "Copy text to the clipboard: Set-Clipboard -Value 'some text'",
+      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(\"$HOME\\Downloads\\old.zip\", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)`
     ]
   }
+  // macOS and Linux share the POSIX half. `~` stays outside quotes in every
+  // example: measured, an example written as find '<folder>' taught an 8B to
+  // write find '~/Downloads', where the quotes stop ~ from meaning home.
+  const posix = [
+    "Find files by part of the name: find ~ -iname '*budget*'",
+    'Folder sizes: du -sh ~/Documents/* | sort -h',
+    "Free space on the drive the person's files are on: df -h ~",
+    'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
+    'Move or rename: mv ~/Desktop/old.txt ~/Desktop/new.txt'
+  ]
   if (facts.platform === 'darwin') {
     return [
-      "Find files: find '<folder>' -iname '*.pdf'",
-      "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
-      "Move or rename: mv '<from>' '<to>'",
-      "Open a file, folder or web address: open '<path or url>'",
-      "Copy text to the clipboard: printf '%s' '<text>' | pbcopy",
-      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "<absolute path>"'`,
+      ...posix,
+      'Open a file, folder or web address: open ~/Downloads',
+      "Copy text to the clipboard: printf '%s' 'some text' | pbcopy",
+      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<name>/Downloads/old.zip"'`,
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed`
     ]
   }
   if (facts.platform === 'linux') {
     return [
-      "Find files: find '<folder>' -iname '*.pdf'",
-      "Free space on the drive the person's files are on: df -h ~",
-      'Check whether a program is installed: command -v <name>, then <name> --version (try the other names it goes by, such as python3 for python)',
-      "Move or rename: mv '<from>' '<to>'",
-      "Open a file, folder or web address: xdg-open '<path or url>'",
+      ...posix,
+      'Open a file, folder or web address: xdg-open ~/Downloads',
       linuxClipboard(facts),
-      "Move to the Trash: gio trash '<path>'",
+      'Move to the Trash: gio trash ~/Downloads/old.zip',
+      ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
+  }
+  return []
+}
+
+/**
+ * How to make a smaller copy of a photo, with whatever this computer has.
+ * Measured: with no ImageMagick but ffmpeg and Python installed, an 8B tried
+ * convert, gm and mogrify and gave up, never thinking of ffmpeg. Named only
+ * when a tool exists, so the line never sends a model after a missing program.
+ */
+function photoResize(facts: ComputerFacts): string[] {
+  const line = 'Make a smaller copy of a photo (half size): '
+  if (facts.installed('magick')) return [`${line}magick in.jpg -resize 50% out.jpg`]
+  if (facts.platform === 'darwin') return [`${line}sips --resampleWidth 800 in.jpg --out out.jpg`]
+  if (facts.installed('ffmpeg')) return [`${line}ffmpeg -i in.jpg -vf scale=iw/2:-1 out.jpg`]
+  if (facts.installed('convert') && facts.platform !== 'win32') {
+    return [`${line}convert in.jpg -resize 50% out.jpg`]
   }
   return []
 }
@@ -142,7 +171,7 @@ function linuxClipboard(facts: ComputerFacts): string {
   ]
   const usable = candidates.find(([program]) => facts.installed(program))
   return usable
-    ? `Copy text to the clipboard: printf '%s' '<text>' | ${usable[1]}`
+    ? `Copy text to the clipboard: printf '%s' 'some text' | ${usable[1]}`
     : `Copy text to the clipboard: no clipboard program is installed (${wayland ? 'wl-copy' : 'xclip'} would do it), so say so rather than trying`
 }
 
@@ -202,7 +231,17 @@ export function liveComputerFacts(
       downloads: folder('downloads', 'Downloads')
     },
     env: process.env,
+    hostname: os.hostname(),
+    user: currentUser(),
     installed: onPath
+  }
+}
+
+function currentUser(): string {
+  try {
+    return os.userInfo().username
+  } catch {
+    return ''
   }
 }
 
