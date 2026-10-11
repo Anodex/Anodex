@@ -308,6 +308,10 @@ const DIRECT_TOOL_PRIORITY = [
   // "Do I have Java?" is answered by this or guessed at with platform-specific
   // shell commands; a chat should not have to reach behind the gateway for it.
   'check_computer',
+  // "My disk is full" is answered by these, or by guessing at deletions
+  // through the shell, which is the thing they exist to prevent.
+  'find_cleanup',
+  'move_to_trash',
   'open_item',
   // Setting a service up is a chat conversation ("here is my Tavily key"), and
   // a model that cannot see these answers by asking the person to go to Settings.

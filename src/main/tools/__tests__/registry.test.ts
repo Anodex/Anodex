@@ -95,6 +95,8 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'check_computer',
   'request_key',
   'save_key',
+  'find_cleanup',
+  'move_to_trash',
   'open_item'
 ]
 

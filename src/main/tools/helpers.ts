@@ -256,6 +256,8 @@ interface GuardedToolSpec extends ReadToolSpec {
    * `confirmation.secretValue`; see `request_key`.
    */
   confirmSecret?: ToolConfirmRequest['secret']
+  /** Show the prompt as a list to tick; the ticked ids reach `run` as `confirmation.chosenIds`. */
+  confirmChoices?: ToolConfirmRequest['choices']
 }
 
 /**
@@ -580,7 +582,8 @@ export async function runGuardedTool(
         emailDraft: spec.confirmEmailDraft,
         turnGate: gatedByTurnStart,
         requiresHumanApproval: spec.requiresHumanApproval,
-        secret: spec.confirmSecret
+        secret: spec.confirmSecret,
+        choices: spec.confirmChoices
       })
       confirmation = response
       if (!response.approved) {

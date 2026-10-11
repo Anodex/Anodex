@@ -25955,6 +25955,65 @@
               }
             ]
           }
+        },
+        "choices": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "kind": "object",
+                  "properties": {
+                    "id": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "label": {
+                      "optional": false,
+                      "type": {
+                        "kind": "string"
+                      }
+                    },
+                    "detail": {
+                      "optional": true,
+                      "type": {
+                        "kind": "union",
+                        "of": [
+                          {
+                            "kind": "undefined"
+                          },
+                          {
+                            "kind": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "size": {
+                      "optional": true,
+                      "type": {
+                        "kind": "union",
+                        "of": [
+                          {
+                            "kind": "undefined"
+                          },
+                          {
+                            "kind": "string"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -26008,6 +26067,23 @@
               },
               {
                 "kind": "string"
+              }
+            ]
+          }
+        },
+        "chosenIds": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "kind": "string"
+                }
               }
             ]
           }

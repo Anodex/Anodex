@@ -310,6 +310,11 @@ Write and mutation tools:
   about first otherwise. Every key is checked against its service before it is stored
   encrypted, a key the person did not type themselves is refused, and once saved it is
   replaced in their message with "•••• (saved)".
+- Free disk space: find things that are safe to clear (package caches, old temp files,
+  downloads older than a year) with their sizes, then move them to the Trash or Recycle
+  Bin, never a permanent delete. A list to tick comes first, except in Untethered mode;
+  only what the scan offers, or files inside the open project, can be moved, and a move
+  that fails is reported rather than turned into a delete.
 - Open things for the person: an http(s) address in their browser (such as a dev server
   it started), or a folder or document from the open project in its usual app. Programs
   and scripts are never opened.
