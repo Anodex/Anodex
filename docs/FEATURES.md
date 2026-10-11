@@ -293,7 +293,13 @@ Write and mutation tools:
 - Move files.
 - Create directories.
 - Delete directories.
-- Run shell commands.
+- Run shell commands, in a project or in a plain chat, where they start in the home folder.
+  The model is told which system and shell it is on (PowerShell on Windows, the person's
+  own shell on macOS and Linux), their Desktop, Documents and Downloads folders, and how
+  that system opens files, copies text, moves things to the Trash and installs programs,
+  so everyday requests are a command rather than another tool. Read-only commands run
+  without asking in Edits and Untethered modes; deleting or formatting always asks; the
+  approval card says in plain words what the command does, with the command under it.
 - Ask to work in a folder outside any open project (for example a folder on the Desktop).
   Once allowed (asked first, except in Untethered mode), the folder becomes a project and
   the chat carries on there in the same reply, with restore points for every edit. Drives,

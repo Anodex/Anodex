@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest'
+import { composeSystemPrompt, NO_PROJECT_SHELL_NOTE, NO_WORKSPACE_NOTE } from '@shared/prompts'
+import { describeComputer, type ComputerFacts } from '../thisComputer'
+
+const folders = {
+  home: '/home/sam',
+  desktop: '/home/sam/Desktop',
+  documents: '/home/sam/Documents',
+  downloads: '/home/sam/Downloads'
+}
+
+function facts(overrides: Partial<ComputerFacts>): ComputerFacts {
+  return { platform: 'linux', release: '6.8.0', osRelease: null, folders, env: {}, ...overrides }
+}
+
+const shell = (command: string | undefined) => ({ command, startsIn: folders.home })
+
+describe('describeComputer', () => {
+  it('tells Windows 11 from 10 by build, and gives PowerShell its own commands', () => {
+    const eleven = describeComputer(
+      facts({ platform: 'win32', release: '10.0.22631' }),
+      shell('powershell')
+    )
+    expect(eleven.os).toBe('Windows 11')
+    expect(eleven.shell?.name).toBe('Windows PowerShell')
+    expect(eleven.shell?.howTo.join('\n')).toContain('Start-Process')
+    expect(eleven.shell?.howTo.join('\n')).toContain('SendToRecycleBin')
+    expect(eleven.shell?.howTo.join('\n')).toContain('winget install')
+    expect(eleven.shell?.howTo.join('\n')).toContain('Get-Command <name>')
+
+    const ten = describeComputer(facts({ platform: 'win32', release: '10.0.19045' }), null)
+    expect(ten.os).toBe('Windows 10')
+    expect(ten.shell).toBeUndefined()
+  })
+
+  it('gives no PowerShell commands to someone who chose cmd', () => {
+    const cmd = describeComputer(
+      facts({ platform: 'win32', release: '10.0.22631' }),
+      shell('cmd.exe')
+    )
+    expect(cmd.shell?.name).toBe('cmd')
+    expect(cmd.shell?.howTo).toEqual([])
+  })
+
+  it('names macOS versions, including the jump to 26', () => {
+    expect(describeComputer(facts({ platform: 'darwin', release: '24.1.0' }), null).os).toBe(
+      'macOS 15'
+    )
+    expect(describeComputer(facts({ platform: 'darwin', release: '25.0.0' }), null).os).toBe(
+      'macOS 26'
+    )
+    const mac = describeComputer(
+      facts({ platform: 'darwin', release: '24.1.0' }),
+      shell('/bin/zsh')
+    )
+    expect(mac.shell?.name).toBe('zsh')
+    expect(mac.shell?.howTo.join('\n')).toContain('pbcopy')
+  })
+
+  it("names the Linux distribution and uses its package manager and the session's clipboard", () => {
+    const ubuntu = describeComputer(
+      facts({
+        osRelease: 'NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\nID_LIKE=debian\n',
+        env: { WAYLAND_DISPLAY: 'wayland-0' }
+      }),
+      shell('/bin/bash')
+    )
+    expect(ubuntu.os).toBe('Linux (Ubuntu 24.04.1 LTS)')
+    const howTo = ubuntu.shell?.howTo.join('\n') ?? ''
+    expect(howTo).toContain('wl-copy')
+    expect(howTo).toContain('pkexec apt-get install')
+    expect(howTo).toContain('gio trash')
+
+    const fedoraX11 = describeComputer(
+      facts({ osRelease: 'PRETTY_NAME="Fedora Linux 41"\nID=fedora\n' }),
+      shell('/bin/bash')
+    )
+    const fedora = fedoraX11.shell?.howTo.join('\n') ?? ''
+    expect(fedora).toContain('xclip -selection clipboard')
+    expect(fedora).toContain('pkexec dnf install')
+  })
+})
+
+describe('installing', () => {
+  // An 8B asked "is Java installed?" read a bare "Install a program" line as
+  // the answer and tried to install it. Checking comes first, and installing
+  // is marked as something done only on request, on every system.
+  it('is offered only on request, after a way to check', () => {
+    for (const computer of [
+      describeComputer(facts({ platform: 'win32', release: '10.0.22631' }), shell('powershell')),
+      describeComputer(facts({ platform: 'darwin', release: '24.1.0' }), shell('/bin/zsh')),
+      describeComputer(facts({ osRelease: 'ID=ubuntu\n' }), shell('/bin/bash'))
+    ]) {
+      const howTo = computer.shell?.howTo ?? []
+      const check = howTo.findIndex((line) =>
+        line.startsWith('Check whether a program is installed')
+      )
+      const install = howTo.findIndex((line) => line.startsWith('Install a program'))
+      expect(check).toBeGreaterThanOrEqual(0)
+      expect(install).toBeGreaterThan(check)
+      expect(howTo[install]).toContain('only when the person asks you to install one')
+    }
+  })
+})
+
+describe('the This computer prompt section', () => {
+  const base = { hasWorkspaceTools: false, hasProject: false, surface: 'chat' as const }
+
+  it('names the shell and says a plain chat can use it', () => {
+    const computer = describeComputer(facts({}), shell('/bin/bash'))
+    const prompt = composeSystemPrompt({ ...base, computer })
+    expect(prompt).toContain('# This computer')
+    expect(prompt).toContain('run_command runs bash on this Linux computer, starting in /home/sam')
+    expect(prompt).toContain('Downloads: /home/sam/Downloads')
+    expect(prompt).toContain(NO_PROJECT_SHELL_NOTE)
+    expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
+  })
+
+  it('names only the system when there is no shell this turn', () => {
+    const prompt = composeSystemPrompt({ ...base, computer: describeComputer(facts({}), null) })
+    expect(prompt).toContain('# This computer')
+    expect(prompt).not.toContain('run_command runs')
+    expect(prompt).toContain(NO_WORKSPACE_NOTE)
+  })
+})

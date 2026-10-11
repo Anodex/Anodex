@@ -147,7 +147,17 @@ describe('prompt surface selection', () => {
       for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
         expect(prompt).not.toContain('write_plan')
         expect(prompt).not.toContain('edit_file')
-        expect(prompt).not.toContain('run_command')
+      }
+    })
+
+    // A plain chat has a shell for everyday things on the computer, the way
+    // Codex and Claude Code work, but not for builds or verification.
+    it('offers the shell for everyday tasks only', () => {
+      for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
+        expect(prompt).toContain('When run_command is listed')
+        expect(prompt).toContain('This computer')
+        expect(prompt).toContain('Trash')
+        expect(prompt).not.toMatch(/run_command[^.]*\b(build|test|lint)/)
       }
     })
 

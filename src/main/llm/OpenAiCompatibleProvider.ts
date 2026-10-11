@@ -172,6 +172,7 @@ export async function runChatCompletionsLoop(
         projectId: params.tools.projectId,
         permissionMode: params.tools.permissionMode,
         commandShell: params.tools.commandShell,
+        shellHome: params.tools.shellHome,
         webSearch: params.tools.webSearch,
         imageGeneration,
         email: params.tools.email,

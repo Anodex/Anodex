@@ -205,6 +205,47 @@ describe('run_command', () => {
     expect(requests[0]?.detail).toContain('Timeout: 60000 ms')
   })
 
+  // The command only names pkexec in a comment, so no password window opens.
+  it('treats an unanswered or closed password window as the answer, not a reason to retry', async () => {
+    const tool = runCommandTool(createMockDefine(), createMockContext(workspace)) as unknown as {
+      handler: (args: { command: string; timeoutMs?: number }) => Promise<string>
+    }
+
+    const unanswered = await tool.handler({
+      command: 'node -e "setTimeout(() => {}, 30000)" # pkexec apt-get install -y openjdk-17-jdk',
+      timeoutMs: 1_000
+    })
+    expect(unanswered).toContain('nobody did. Do not run it again')
+    expect(unanswered).not.toContain('larger timeoutMs')
+
+    const closed = await tool.handler({ command: 'node -e "process.exit(126)" # pkexec true' })
+    expect(closed).toContain('the person did not approve this')
+
+    const ordinary = await tool.handler({ command: 'node -e "process.exit(126)"' })
+    expect(ordinary).toContain('Exit code 126')
+    expect(ordinary).not.toContain('did not approve')
+  })
+
+  it('leads the approval card with what the command does, in plain words', async () => {
+    const requests: ToolConfirmRequest[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: (request: ToolConfirmRequest) => {
+        requests.push(request)
+        return Promise.resolve({ approved: false })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string; description?: string }) => Promise<string>
+    }
+
+    await tool.handler({ command: 'du -sh ~/Downloads/*', description: 'See what fills Downloads' })
+
+    expect(requests[0]?.detail.startsWith('See what fills Downloads\n\ndu -sh ~/Downloads/*')).toBe(
+      true
+    )
+  })
+
   it('asks for confirmation before running, and honours a denial', async () => {
     const requests: ToolConfirmRequest[] = []
     const ctx = {

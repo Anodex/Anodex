@@ -257,9 +257,11 @@ What that means in practice:
 - **Platform-specific code must degrade, not break.** Desktop control is
   Windows-only _by design_ and says so through `desktopControlEligibility()`
   rather than failing at the call site. Follow that shape.
-- **Check the shell you are assuming.** `run_command` runs under `cmd.exe` on
-  Windows and the user's `$SHELL` elsewhere, so a command written for one may be
-  a syntax error on the other. `DESTRUCTIVE_COMMAND_PATTERNS` in
+- **Check the shell you are assuming.** `run_command` runs under Windows
+  PowerShell on Windows (unless the user picked another shell) and the user's
+  `$SHELL` elsewhere, so a command written for one may be a syntax error on the
+  other. The prompt's "This computer" section (`src/main/chat/thisComputer.ts`)
+  tells the model which one it is writing for. `DESTRUCTIVE_COMMAND_PATTERNS` in
   `permissions.ts` covers POSIX, PowerShell and cmd forms of the same act for
   this reason.
 

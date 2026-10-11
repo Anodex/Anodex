@@ -280,6 +280,15 @@ export function buildTools(
     }
   }
 
+  // A plain chat's shell, starting in the person's home folder: everyday
+  // requests are commands, the way Codex and Claude Code work, rather than one
+  // more tool each. The same approval rules as in a project: read-only
+  // commands are `safe`, deleting and formatting always ask. File editing
+  // tools stay project-only.
+  if (!ctx.projectId && ctx.shellHome && isEnabled('run_command')) {
+    tools.run_command = runCommandTool(define, { ...ctx, workspaceRoot: ctx.shellHome })
+  }
+
   for (const [name, factory] of Object.entries(GLOBAL_FACTORIES)) {
     if (isEnabled(name)) tools[name] = factory(define, ctx)
   }

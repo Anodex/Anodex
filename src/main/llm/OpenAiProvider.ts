@@ -104,6 +104,7 @@ class OpenAiProvider implements LlmProvider {
           projectId: params.tools.projectId,
           permissionMode: params.tools.permissionMode,
           commandShell: params.tools.commandShell,
+          shellHome: params.tools.shellHome,
           webSearch: params.tools.webSearch,
           imageGeneration: { provider: 'openai' },
           email: params.tools.email,
