@@ -205,6 +205,26 @@ describe('run_command', () => {
     expect(requests[0]?.detail).toContain('Timeout: 60000 ms')
   })
 
+  it('leads the approval card with what the command does, in plain words', async () => {
+    const requests: ToolConfirmRequest[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: (request: ToolConfirmRequest) => {
+        requests.push(request)
+        return Promise.resolve({ approved: false })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string; description?: string }) => Promise<string>
+    }
+
+    await tool.handler({ command: 'du -sh ~/Downloads/*', description: 'See what fills Downloads' })
+
+    expect(requests[0]?.detail.startsWith('See what fills Downloads\n\ndu -sh ~/Downloads/*')).toBe(
+      true
+    )
+  })
+
   it('asks for confirmation before running, and honours a denial', async () => {
     const requests: ToolConfirmRequest[] = []
     const ctx = {

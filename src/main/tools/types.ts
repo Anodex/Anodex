@@ -54,6 +54,11 @@ export interface ToolRuntimeContext {
   permissionMode: PermissionMode
   /** Shell executable used by run_command, if the user configured one. */
   commandShell?: string
+  /**
+   * Set for a plain chat the person is in: run_command is offered there too,
+   * starting in this folder (their home). See `runGeneration`.
+   */
+  shellHome?: string
   /** Web search configuration used by the web_search tool. */
   webSearch: WebSearchSettings
   /** Present only for cloud providers with a first-party image generation integration. */

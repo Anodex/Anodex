@@ -1400,6 +1400,7 @@ export class LlamaVisionService {
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,
+      shellHome: params.tools.shellHome,
       webSearch: params.tools.webSearch,
       email: params.tools.email,
       memory: params.tools.memory,

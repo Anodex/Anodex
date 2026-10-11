@@ -47,11 +47,16 @@ interface ShellResult {
 export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
   define({
     description:
-      'Run a real local shell command with the workspace as its starting directory and return its output. Unlike file tools, the shell is not confined to the workspace. Use for builds, tests, git, etc.',
+      'Run a shell command on this computer and return its output. It starts in the open project, or in the home folder in a plain chat, and is not confined to either. Write it for the system and shell named in "This computer". Use it for builds, tests and git, and for everyday tasks: finding files, opening things, disk space, installing programs, the clipboard.',
     params: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'The command line to execute.' },
+        description: {
+          type: 'string',
+          description:
+            'What the command does, in a few plain words for the person approving it: "List the largest files in Downloads".'
+        },
         timeoutMs: {
           type: 'number',
           description: `Optional timeout in milliseconds. Defaults to ${COMMAND_TIMEOUT_MS}; capped at ${MAX_COMMAND_TIMEOUT_MS}.`
@@ -59,7 +64,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
       },
       required: ['command']
     } as const,
-    handler: (args: { command: string; timeoutMs?: number }) =>
+    handler: (args: { command: string; description?: string; timeoutMs?: number }) =>
       runGuardedTool(ctx, {
         name: 'run_command',
         kind: 'command',
@@ -68,7 +73,12 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
         // one-line activity label into thousands of context characters.
         title: commandTitle(args.command),
         args,
-        confirmDetail: describeCommand(args.command, ctx.commandShell, args.timeoutMs),
+        confirmDetail: describeCommand(
+          args.command,
+          ctx.commandShell,
+          args.timeoutMs,
+          args.description
+        ),
         risk: classifyCommandRisk(args.command),
         async run() {
           // Checked before execution: a command that cannot work in this shell,
@@ -254,8 +264,15 @@ function commandTitle(command: string): string {
   return `${prefix}${normalized.slice(0, maxCommandChars).trimEnd()}…${COMMAND_TITLE_OMISSION}`
 }
 
-function describeCommand(command: string, shell?: string, timeoutMs?: number): string {
-  const details = [command]
+function describeCommand(
+  command: string,
+  shell?: string,
+  timeoutMs?: number,
+  purpose?: string
+): string {
+  // The plain-words purpose first: the person approving this may not read
+  // shell, and the command itself stays right under it for anyone who does.
+  const details = purpose?.trim() ? [purpose.trim(), command] : [command]
   if (shell) details.push(`Shell: ${shell}`)
   // Always shown, not only when the model named one. The person approving this
   // is agreeing to a command that will be killed part-way through if it runs

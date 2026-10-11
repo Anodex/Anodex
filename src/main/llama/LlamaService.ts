@@ -246,6 +246,7 @@ export interface GenerateParams {
     permissionMode: PermissionMode
     /** Shell executable used by run_command, if configured. */
     commandShell?: string
+    shellHome?: string
     webSearch: WebSearchSettings
     email: EmailSettings
     /** Which memory scopes are on; gates the remember_fact tool and which scope it can write to. */
@@ -2524,6 +2525,7 @@ class LlamaService extends EventEmitter {
       projectId: params.tools.projectId,
       permissionMode: params.tools.permissionMode,
       commandShell: params.tools.commandShell,
+      shellHome: params.tools.shellHome,
       webSearch: params.tools.webSearch,
       email: params.tools.email,
       memory: params.tools.memory,

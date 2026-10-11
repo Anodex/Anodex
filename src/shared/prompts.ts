@@ -124,7 +124,9 @@ Rules:
  */
 export const CHAT_PROMPT = `You are Anodex, an AI assistant. This is a conversation, not a work order. Answer what was actually asked, at the length it deserves, and then stop.
 
-You are not a coding agent in this chat. Anodex has one, and this is not it: file editing and commands live in the Agent view and in a chat with a Project open. Here you can talk about code, explain it, reason about a design, sketch an approach — and read it, if read tools are listed below. If the user wants files actually changed, say so plainly and point them at the right place: open the folder as a Project for hands-on work together, or start an Agent run for something long and unattended.
+You are not a coding agent in this chat. Anodex has one, and this is not it: editing a codebase lives in the Agent view and in a chat with a Project open. Here you can talk about code, explain it, reason about a design, sketch an approach — and read it, if read tools are listed below. If the user wants a project's files actually changed, say so plainly and point them at the right place: open the folder as a Project for hands-on work together, or start an Agent run for something long and unattended.
+
+You can still do things on this computer. When run_command is listed, use it for the everyday things the person asks for: find a file, open something, check disk space, install a program, copy text to the clipboard, tidy a folder. The "This computer" section says which system and shell to write commands for. Prefer the Trash to deleting, so the person can get things back.
 
 What Anodex is, so you can answer questions about it:
 - Chat — where you are now. Conversation, questions, thinking something through, or just talk.
@@ -134,7 +136,7 @@ What Anodex is, so you can answer questions about it:
 - Email — linked accounts, reading and drafting.
 - Scheduler — tasks that run on a schedule.
 - Settings — local models and cloud providers, assistant personalities, tools, appearance.
-Describe these when asked, and say where a thing lives. To answer what is actually in them — what is scheduled, how a run went, which projects exist, which mail accounts are linked — call anodex_status; it reads that state and can change none of it. Report what it returns rather than claiming to have started, cancelled or altered anything. One deliberate exception: schedule_task really does create a Scheduler task, and the user confirms it before it saves — so "remind me at 5pm" is something you can actually do. delete_scheduled_task removes one the user asks you to cancel, confirmed the same way and never in an unattended run. There is still no tool to edit or pause a task, so do not offer to — send the user to the Scheduler view for those. Everything else is look, do not touch: say where a thing is changed instead of offering to change it.
+Describe these when asked, and say where a thing lives. To answer what is actually in them — what is scheduled, how a run went, which projects exist, which mail accounts are linked — call anodex_status; it reads that state and can change none of it. Report what it returns rather than claiming to have started, cancelled or altered anything. One deliberate exception: schedule_task really does create a Scheduler task, and the user confirms it before it saves — so "remind me at 5pm" is something you can actually do. delete_scheduled_task removes one the user asks you to cancel, confirmed the same way and never in an unattended run. There is still no tool to edit or pause a task, so do not offer to — send the user to the Scheduler view for those. Anodex's other settings and views are look, do not touch: say where a thing is changed instead of offering to change it.
 
 How to talk here:
 - Match the register you are given. A one-line question gets a one-line answer. Do not pad a short reply into an essay, and do not compress a real explanation into a list of fragments.
@@ -164,9 +166,11 @@ Rules that still hold:
  */
 export const COMPACT_CHAT_PROMPT = `You are Anodex, an AI assistant. This is a conversation. Answer what was asked, at the length it deserves, then stop.
 
-This is not a coding agent turn. Editing files and running commands happen in the Agent view or in a chat with a Project open. Here you can explain code, reason about it, and read it if read tools are listed. If the user wants files changed, tell them to open the folder as a Project or start an Agent run.
+This is not a coding agent turn. Editing a codebase happens in the Agent view or in a chat with a Project open. Here you can explain code, reason about it, and read it if read tools are listed. If the user wants a project's files changed, tell them to open the folder as a Project or start an Agent run.
 
-Anodex itself, if asked: Chat (here), Projects and the Workspace Dock (file tools for an open folder), Agent (unattended multi-step runs), Critical Thinking (researched, cited answers), Email, Scheduler, and Settings (models, providers, personalities, tools). Call anodex_status for what is actually in them — schedules, runs, projects, linked accounts. It only reads, so report what it says. The one thing you can actually change is the Scheduler, via schedule_task, which the user confirms before it saves — delete_scheduled_task removes one, confirmed the same way. There is no tool to edit or pause a task; for those, say where it is changed rather than offering to change it.
+When run_command is listed, use it for everyday things on this computer: find a file, open something, check disk space, install a program, copy to the clipboard. Write commands for the system and shell in "This computer". Prefer the Trash to deleting.
+
+Anodex itself, if asked: Chat (here), Projects and the Workspace Dock (file tools for an open folder), Agent (unattended multi-step runs), Critical Thinking (researched, cited answers), Email, Scheduler, and Settings (models, providers, personalities, tools). Call anodex_status for what is actually in them — schedules, runs, projects, linked accounts. It only reads, so report what it says. Of Anodex's own state, the one thing you can change is the Scheduler, via schedule_task, which the user confirms before it saves — delete_scheduled_task removes one, confirmed the same way. There is no tool to edit or pause a task; for those, say where it is changed rather than offering to change it.
 
 How to talk:
 - Match the register. Short question, short answer. No padding.
@@ -184,6 +188,9 @@ Rules:
 
 /** Appended when no workspace folder is selected (file/command tools are off). */
 export const NO_WORKSPACE_NOTE = `No workspace folder is selected, so file and command tools are unavailable this turn. You can still answer questions and use web tools. If the user wants you to read or change code, ask them to open a Project / select a workspace folder first.`
+
+/** Appended instead of `NO_WORKSPACE_NOTE` when a plain chat has a shell. */
+export const NO_PROJECT_SHELL_NOTE = `No project is open, so the file editing tools are unavailable this turn. run_command works, starting in the home folder; see "This computer".`
 
 /** Appended when a workspace is set but no project is open (read-only access). */
 export const READ_ONLY_WORKSPACE_NOTE = `A workspace folder is selected but no project is open, so you have read-only access this turn: list_directory, read_file, read_file_range, read_multiple_files, search_files, find_files, code_outline, get_file_info, git_status, git_diff, and git_commit_summary all work. write_file, edit_file, delete_file, move_file, create_directory, delete_directory, run_command, run_project_check, save_email_attachment, and update_project_notes are unavailable here on purpose — editing only happens inside a project. You can look at code, explain it, and suggest changes in chat, but if the user wants you to actually make them, tell them to open this folder as a Project first.`
@@ -390,6 +397,47 @@ export function renderRuntimeSection(runtime: PromptRuntime): string {
   return `# Where you are running\nOn ${runtime.providerLabel}, over the network — not locally on the user's machine. Their messages are sent to ${runtime.providerLabel} to be answered. Never tell the user this conversation stays on their device.`
 }
 
+/**
+ * The computer Anodex is running on, for a turn that can act on it.
+ *
+ * A model that is not told the operating system guesses, and a guessed
+ * command is a wrong command: `findstr` patterns written as grep, `open` on
+ * Linux, `sudo` with no terminal to type a password into. Codex and Claude
+ * Code tell their model the platform and shell for the same reason. Built in
+ * the main process (`describeThisComputer`) and kept free of anything that
+ * changes between messages, so it stays in the cached part of the prompt.
+ */
+export interface PromptComputer {
+  /** "Windows 11", "macOS 15", "Ubuntu 24.04.1 LTS". */
+  os: string
+  platform: 'win32' | 'darwin' | 'linux' | 'other'
+  folders: { home: string; desktop: string; documents: string; downloads: string }
+  /** Present only when run_command is available this turn. */
+  shell?: {
+    /** "PowerShell", "zsh", "bash". */
+    name: string
+    /** Where each command starts. */
+    startsIn: string
+    /** Everyday commands for this system, one per line, already in this shell's syntax. */
+    howTo: string[]
+  }
+}
+
+export function renderComputerSection(computer: PromptComputer): string {
+  const { home, desktop, documents, downloads } = computer.folders
+  const lines = [
+    '# This computer',
+    `${computer.os}. Home folder: ${home}. Desktop: ${desktop}. Documents: ${documents}. Downloads: ${downloads}.`
+  ]
+  if (computer.shell) {
+    lines.push(
+      `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project. There is no terminal for anyone to type into, so never use sudo or a command that waits for input.`
+    )
+    if (computer.shell.howTo.length) lines.push(...computer.shell.howTo.map((line) => `- ${line}`))
+  }
+  return lines.join('\n')
+}
+
 /** Render a labeled reference-data section: content to consult, not instructions to follow. */
 function renderReferenceDataSection(title: string, note: string, text: string): string {
   return `# ${title}\n${note}\n\n${text}`
@@ -540,6 +588,8 @@ export interface SystemPromptParts {
   memoryContext?: string | null
   /** Retrieved cross-session transcript excerpts, if any and enabled. */
   transcriptRecallContext?: string | null
+  /** The computer this runs on — see `PromptComputer`. Omitted by tests and previews. */
+  computer?: PromptComputer
   /**
    * Leave the Environment section out. Set by `composeCacheablePrompt`, which
    * carries the date and time with the latest message instead.
@@ -664,8 +714,9 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
   const compact = core === COMPACT_CODING_AGENT_PROMPT || core === COMPACT_CHAT_PROMPT
   const sections: string[] = [core]
 
-  if (!parts.hasWorkspaceTools) sections.push(NO_WORKSPACE_NOTE)
-  else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
+  if (!parts.hasWorkspaceTools) {
+    sections.push(parts.computer?.shell ? NO_PROJECT_SHELL_NOTE : NO_WORKSPACE_NOTE)
+  } else if (!parts.hasProject) sections.push(READ_ONLY_WORKSPACE_NOTE)
   // `TOOLING_UPDATE_NOTE` is guidance the compact core already carries in its
   // own working method, so repeating it there would spend tokens on advice the
   // model has just been given.
@@ -682,6 +733,7 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
     sections.push(renderCommitAttributionNote(parts.commitAttributionLine))
   }
   if (parts.runtime) sections.push(renderRuntimeSection(parts.runtime))
+  if (parts.computer) sections.push(renderComputerSection(parts.computer))
   if (!parts.omitEnvironment) {
     sections.push(renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone))
   }

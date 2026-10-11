@@ -130,6 +130,25 @@ describe('buildTools', () => {
     for (const name of PROJECT_READ_ONLY_TOOLS) expect(tools).toHaveProperty(name)
   })
 
+  it('gives a plain chat a shell in the home folder, and no other project tool', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      workspaceRoot: null,
+      shellHome: '/home/person'
+    }
+    const tools = buildTools(createMockDefine(), ctx)
+    expect(tools).toHaveProperty('run_command')
+    for (const name of PROJECT_WORKSPACE_TOOLS.filter((tool) => tool !== 'run_command')) {
+      expect(tools).not.toHaveProperty(name)
+    }
+
+    const withoutHome = { ...createMockContext('/workspace'), workspaceRoot: null }
+    expect(buildTools(createMockDefine(), withoutHome)).not.toHaveProperty('run_command')
+
+    const turnedOff = { ...ctx, disabledTools: new Set(['run_command']) }
+    expect(buildTools(createMockDefine(), turnedOff)).not.toHaveProperty('run_command')
+  })
+
   it('registers visual inspection only when the active provider accepts tool images', () => {
     const withoutVision = createMockContext('/workspace')
     expect(buildTools(createMockDefine(), withoutVision)).not.toHaveProperty('inspect_visual')

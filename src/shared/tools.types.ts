@@ -417,7 +417,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'run_command',
     kind: 'command',
     description:
-      'Run a real local shell starting in the workspace; it is not workspace-confined. Approval depends on permission mode and risk. Requires an open project.',
+      'Run a shell command, starting in the open project or, in a plain chat, the home folder; it is not confined to either. Read-only commands run in Edits and Untethered; deleting or formatting always asks.',
     requiresProject: true
   },
   {

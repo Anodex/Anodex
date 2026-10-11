@@ -1,5 +1,8 @@
 import type { PromptReadingProgress } from '@shared/chat.types'
+import { homedir } from 'node:os'
+import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
+import { describeComputer, liveComputerFacts } from './thisComputer'
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
@@ -495,6 +498,15 @@ export async function runGeneration(
   const requestProjectId = request.projectId ?? null
   const activeProject = projects.projects.find((p) => p.id === requestProjectId) ?? null
   const workspaceRoot = activeProject?.folderPath ?? null
+  // A plain chat the person is in gets a shell too, starting in their home
+  // folder, so everyday requests ("open my Downloads", "how much space is
+  // left") are a command rather than one more tool to find. Never for a
+  // restricted run (the Scheduler, an Agent run), which has its own allowlist
+  // and nobody watching.
+  const plainChatShellHome =
+    settings.tools.enabled && !activeProject && io.surface === 'chat' && io.enabledTools == null
+      ? homedir()
+      : null
   let hadToolActivity = false
   // Collects what the web tools retrieved this turn so the finished message can
   // show what it stood on — and, just as importantly, say so when the model
@@ -515,6 +527,7 @@ export async function runGeneration(
         userFiles: request.userFiles ?? [],
         permissionMode: io.permissionModeOverride ?? settings.general.permissionMode,
         commandShell: resolveCommandShell(settings.general.defaultShell),
+        shellHome: plainChatShellHome ?? undefined,
         projectId: activeProject?.id ?? null,
         webSearch: settings.webSearch,
         // Linked integrations remain available without interpreting the
@@ -599,6 +612,13 @@ export async function runGeneration(
     : undefined
 
   const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
+  const shellStartsIn = workspaceRoot ?? plainChatShellHome
+  const hasShell =
+    settings.tools.enabled &&
+    shellStartsIn !== null &&
+    (io.enabledTools == null
+      ? !settings.tools.disabledTools.includes('run_command')
+      : io.enabledTools.has('run_command'))
   const includeReferenceContext = io.includeReferenceContext !== false
 
   // Resolved once and reused below for cloud-provider gating (transcript
@@ -707,6 +727,15 @@ export async function runGeneration(
     // `renderRuntimeSection`. `effectiveProviderId` already accounts for a
     // per-run provider override, so an agent run pinned to a cloud provider
     // does not inherit the app's local default here.
+    computer: describeComputer(
+      liveComputerFacts((name) => app.getPath(name)),
+      hasShell && shellStartsIn
+        ? {
+            command: resolveCommandShell(settings.general.defaultShell),
+            startsIn: shellStartsIn
+          }
+        : null
+    ),
     runtime:
       effectiveProviderId === 'local'
         ? ({ kind: 'local' } as const)
