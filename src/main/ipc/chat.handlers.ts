@@ -31,6 +31,7 @@ import { endThinking, noteThinking, thinkingSoFar } from '../chat/liveThinking'
 import { rehydrateUploadedImage } from '../remote/uploadStore'
 import { projectConversationContext } from '@shared/contextProjection'
 import { conversationStore } from '../conversations/ConversationStore'
+import { notifyReplyReady } from '../remote/replyReady'
 import { settingsStore } from '../settings/SettingsStore'
 import { remoteQuestionConversation, remoteTurnConversation } from '../conversations/remoteTurn'
 import { projectStore } from '../projects/ProjectStore'
@@ -176,6 +177,14 @@ export function registerChatHandlers(): void {
 
       // A temporary chat is the phone asking for exactly this not to happen.
       if (remote && !request.temporary) recordRemoteTurn(request, result)
+      // The phone that asked may have been closed since: tell it the answer is in.
+      if (remote && !result.stopped) {
+        notifyReplyReady(client, {
+          conversationId: request.conversationId,
+          title: conversationStore.get(request.conversationId)?.title,
+          content: result.content
+        })
+      }
 
       return ok({
         conversationId: request.conversationId,

@@ -23601,6 +23601,10 @@
               {
                 "kind": "literal",
                 "value": "needs-approval"
+              },
+              {
+                "kind": "literal",
+                "value": "reply-ready"
               }
             ]
           }

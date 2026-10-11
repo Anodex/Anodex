@@ -21,6 +21,11 @@ export type RemoteNotificationKind =
   | 'finished'
   /** A run failed or exhausted its budget. */
   | 'failed'
+  /**
+   * The answer to a question the phone asked is ready. Only sent to a phone that
+   * announced `reply-ready.1`; see `replyReady.ts`.
+   */
+  | 'reply-ready'
 
 export interface RemoteNotification {
   kind: RemoteNotificationKind
