@@ -79,6 +79,13 @@ export function ToolConfirmCard(): JSX.Element | null {
             secret={request.secret}
             onResolve={(response) => resolve(request.id, response)}
           />
+        ) : request.choices ? (
+          <ChoicesItem
+            key={request.id}
+            request={request}
+            choices={request.choices}
+            onResolve={(response) => resolve(request.id, response)}
+          />
         ) : (
           <ConfirmItem
             key={request.id}
@@ -93,6 +100,78 @@ export function ToolConfirmCard(): JSX.Element | null {
           />
         )
       )}
+    </div>
+  )
+}
+
+/**
+ * A list to tick, in place of a yes/no: everything starts ticked, and what is
+ * left ticked is what goes. See `move_to_trash`.
+ */
+function ChoicesItem({
+  request,
+  choices,
+  onResolve
+}: {
+  request: ToolConfirmRequest
+  choices: NonNullable<ToolConfirmRequest['choices']>
+  onResolve: (response: ToolConfirmResponse) => void
+}): JSX.Element {
+  const [ticked, setTicked] = useState(() => new Set(choices.map((choice) => choice.id)))
+  const toggle = (id: string): void =>
+    setTicked((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  return (
+    <div className={styles.card} role="dialog" aria-label={request.title}>
+      <div className={styles.header}>
+        <span className={`${styles.badge} ${styles.write}`}>
+          <Icon name="trash" size={14} />
+        </span>
+        <span className={styles.title}>{request.title}</span>
+      </div>
+      <p className={styles.secretHelp}>{request.detail}</p>
+      <ul className={styles.choiceList}>
+        {choices.map((choice) => (
+          <li key={choice.id}>
+            <label className={styles.choice}>
+              <input
+                type="checkbox"
+                checked={ticked.has(choice.id)}
+                onChange={() => toggle(choice.id)}
+              />
+              <span className={styles.choiceText}>
+                <span className={styles.choiceLabel}>{choice.label}</span>
+                {choice.detail && <span className={styles.choiceDetail}>{choice.detail}</span>}
+              </span>
+              {choice.size && <span className={styles.choiceSize}>{choice.size}</span>}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className={styles.actions}>
+        <button className={styles.deny} onClick={() => onResolve({ approved: false })}>
+          Cancel
+        </button>
+        <button
+          className={styles.approve}
+          disabled={ticked.size === 0}
+          onClick={() =>
+            onResolve({
+              approved: true,
+              chosenIds: choices
+                .filter((choice) => ticked.has(choice.id))
+                .map((choice) => choice.id)
+            })
+          }
+        >
+          <Icon name="trash" size={14} />
+          {ticked.size === choices.length ? 'Move all to Trash' : `Move ${ticked.size} to Trash`}
+        </button>
+      </div>
     </div>
   )
 }
