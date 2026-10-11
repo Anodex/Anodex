@@ -319,6 +319,7 @@ const DIRECT_TOOL_PRIORITY = [
   // not in the surface it could see. A prompt that claims a capability the
   // surface withholds is worse than one that claims nothing.
   'schedule_task',
+  'set_reminder',
   'delete_scheduled_task',
   'list_threads',
   'search_email',

@@ -15836,6 +15836,21 @@
               }
             ]
           }
+        },
+        "kind": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "literal",
+                "value": "reminder"
+              }
+            ]
+          }
         }
       }
     },
@@ -24335,6 +24350,21 @@
               },
               {
                 "kind": "string"
+              }
+            ]
+          }
+        },
+        "kind": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "literal",
+                "value": "reminder"
               }
             ]
           }
