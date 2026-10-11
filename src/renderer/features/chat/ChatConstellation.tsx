@@ -307,6 +307,13 @@ export function ChatConstellation(): JSX.Element {
         scale: 1,
         fog: 1
       }))
+      // A pulse and a neighbour list name nodes by index, and a resize just replaced
+      // every node with a different number of them. Kept, they pointed past the end
+      // of the new list, and the next frame read a node that no longer existed —
+      // "Cannot read properties of undefined (reading 'sx')", whenever a window was
+      // resized while a signal was in flight.
+      pulses.length = 0
+      neighbors = []
     }
 
     const makeStars = (): void => {
@@ -630,6 +637,10 @@ export function ChatConstellation(): JSX.Element {
         const p = pulses[k]
         const a = nodes[p.a]
         const b = nodes[p.b]
+        if (!a || !b) {
+          pulses.splice(k, 1)
+          continue
+        }
         p.t += p.sp
         if (p.t >= 1) {
           b.flash = Math.max(b.flash, 1.1)
