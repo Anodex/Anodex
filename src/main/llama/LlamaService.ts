@@ -266,6 +266,8 @@ export interface GenerateParams {
      * tool — see `ToolRuntimeContext.delegate`.
      */
     delegate?: DelegateCapability
+    /** See `ToolRuntimeContext.switchProject`. A transport that drops it silently disables folder access. */
+    switchProject?: (projectId: string) => void
     /** Built-in tools disabled in normal interactive chats. */
     disabledTools: Set<string>
     /** Tools discovered from currently-connected MCP servers (see `ToolRuntimeContext.mcpTools`). */
@@ -2524,6 +2526,7 @@ class LlamaService extends EventEmitter {
       goalRun: params.tools.goalRun,
       enabledTools: params.tools.enabledTools ?? null,
       delegate: params.tools.delegate,
+      switchProject: params.tools.switchProject,
       disabledTools: params.tools.disabledTools,
       mcpTools: params.tools.mcpTools,
       evidenceFocus: params.tools.evidenceFocus,

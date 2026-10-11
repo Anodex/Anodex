@@ -294,6 +294,10 @@ Write and mutation tools:
 - Create directories.
 - Delete directories.
 - Run shell commands.
+- Ask to work in a folder outside any open project (for example a folder on the Desktop).
+  Once allowed (asked first, except in Untethered mode), the folder becomes a project and
+  the chat carries on there in the same reply, with restore points for every edit. Drives,
+  the whole home folder and system folders are refused.
 - Download files into the project (an installer, a server .jar, a dataset). The size and
   source are shown before asking, every redirect is checked so a link cannot reach the
   local network, progress shows while it runs, and interrupted downloads resume.

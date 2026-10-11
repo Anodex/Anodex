@@ -63,6 +63,16 @@ const CHECK_CHANGES_PROMPT =
   'Fix anything the check shows, then finish your answer and say what you checked. If there is no ' +
   'way to check this change, say so in one sentence and stop.'
 
+/**
+ * The cycle after folder access was granted. The model asked for the folder in
+ * order to do something with it, so the instruction is to do that, now with
+ * the tools it was waiting for.
+ */
+const FOLDER_GRANTED_CONTINUE_PROMPT =
+  'Folder access was granted, and this reply now works in that folder as its project, with file ' +
+  'and command tools available. Continue the task from where you left off; do not ask for the ' +
+  'folder again.'
+
 const CHAT_CONTINUE_PROMPT =
   'Continue exactly where you left off. Do not repeat work already done above — reuse the tool ' +
   'results and text already produced in this reply. If the task is already fully complete, say so ' +
@@ -297,7 +307,14 @@ export async function runBoundedChatGeneration(
   const projects = projectStore.getState()
   const requestProjectId =
     'projectId' in request ? (request.projectId ?? null) : projects.activeProjectId
-  const workspaceRoot =
+  /**
+   * Which project this reply is working in. Starts as the request's, and moves
+   * if folder access is granted part-way through; see `pendingProjectId`.
+   */
+  let activeProjectId = requestProjectId
+  /** Set by `request_folder_access` during a cycle, applied before the next. */
+  let pendingProjectId: string | null = null
+  let workspaceRoot =
     projects.projects.find((project) => project.id === requestProjectId)?.folderPath ?? null
   // A fresh context epoch returns to the persisted history that began this
   // reply. The compact handoff below carries completed work; replaying the
@@ -421,12 +438,19 @@ export async function runBoundedChatGeneration(
         plan: currentPlan,
         contextEpoch,
         continuationBrief,
-        promptCalibration
+        promptCalibration,
+        projectId: activeProjectId
       },
       {
         ...io,
         ledger,
         webSources,
+        // Only a caller that can file the chat under a new project offers this.
+        switchProject: io.onProjectSwitched
+          ? (projectId) => {
+              pendingProjectId = projectId
+            }
+          : undefined,
         onActivity: (call) => {
           if (call.status !== 'running') {
             completedToolCalls.set(`${cycle}:${call.id}`, call)
@@ -508,6 +532,39 @@ export async function runBoundedChatGeneration(
       goalFinished = true
       goalSummary = cycleToolCalls.find((call) => call.name === 'finish_goal')?.detail
       break
+    }
+
+    // Folder access was granted part-way through: the folder is a project now,
+    // and the rest of this reply works there. Decided before every other
+    // continuation rule, because this cycle ended on purpose, at the grant,
+    // and the work it asked for the folder to do has not started yet.
+    if (pendingProjectId !== null) {
+      const switchedTo: string = pendingProjectId
+      pendingProjectId = null
+      activeProjectId = switchedTo
+      workspaceRoot =
+        projectStore.getState().projects.find((project) => project.id === switchedTo)?.folderPath ??
+        null
+      io.onProjectSwitched?.(switchedTo)
+      const timeLeft = turnDeadline === null || Date.now() < turnDeadline
+      if (cycle < cycleCeiling - 1 && timeLeft && !io.signal?.aborted) {
+        log.info('Bounded cycle ended', {
+          cycle,
+          continuing: true,
+          continuationCause: 'folder-access'
+        })
+        history = [
+          ...history,
+          { role: 'user', content: prompt },
+          sanitizeHistoryTurn({
+            role: 'assistant',
+            content: result.content,
+            toolCalls: cycleToolCalls
+          })
+        ]
+        prompt = FOLDER_GRANTED_CONTINUE_PROMPT
+        continue
+      }
     }
 
     // A loop guard that follows real work is a clean epoch boundary, not a
@@ -772,6 +829,7 @@ export async function runBoundedChatGeneration(
       const reconciliation = await runGeneration(
         {
           ...request,
+          projectId: activeProjectId,
           history: reconciliationHistory,
           prompt: PLAN_RECONCILIATION_PROMPT,
           context,
@@ -811,6 +869,7 @@ export async function runBoundedChatGeneration(
       const closing = await runGeneration(
         {
           ...request,
+          projectId: activeProjectId,
           history: [
             ...history,
             { role: 'user' as const, content: prompt },

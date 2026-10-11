@@ -237,6 +237,11 @@ export const IpcChannel = {
      */
     contextUsage: 'chat:context-usage',
     /**
+     * main → renderer: a reply was granted folder access part-way through and
+     * now works in that folder's project, so the chat belongs under it.
+     */
+    projectSwitched: 'chat:project-switched',
+    /**
      * Whether this client wants tokens as they are generated.
      *
      * A phone on mobile data pays for every token twice — once in bytes and once in
@@ -938,6 +943,10 @@ export interface AnodexApi {
     onThinkingStream(listener: (chunk: ChatThinkingStreamChunk) => void): () => void
     /** A quiet turn saying it is still alive, and whether it is waiting for the model. */
     onWorking(listener: (event: ChatWorkingEvent) => void): () => void
+    /** A reply moved into another project after being granted folder access. */
+    onProjectSwitched(
+      listener: (event: { conversationId: string; projectId: string }) => void
+    ): () => void
     /** Best-effort local summary of `text` in `maxWords` words or fewer; `null` if it failed. */
     summarize(text: string, maxWords: number): Promise<string | null>
     /** Best-effort local title for a finished first turn; `null` if it failed. */

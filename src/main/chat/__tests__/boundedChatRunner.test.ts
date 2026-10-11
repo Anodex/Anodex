@@ -2735,3 +2735,41 @@ describe('checking changed files before a chat finishes', () => {
     expect(mockedRunGeneration).toHaveBeenCalledOnce()
   })
 })
+
+describe('folder access granted part-way through a reply', () => {
+  it('carries the reply into the project the grant created, and says so', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration
+      .mockImplementationOnce((_request, io) => {
+        // What `request_folder_access` does on a grant: switch, then end the cycle.
+        io.switchProject?.('project-1')
+        return Promise.resolve(
+          result({ content: 'I have the folder.', stopped: true, stopReason: 'loop-guard' })
+        )
+      })
+      .mockResolvedValueOnce(result({ content: 'Server set up.' }))
+    const onProjectSwitched = vi.fn()
+
+    const outcome = await runBoundedChatGeneration(
+      baseRequest({ projectId: null, prompt: 'set up a server on my Desktop' }),
+      baseIo({ onProjectSwitched })
+    )
+
+    expect(onProjectSwitched).toHaveBeenCalledWith('project-1')
+    expect(cycleCallCount()).toBe(2)
+    const [secondRequest] = mockedRunGeneration.mock.calls[1]
+    expect(secondRequest.projectId).toBe('project-1')
+    expect(secondRequest.prompt).toContain('Folder access was granted')
+    expect(outcome.content).toContain('Server set up.')
+  })
+
+  it('offers no way to switch when the caller cannot move the chat', async () => {
+    mockedRunGeneration.mockReset()
+    mockedRunGeneration.mockResolvedValueOnce(result({ content: 'Done.' }))
+
+    await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    const [, io] = mockedRunGeneration.mock.calls[0]
+    expect(io.switchProject).toBeUndefined()
+  })
+})

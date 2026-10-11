@@ -398,6 +398,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     requiresProject: true
   },
   {
+    name: 'request_folder_access',
+    kind: 'write',
+    description:
+      'Ask to work in a folder on this computer outside any open project; once allowed it becomes a project and the chat continues there. Asks first except in Untethered mode.'
+  },
+  {
     name: 'check_computer',
     kind: 'read',
     description:

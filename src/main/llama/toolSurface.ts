@@ -301,6 +301,10 @@ const DIRECT_TOOL_PRIORITY = [
   // email conversation is made of; the other eleven mailbox tools can wait
   // behind the gateway, which is what a gateway is for.
   'anodex_status',
+  // With chat's primaries: a plain chat asked to make something on the Desktop
+  // has no file tools at all until this is called, so on a small window it
+  // must not sit behind the gateway.
+  'request_folder_access',
   // "Do I have Java?" is answered by this or guessed at with platform-specific
   // shell commands; a chat should not have to reach behind the gateway for it.
   'check_computer',

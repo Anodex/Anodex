@@ -90,6 +90,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'manage_email',
   'move_email',
   'batch_email',
+  'request_folder_access',
   'check_computer'
 ]
 
