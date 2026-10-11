@@ -98,7 +98,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*budget*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed, under every name it goes by: Get-Command python, python3, py -ErrorAction SilentlyContinue',
+      'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version',
       "Memory in use, and the programs using most: Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 Name, @{n='MB'; e={[math]::Round($_.WorkingSet64 / 1MB)}}",
       'Move or rename: Move-Item "$HOME\\Desktop\\<old>" "$HOME\\Desktop\\<new>"',
       'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
@@ -116,11 +116,13 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
     "Find files by part of the name: find ~ -iname '*budget*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
     "Free space on the drive the person's files are on: df -h ~",
-    'Check whether a program is installed, under every name it goes by: command -v python3 python',
+    'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version',
     // Placeholders, never realistic names, in anything that changes files:
     // measured, a "gio trash ~/Downloads/old.zip" example was copied as the
     // target of a real command.
-    'Move or rename: mv ~/Desktop/<old> ~/Desktop/<new>'
+    // A backslash before a space does not survive a model's tool-call JSON:
+    // measured, `Big\ Project` arrived as `Big\nProject`. Quotes do.
+    "Move or rename, with quotes around a name that has spaces: mv ~/Documents/'<old name>' ~/Documents/'<new name>'"
   ]
   if (facts.platform === 'darwin') {
     return [
