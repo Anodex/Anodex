@@ -17,6 +17,17 @@ vi.mock('../../scheduler/SchedulerStore', () => ({
   }
 }))
 
+const settingsState = vi.hoisted(() => ({ emailAccounts: [] as Array<{ id: string }>, paired: 0 }))
+
+vi.mock('../../settings/SettingsStore', () => ({
+  settingsStore: { get: () => ({ email: { accounts: settingsState.emailAccounts } }) }
+}))
+vi.mock('../../remote/RemoteService', () => ({
+  remoteService: {
+    status: () => ({ pairedDevices: Array.from({ length: settingsState.paired }, () => ({})) })
+  }
+}))
+
 vi.mock('../../scheduler/SchedulerService', () => ({
   schedulerService: { notifyTasksChanged: () => notifyMock() }
 }))
@@ -314,5 +325,53 @@ describe('set_reminder', () => {
       'Could not read "whenever" as a time'
     )
     expect(createMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('set_reminder, where it goes', () => {
+  beforeEach(() => {
+    createMock.mockReset()
+    createMock.mockImplementation((request) => ({
+      ...taskFrom(request),
+      remindVia: request.remindVia
+    }))
+    settingsState.emailAccounts = []
+    settingsState.paired = 0
+  })
+
+  type Remind = {
+    handler: (args: {
+      when: string
+      message: string
+      via?: Array<'desktop' | 'phone' | 'email'>
+    }) => Promise<string>
+  }
+  const tool = (): Remind => setReminderTool(createMockDefine(), createMockContext('/workspace'))
+
+  it('saves where the person asked for it', async () => {
+    settingsState.paired = 1
+    const result = await tool().handler({ when: 'at 3pm', message: 'Call Sam', via: ['phone'] })
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ remindVia: ['phone'] }))
+    expect(result).toContain('Where: on their phone')
+    expect(result).not.toContain('No phone is paired')
+  })
+
+  it('warns when the phone it should go to is not paired', async () => {
+    const result = await tool().handler({ when: 'at 3pm', message: 'Call Sam', via: ['phone'] })
+    expect(result).toContain(
+      'No phone is paired with Anodex, so it will show on the desktop instead'
+    )
+  })
+
+  it('refuses an emailed reminder when no email account is linked, and saves nothing', async () => {
+    const result = await tool().handler({ when: 'at 3pm', message: 'Call Sam', via: ['email'] })
+    expect(result).toContain('No email account is linked')
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('emails once an account is linked', async () => {
+    settingsState.emailAccounts = [{ id: 'a1' }]
+    const result = await tool().handler({ when: 'at 3pm', message: 'Call Sam', via: ['email'] })
+    expect(result).toContain('Where: by email to their own address')
   })
 })

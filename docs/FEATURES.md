@@ -535,9 +535,12 @@ Key capabilities:
 
 - Create one-time, daily, weekly, or interval-based tasks.
 - Set reminders ("remind me at 3pm to call Sam"), from chat or the Scheduler page. A
-  reminder is a notification on the desktop and the paired phone at that time; nothing
-  runs, so it fires on time with no model loaded and never waits for a reply in progress.
-  Setting one never asks for approval.
+  reminder shows where it was asked to ("remind me on my phone", "email me"): the
+  desktop, the paired phone, and/or an email to the person's own linked address, with
+  desktop and phone when nothing is said. A phone that is not connected at the time, or an
+  email that fails, falls back to the desktop. Nothing runs, so it fires on time with no
+  model loaded and never waits for a reply in progress. Setting one never asks for
+  approval.
 - Use intervals as short as five minutes.
 - Select weekdays for weekly tasks.
 - Assign a task to a project.

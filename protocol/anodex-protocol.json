@@ -15874,6 +15874,37 @@
               }
             ]
           }
+        },
+        "remindVia": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "literal",
+                      "value": "email"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "desktop"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "phone"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -24388,6 +24419,37 @@
               {
                 "kind": "literal",
                 "value": "reminder"
+              }
+            ]
+          }
+        },
+        "remindVia": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "array",
+                "of": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "literal",
+                      "value": "email"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "desktop"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "phone"
+                    }
+                  ]
+                }
               }
             ]
           }

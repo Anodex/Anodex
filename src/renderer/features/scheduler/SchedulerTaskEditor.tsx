@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import type { ScheduledTask, TaskRecurrence } from '@shared/scheduledTask.types'
+import {
+  DEFAULT_REMINDER_CHANNELS,
+  type ReminderChannel,
+  type ScheduledTask,
+  type TaskRecurrence
+} from '@shared/scheduledTask.types'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { describeRecurrence } from '@shared/parseWhen'
 import { computeNextRunAt } from '@shared/nextRun'
 import { TOOL_CATALOG, type ToolKind } from '@shared/tools.types'
@@ -63,6 +69,17 @@ export function SchedulerTaskEditor({
     task?.kind === 'reminder' ? 'reminder' : 'task'
   )
   const isReminder = kind === 'reminder'
+  const [remindVia, setRemindVia] = useState<Set<ReminderChannel>>(
+    () => new Set(task?.remindVia ?? DEFAULT_REMINDER_CHANNELS)
+  )
+  const emailLinked = useSettingsStore((s) => (s.settings?.email.accounts.length ?? 0) > 0)
+  const toggleVia = (channel: ReminderChannel): void =>
+    setRemindVia((current) => {
+      const next = new Set(current)
+      if (next.has(channel)) next.delete(channel)
+      else next.add(channel)
+      return next
+    })
   const [projectId, setProjectId] = useState<string | null>(task?.projectId ?? null)
   const [recurrence, setRecurrence] = useState<TaskRecurrence>(initialRecurrence)
   // Seeded from the schedule's own description so an existing task opens with
@@ -85,7 +102,9 @@ export function SchedulerTaskEditor({
   // the way a hand-written list of "which types need which fields" would —
   // `'monthly'` added two more such fields the day it landed.
   const canSave =
-    prompt.trim().length > 0 && computeNextRunAt(recurrence, Date.now(), false) !== null
+    prompt.trim().length > 0 &&
+    computeNextRunAt(recurrence, Date.now(), false) !== null &&
+    (!isReminder || [...remindVia].some((channel) => channel !== 'email' || emailLinked))
 
   const toggleTool = (toolName: string): void => {
     setEnabledTools((prev) => {
@@ -110,7 +129,8 @@ export function SchedulerTaskEditor({
           projectId: null,
           recurrence,
           enabledTools: [],
-          kind: 'reminder' as const
+          kind: 'reminder' as const,
+          remindVia: [...remindVia].filter((channel) => channel !== 'email' || emailLinked)
         }
       : {
           name: name.trim() || undefined,
@@ -202,10 +222,39 @@ export function SchedulerTaskEditor({
           />
         </label>
         {isReminder && (
-          <p className={styles.hint}>
-            Shows as a notification on this computer and your paired phone. Nothing runs, so it
-            works with no model loaded.
-          </p>
+          <div className={styles.field}>
+            <span className={styles.label}>Where should it remind you?</span>
+            <div className={styles.viaRow}>
+              {(
+                [
+                  ['desktop', 'This computer'],
+                  ['phone', 'My phone'],
+                  ['email', 'Email me']
+                ] as const
+              ).map(([channel, label]) => {
+                const disabled = channel === 'email' && !emailLinked
+                return (
+                  <label
+                    key={channel}
+                    className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={remindVia.has(channel) && !disabled}
+                      disabled={disabled}
+                      onChange={() => toggleVia(channel)}
+                    />
+                    {label}
+                  </label>
+                )
+              })}
+            </div>
+            <p className={styles.hint}>
+              {emailLinked
+                ? 'Nothing runs, so it works with no model loaded. Email goes to your own address. If your phone is not connected at the time, it shows on this computer instead.'
+                : 'Nothing runs, so it works with no model loaded. Link an email account in Settings → Email to be reminded by email. If your phone is not connected at the time, it shows on this computer instead.'}
+            </p>
+          </div>
         )}
 
         <label className={styles.field}>
