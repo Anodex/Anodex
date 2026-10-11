@@ -315,6 +315,9 @@ Write and mutation tools:
   Bin, never a permanent delete. A list to tick comes first, except in Untethered mode;
   only what the scan offers, or files inside the open project, can be moved, and a move
   that fails is reported rather than turned into a delete.
+- Open things for the person: an http(s) address in their browser (such as a dev server
+  it started), or a folder or document from the open project in its usual app. Programs
+  and scripts are never opened.
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.

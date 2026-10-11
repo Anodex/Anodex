@@ -452,6 +452,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       'Move cleanup items or files in the open project to the Trash, never a permanent delete. Shows a list to tick first, except in Untethered mode.'
   },
   {
+    name: 'open_item',
+    kind: 'command',
+    description:
+      'Open an http(s) address in the browser, or a folder or document from the open project in its usual app. Never opens programs or scripts.'
+  },
+  {
     name: 'check_computer',
     kind: 'read',
     description:

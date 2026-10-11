@@ -312,6 +312,7 @@ const DIRECT_TOOL_PRIORITY = [
   // through the shell, which is the thing they exist to prevent.
   'find_cleanup',
   'move_to_trash',
+  'open_item',
   // Setting a service up is a chat conversation ("here is my Tavily key"), and
   // a model that cannot see these answers by asking the person to go to Settings.
   'save_key',

@@ -31,6 +31,7 @@ import {
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
 import { findCleanupTool, moveToTrashTool } from './cleanupTools'
+import { openItemTool } from './openItemTools'
 import { requestKeyTool, saveKeyTool } from './keyTools'
 import { requestFolderAccessTool } from './folderAccessTools'
 import { downloadFileTool } from './downloadTools'
@@ -356,6 +357,10 @@ export function buildTools(
   // offers or files inside the open project.
   if (isEnabled('find_cleanup')) tools.find_cleanup = findCleanupTool(define, ctx)
   if (isEnabled('move_to_trash')) tools.move_to_trash = moveToTrashTool(define, ctx)
+
+  // URLs work in any chat; files and folders need a project, which the tool
+  // itself checks so it can say how to get one.
+  if (isEnabled('open_item')) tools.open_item = openItemTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)
