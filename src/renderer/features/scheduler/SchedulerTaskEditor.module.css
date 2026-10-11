@@ -270,3 +270,9 @@
   gap: var(--space-3);
   margin-left: auto;
 }
+
+.viaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}

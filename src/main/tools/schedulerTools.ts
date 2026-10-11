@@ -4,7 +4,12 @@ import type { ToolFactory } from './types'
 import { runGuardedToolWithPrepare } from './helpers'
 import { schedulerStore } from '../scheduler/SchedulerStore'
 import { schedulerService } from '../scheduler/SchedulerService'
-import type { CreateScheduledTaskRequest } from '@shared/scheduledTask.types'
+import {
+  DEFAULT_REMINDER_CHANNELS,
+  type CreateScheduledTaskRequest,
+  type ReminderChannel
+} from '@shared/scheduledTask.types'
+import { settingsStore } from '../settings/SettingsStore'
 
 /**
  * Lets the assistant set up a Scheduler task. Anodex has had a full Scheduler
@@ -133,7 +138,7 @@ export const scheduleTaskTool: ToolFactory = (define, ctx) =>
 export const setReminderTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Set a reminder: at the given time Anodex shows the message as a notification on this computer and the paired phone. Nothing runs. Once or on a repeat ("in 20 minutes", "tomorrow at 9am", "every Monday at 8am").',
+      'Set a reminder: at the given time Anodex shows the message where the person asked: on this computer, on their paired phone, and/or by email to their own address. Nothing runs. Once or on a repeat ("in 20 minutes", "tomorrow at 9am", "every Monday at 8am").',
     params: {
       type: 'object',
       properties: {
@@ -145,11 +150,17 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
         message: {
           type: 'string',
           description: 'What the notification says, written for the person: "Call Sam".'
+        },
+        via: {
+          type: 'array',
+          items: { enum: ['desktop', 'phone', 'email'] },
+          description:
+            'Where to remind: "desktop", "phone", "email" (to their own linked address). Use what the person said ("on my phone" → ["phone"], "by email" → ["email"]). Omit for desktop and phone.'
         }
       },
       required: ['when', 'message']
     } as const,
-    handler: (args: { when: string; message: string }) =>
+    handler: (args: { when: string; message: string; via?: ReminderChannel[] }) =>
       runGuardedToolWithPrepare<{ request: CreateScheduledTaskRequest; label: string }>(
         ctx,
         {
@@ -162,6 +173,14 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
         () => {
           const message = args.message.trim()
           if (!message) throw new Error('A reminder needs a message.')
+          const via = (args.via ?? []).filter((channel): channel is ReminderChannel =>
+            ['desktop', 'phone', 'email'].includes(channel)
+          )
+          if (via.includes('email') && settingsStore.get().email.accounts.length === 0) {
+            throw new Error(
+              'No email account is linked, so a reminder cannot be emailed. Link one in Settings → Email, or remind on the desktop or phone instead.'
+            )
+          }
           const parsed = parseWhen(args.when)
           if (!parsed) {
             throw new Error(
@@ -178,26 +197,39 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
                 projectId: null,
                 recurrence: parsed.recurrence,
                 enabledTools: [],
-                kind: 'reminder'
+                kind: 'reminder',
+                ...(via.length ? { remindVia: via } : {})
               },
               label
             }
           })
         },
-        ({ request, label }) => {
+        async ({ request, label }) => {
           const task = schedulerStore.create(request)
           schedulerService.notifyTasksChanged()
           const next =
             task.nextRunAt === null ? 'not scheduled' : new Date(task.nextRunAt).toLocaleString()
-          return Promise.resolve({
+          const channels = task.remindVia ?? DEFAULT_REMINDER_CHANNELS
+          // Read when needed: the remote service is built around Electron's app
+          // paths, and the scheduler tools are imported by far more than chat.
+          const { remoteService } = await import('../remote/RemoteService')
+          const phoneWarning =
+            channels.includes('phone') && remoteService.status().pairedDevices.length === 0
+              ? 'No phone is paired with Anodex, so it will show on the desktop instead. Pairing is in Settings → Remote.'
+              : null
+          return {
             modelResult: [
               `Reminder set: "${task.prompt}".`,
               `When: ${describeRecurrence(task.recurrence)}`,
               `Next: ${next}`,
-              'It shows as a notification; the person can edit or delete it on the Scheduler page.'
-            ].join('\n'),
+              `Where: ${describeChannels(channels)}`,
+              phoneWarning,
+              'The person can edit or delete it on the Scheduler page.'
+            ]
+              .filter(Boolean)
+              .join('\n'),
             detail: label
-          })
+          }
         }
       )
   })
@@ -344,4 +376,14 @@ function resolveRequestedTools(
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}...` : text
+}
+
+/** "on the desktop and on your phone", "by email". */
+export function describeChannels(channels: readonly ReminderChannel[]): string {
+  const words: Record<ReminderChannel, string> = {
+    desktop: 'on the desktop',
+    phone: 'on their phone',
+    email: 'by email to their own address'
+  }
+  return channels.map((channel) => words[channel]).join(' and ')
 }

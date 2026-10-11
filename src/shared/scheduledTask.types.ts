@@ -111,6 +111,12 @@ export interface TaskRunRecord {
 }
 
 /** A user-defined automated prompt that runs on a recurring schedule. */
+/** Where a reminder can be delivered. */
+export type ReminderChannel = 'desktop' | 'phone' | 'email'
+
+/** Where a reminder goes when nothing more specific was asked for. */
+export const DEFAULT_REMINDER_CHANNELS: readonly ReminderChannel[] = ['desktop', 'phone']
+
 export interface ScheduledTask {
   id: string
   name: string
@@ -141,6 +147,11 @@ export interface ScheduledTask {
    * generating. Absent for an ordinary task, which runs its prompt.
    */
   kind?: 'reminder'
+  /**
+   * Where a reminder shows: any of the desktop, the paired phone, and an email
+   * to the person's own linked address. Absent means desktop and phone.
+   */
+  remindVia?: ReminderChannel[]
   createdAt: number
   updatedAt: number
   /** When this task will next fire, or null once a `'once'` task has run or while disabled. */
@@ -168,6 +179,8 @@ export interface CreateScheduledTaskRequest {
   continuesSeriesId?: string
   /** See `ScheduledTask.kind`. */
   kind?: 'reminder'
+  /** See `ScheduledTask.remindVia`. */
+  remindVia?: ReminderChannel[]
 }
 
 export type UpdateScheduledTaskRequest = Partial<CreateScheduledTaskRequest> & {

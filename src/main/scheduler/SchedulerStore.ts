@@ -91,7 +91,13 @@ class SchedulerStore {
       enabled: true,
       conversationId: null,
       ...(request.continuesSeriesId ? { continuesSeriesId: request.continuesSeriesId } : {}),
-      ...(request.kind === 'reminder' ? { kind: 'reminder' as const, enabledTools: [] } : {}),
+      ...(request.kind === 'reminder'
+        ? {
+            kind: 'reminder' as const,
+            enabledTools: [],
+            ...(request.remindVia?.length ? { remindVia: [...new Set(request.remindVia)] } : {})
+          }
+        : {}),
       createdAt: now,
       updatedAt: now,
       nextRunAt: computeNextRunAt(recurrence, now, false),
@@ -125,6 +131,9 @@ class SchedulerStore {
       projectId: request.projectId !== undefined ? request.projectId : task.projectId,
       recurrence,
       enabledTools: request.enabledTools ?? task.enabledTools,
+      ...(task.kind === 'reminder' && request.remindVia?.length
+        ? { remindVia: [...new Set(request.remindVia)] }
+        : {}),
       enabled,
       updatedAt: Date.now(),
       nextRunAt: enabled ? computeNextRunAt(recurrence, Date.now(), task.lastRunAt !== null) : null

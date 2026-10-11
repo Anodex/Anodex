@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ScheduledTask } from '@shared/scheduledTask.types'
+import { DEFAULT_REMINDER_CHANNELS, type ScheduledTask } from '@shared/scheduledTask.types'
 import type { IconName } from '../../components/Icon'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
@@ -170,7 +170,11 @@ function TaskCard({
       <button type="button" className={styles.taskMain} onClick={() => onOpenReport(task.id)}>
         <div className={styles.taskTitleRow}>
           <span className={styles.taskName}>{task.name}</span>
-          {task.kind === 'reminder' && <span className={styles.reminderPill}>Reminder</span>}
+          {task.kind === 'reminder' && (
+            <span className={styles.reminderPill} title="Where this reminder shows">
+              Reminder · {reminderPlaces(task.remindVia)}
+            </span>
+          )}
           {projectName(task.projectId) && (
             <span className={styles.taskProject}>{projectName(task.projectId)}</span>
           )}
@@ -451,4 +455,12 @@ export function SchedulerView(): JSX.Element {
       )}
     </div>
   )
+}
+
+/** "desktop + phone", "email": where a reminder shows, briefly. */
+function reminderPlaces(via: ScheduledTask['remindVia']): string {
+  const names = { desktop: 'desktop', phone: 'phone', email: 'email' } as const
+  return (via?.length ? via : DEFAULT_REMINDER_CHANNELS)
+    .map((channel) => names[channel])
+    .join(' + ')
 }

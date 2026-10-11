@@ -8,7 +8,11 @@ import { messageToHistoryTurn } from '@shared/chatSanitizer'
 import { conversationStore } from '../conversations/ConversationStore'
 import { appendBackgroundTurn } from '../conversations/backgroundTurn'
 import { llamaService } from '../llama/LlamaService'
-import { notifyUser } from '../notify'
+import { notifyRemoteClients, notifyUser } from '../notify'
+import { showToastWindow } from '../toastWindow'
+import { activeRemoteClients } from '../clients/clientRegistry'
+import { emailService } from '../email/EmailService'
+import { deliverReminder, type ReminderSenders } from './reminderDelivery'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import { SCHEDULED_TASK_BUDGET } from '../chat/GenerationBudget'
 import { headlessConfirm } from '../tools/headlessConfirm'
@@ -43,6 +47,26 @@ const SUMMARY_MAX_WORDS = 18
  * never blocks on a user who isn't there (see `runGeneration`'s
  * `enabledTools`/`permissionModeOverride`).
  */
+/**
+ * How a reminder reaches each place. The phone is told directly, with
+ * `'finished'` as its ordinary notification kind (a new kind would change the
+ * protocol the phone app is built against for no difference on screen); email
+ * goes from the person's primary linked account to its own address, and to no
+ * one else.
+ */
+const reminderSenders: ReminderSenders = {
+  desktop: (title, body) => showToastWindow({ title, body }),
+  phoneConnected: () => activeRemoteClients().length > 0,
+  phone: (title, body) =>
+    notifyRemoteClients({ kind: 'finished', title, body, atEpochMs: Date.now() }),
+  email: async (subject, body) => {
+    const { accounts, primaryAccountId } = settingsStore.get().email
+    const account = accounts.find((a) => a.id === primaryAccountId) ?? accounts[0]
+    if (!account) throw new Error('no email account is linked')
+    await emailService.send({ accountId: account.id, to: [account.address], subject, body })
+  }
+}
+
 class SchedulerService {
   private tickTimer: ReturnType<typeof setInterval> | null = null
   private startupTimer: ReturnType<typeof setTimeout> | null = null
@@ -85,15 +109,24 @@ class SchedulerService {
    * next time (or retires a one-off). A notification needs no model, so this
    * never waits on the run lock or a foreground reply.
    */
-  private remind(task: ScheduledTask): void {
+  private async remind(task: ScheduledTask): Promise<void> {
     const startedAt = Date.now()
     log.info('Reminder due:', task.id, task.name)
-    // `'finished'` is the phone's ordinary notification; a new kind would change
-    // the protocol the phone app is built against for no difference on screen.
-    notifyUser({ title: task.prompt, body: 'Reminder' }, 'finished')
+    let summary: string
+    try {
+      summary = await deliverReminder(
+        task.prompt,
+        task.remindVia,
+        reminderSenders,
+        new Date(startedAt)
+      )
+    } catch (error) {
+      log.error('Reminder could not be delivered:', task.id, error)
+      summary = 'Could not show the reminder.'
+    }
     schedulerStore.recordRun(task.id, {
       status: 'success',
-      summary: `Reminded at ${new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      summary,
       conversationId: null,
       messageId: null,
       userMessageId: null,
@@ -106,7 +139,7 @@ class SchedulerService {
     const task = schedulerStore.get(taskId)
     if (!task) throw new Error(`Scheduled task not found: ${taskId}`)
     if (task.kind === 'reminder') {
-      this.remind(task)
+      await this.remind(task)
       this.notifyTasksChanged()
       return
     }
@@ -125,7 +158,7 @@ class SchedulerService {
     // it waits for a reply to finish, and showing a notification contends
     // with nothing.
     const reminders = allDue.filter((task) => task.kind === 'reminder')
-    for (const reminder of reminders) this.remind(reminder)
+    for (const reminder of reminders) await this.remind(reminder)
     if (reminders.length > 0) this.notifyTasksChanged()
     const due = allDue.filter((task) => task.kind !== 'reminder')
     if (due.length === 0) return
