@@ -1069,6 +1069,29 @@
       }
     },
     {
+      "channel": "chat:secret-saved",
+      "kind": "event",
+      "api": "chat.onSecretSaved",
+      "args": [],
+      "payload": {
+        "kind": "object",
+        "properties": {
+          "conversationId": {
+            "optional": false,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "secret": {
+            "optional": false,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      }
+    },
+    {
       "channel": "chat:send",
       "kind": "invoke",
       "api": "chat.send",
@@ -25860,6 +25883,48 @@
               }
             ]
           }
+        },
+        "secret": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "object",
+                "properties": {
+                  "service": {
+                    "optional": false,
+                    "type": {
+                      "kind": "string"
+                    }
+                  },
+                  "getUrl": {
+                    "optional": true,
+                    "type": {
+                      "kind": "union",
+                      "of": [
+                        {
+                          "kind": "undefined"
+                        },
+                        {
+                          "kind": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "placeholder": {
+                    "optional": false,
+                    "type": {
+                      "kind": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -25890,6 +25955,20 @@
           }
         },
         "reason": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "secretValue": {
           "optional": true,
           "type": {
             "kind": "union",

@@ -30,6 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
+import { requestKeyTool, saveKeyTool } from './keyTools'
 import { requestFolderAccessTool } from './folderAccessTools'
 import { downloadFileTool } from './downloadTools'
 import { checkComputerTool } from './computerCheckTools'
@@ -342,6 +343,11 @@ export function buildTools(
   if (isEnabled('check_computer')) {
     tools.check_computer = checkComputerTool(define, ctx)
   }
+
+  // Keys need a person: request_key shows them a box, and save_key needs a
+  // message they typed to check the key against, which only a chat reply has.
+  if (isEnabled('request_key')) tools.request_key = requestKeyTool(define, ctx)
+  if (ctx.userProvided && isEnabled('save_key')) tools.save_key = saveKeyTool(define, ctx)
 
   if (ctx.delegate && isEnabled('delegate')) {
     tools.delegate = delegateTool(define, ctx)

@@ -95,10 +95,7 @@ export const DENIED_CHANNEL_PREFIXES = [
    * `critical-thinking:export-pdf` used to be listed one by one below, which is
    * now redundant — a prefix covers it and every sibling it was hiding among.
    */
-  'critical-thinking:',
-
-  /** No dock on the phone to show it; see `processes:` in `DENIED_CHANNEL_PREFIXES`. */
-  'processes:'
+  'critical-thinking:'
 ] as const
 
 /**
@@ -122,6 +119,11 @@ export const DENIED_CHANNEL_PREFIXES = [
  * person can read beats a refusal they cannot override.
  */
 export const DENIED_CHANNELS = [
+  /**
+   * Carries a key the person pasted. A phone has no reason to touch it in
+   * either direction; see `chat:secret-saved` in `DENIED_EVENT_PREFIXES`.
+   */
+  'chat:secret-saved',
   'attachments:pick-files',
   'attachments:pick-directory',
   'workspace:pick-directory',
@@ -268,7 +270,17 @@ export const DENIED_EVENT_PREFIXES = [
    * the send should move to `broadcastLiveToken` at the same time, so it is a
    * choice rather than a firehose.
    */
-  'critical-thinking:'
+  'critical-thinking:',
+
+  /** No dock on the phone to show it; see `processes:` in `DENIED_CHANNEL_PREFIXES`. */
+  'processes:',
+
+  /**
+   * Carries a key the person pasted, so the window can scrub it from the chat.
+   * Sent to local windows only already; listed so that a later change to how
+   * it is sent cannot put a key on the wire to a phone.
+   */
+  'chat:secret-saved'
 ] as const
 
 /**

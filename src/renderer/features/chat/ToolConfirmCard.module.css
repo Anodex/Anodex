@@ -338,3 +338,36 @@
     box-shadow: 0 0 16px rgba(79, 140, 255, 0.5);
   }
 }
+
+.secretHelp {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.secretHelp a {
+  color: var(--accent);
+}
+
+.secretRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.secretInput {
+  flex: 1;
+  min-width: 180px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  font-family: var(--font-mono);
+}
+
+.secretInput:focus {
+  border-color: var(--border-focus);
+}

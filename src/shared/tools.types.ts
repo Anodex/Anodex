@@ -181,6 +181,19 @@ export interface ToolConfirmRequest {
    * less. A duration rather than a time of day, so the two clocks need not agree.
    */
   expiresInMs?: number
+  /**
+   * Present when this prompt is a box for the person to paste a key into,
+   * rather than a yes/no. The key comes back in `ToolConfirmResponse.secretValue`
+   * to the main process, which checks and stores it; the model is told only
+   * whether it worked. See `request_key`.
+   */
+  secret?: {
+    /** The service the key is for: "Tavily", "GitHub". */
+    service: string
+    /** Where to get one, opened in the browser. */
+    getUrl?: string
+    placeholder: string
+  }
 }
 
 /** The user's answer to a `ToolConfirmRequest`. */
@@ -191,6 +204,8 @@ export interface ToolConfirmResponse {
   remember?: boolean
   /** Optional free-text reason typed on denial, woven into the model-facing denial message. */
   reason?: string
+  /** The key pasted into a `secret` prompt. Never shown to the model. */
+  secretValue?: string
 }
 
 /** Static metadata about the available tools, for the Settings UI. */
@@ -402,6 +417,19 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     kind: 'write',
     description:
       'Ask to work in a folder on this computer outside any open project; once allowed it becomes a project and the chat continues there. Asks first except in Untethered mode.'
+  },
+  {
+    name: 'request_key',
+    kind: 'write',
+    description:
+      'Ask for an API key or token in a secure box in the chat, check it, and store it encrypted; the model never sees it. Always needs the person.',
+    requiresHumanApproval: true
+  },
+  {
+    name: 'save_key',
+    kind: 'write',
+    description:
+      'Store a key the person pasted into the chat after checking it works; refuses a key they did not type. Asks first except in Untethered mode.'
   },
   {
     name: 'check_computer',

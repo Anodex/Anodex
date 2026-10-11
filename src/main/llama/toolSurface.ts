@@ -308,6 +308,10 @@ const DIRECT_TOOL_PRIORITY = [
   // "Do I have Java?" is answered by this or guessed at with platform-specific
   // shell commands; a chat should not have to reach behind the gateway for it.
   'check_computer',
+  // Setting a service up is a chat conversation ("here is my Tavily key"), and
+  // a model that cannot see these answers by asking the person to go to Settings.
+  'save_key',
+  'request_key',
   // The Scheduler pair sits with chat's own primaries, directly after the tool
   // that reads Anodex state, because a chat is usually asked about a task and
   // then asked to change it in the same breath.

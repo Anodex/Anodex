@@ -304,6 +304,12 @@ Write and mutation tools:
 - Check facts about this computer without shell commands: whether a program is installed
   and its version, whether a port is free, disk space, and the OS, CPU and memory.
   Read-only, so it never asks.
+- Take a key for a service it is setting up (Tavily, Brave Search, GitHub, or a cloud model
+  provider). Either a secure box in the chat (the model never sees the key), or a key the
+  person pasted into the chat, which is saved without asking in Untethered mode and asked
+  about first otherwise. Every key is checked against its service before it is stored
+  encrypted, a key the person did not type themselves is refused, and once saved it is
+  replaced in their message with "•••• (saved)".
 - Start long-running processes in the background (a dev server, a watcher, a local app),
   read their output, and stop them. Each one is tied to its project, shown in the dock's
   Processes panel with the address it serves, and stopped when Anodex quits.

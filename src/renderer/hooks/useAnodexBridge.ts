@@ -204,6 +204,11 @@ export function useAnodexBridge(): void {
       })()
     })
 
+    // A key the person pasted has been stored; the chat stops holding it.
+    const offSecretSaved = anodex.chat.onSecretSaved(({ conversationId, secret }) => {
+      useChatStore.getState().redactSecret(conversationId, secret)
+    })
+
     // A phone can now write conversations. Without this a chat started there did
     // not exist on the desktop until Anodex was restarted, which looks exactly like
     // it having failed to save.
@@ -354,6 +359,7 @@ export function useAnodexBridge(): void {
       offProjectChanged()
       offConversationChanged()
       offProjectSwitched()
+      offSecretSaved()
       offSettingsChanged()
       offEngine()
       offDownloadProgress()

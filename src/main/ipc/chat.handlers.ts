@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { ok, err, toErrorMessage } from '@shared/result'
 import type {
@@ -17,7 +17,7 @@ import {
   registerGeneration,
   releaseGeneration
 } from '../chat/inflightGenerations'
-import { broadcastLiveToken, broadcastToWindows } from '../broadcast'
+import { broadcastLiveToken, broadcastToWindows, sendToWindow } from '../broadcast'
 import { createLogger } from '../utils/logger'
 import { computerControlService } from '../computerControl/ComputerControlService'
 import {
@@ -123,6 +123,15 @@ export function registerChatHandlers(): void {
         signal: controller.signal,
         // Its presence is what offers folder access to this reply; see
         // `RunGenerationIo.onProjectSwitched`.
+        // Windows on this computer only, never a phone: the payload is the key.
+        onSecretSaved: (secret) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            sendToWindow(window, IpcChannel.Chat.secretSaved, {
+              conversationId: request.conversationId,
+              secret
+            })
+          }
+        },
         onProjectSwitched: (projectId) => {
           broadcastToWindows(IpcChannel.Chat.projectSwitched, {
             conversationId: request.conversationId,

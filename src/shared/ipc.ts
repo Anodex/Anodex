@@ -242,6 +242,12 @@ export const IpcChannel = {
      */
     projectSwitched: 'chat:project-switched',
     /**
+     * main → this computer's windows only: a key the person pasted was stored,
+     * so the chat can replace it in its copy of their message. Carries the key,
+     * so it is never sent to a paired phone (see `channelPolicy.ts`).
+     */
+    secretSaved: 'chat:secret-saved',
+    /**
      * Whether this client wants tokens as they are generated.
      *
      * A phone on mobile data pays for every token twice — once in bytes and once in
@@ -944,6 +950,8 @@ export interface AnodexApi {
     /** A quiet turn saying it is still alive, and whether it is waiting for the model. */
     onWorking(listener: (event: ChatWorkingEvent) => void): () => void
     /** A reply moved into another project after being granted folder access. */
+    /** A key the person pasted was stored; replace it in their message. */
+    onSecretSaved(listener: (event: { conversationId: string; secret: string }) => void): () => void
     onProjectSwitched(
       listener: (event: { conversationId: string; projectId: string }) => void
     ): () => void

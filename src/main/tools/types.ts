@@ -191,6 +191,15 @@ export interface ToolRuntimeContext {
    * and command tools.
    */
   switchProject?: (projectId: string) => void
+  /**
+   * Whether `text` appears in something the person typed in this chat. How
+   * `save_key` tells a key the person pasted from one the model found in a
+   * web page or a file, which it must never store. Absent on runs with no
+   * person's message behind them.
+   */
+  userProvided?: (text: string) => boolean
+  /** Told a key was stored, so the chat can stop holding it in plain text. */
+  onSecretSaved?: (secret: string) => void
   signal?: AbortSignal
   /** Report a tool call's progress to the UI. */
   emit: (call: ToolCall) => void
