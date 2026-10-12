@@ -12,14 +12,18 @@
   z-index: 900;
   display: grid;
   place-items: center;
-  /* Down only: the star layer is offset past the edge and would otherwise add a
-     sideways scrollbar to a screen that never needs one. */
   overflow: hidden auto;
   background:
     radial-gradient(1200px 600px at 50% 120%, rgb(124 92 255 / 16%), transparent 60%),
     radial-gradient(800px 500px at 15% -10%, rgb(56 189 248 / 10%), transparent 60%),
     radial-gradient(700px 500px at 100% 10%, rgb(79 140 255 / 10%), transparent 55%), #05060a;
   color: #f0f0f0;
+}
+
+.stars {
+  /* Clips its own offset copy below, so the field never makes the screen wider
+     than it is — overflow-x: hidden on the parent still let a click scroll it. */
+  overflow: hidden;
 }
 
 .stars,
