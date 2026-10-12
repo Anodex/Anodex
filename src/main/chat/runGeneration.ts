@@ -79,6 +79,7 @@ import { tokenActivityStore } from '../stats/TokenActivityStore'
 import { buildWorkspaceContextParts } from '../tools/workspaceContext'
 import { buildMemoryContext } from '../memory/MemoryRetriever'
 import { buildTranscriptRecallContext } from '../recall/transcriptRecallContext'
+import { recallTheReplyUsed } from '@shared/recallUsed'
 import { skillStore } from '../skills/SkillStore'
 import { buildActiveSkillContext } from '../skills/activeSkillContext'
 import { parseRunCommandVerification } from '../tools/commandTools'
@@ -1111,7 +1112,11 @@ export async function runGeneration(
         ? { chars: (boundedSystemPrompt ?? '').length, tokens: outcome.contextBudget.systemTokens }
         : undefined,
     memoryUsed,
-    transcriptRecallUsed,
+    // Given is not used: recall matched the question, so only a chat the reply
+    // actually drew on is credited under it.
+    transcriptRecallUsed: unlessEmpty(
+      recallTheReplyUsed(transcriptRecallUsed, content, request.prompt)
+    ),
     webSources: webSourceRegistry.list(),
     webSearchAttempted: webSourceRegistry.attempted,
     context: contextUpdate ?? (contextReconciliation.changed ? activeContext : undefined),
@@ -1192,4 +1197,8 @@ function withConfiguredReplyCeiling(
   const configured = providerMaxResponseTokens(settingsStore.get().provider, providerId)
   if (configured === undefined) return options
   return { ...options, maxTokens: configured }
+}
+
+function unlessEmpty<T>(list: T[]): T[] | undefined {
+  return list.length > 0 ? list : undefined
 }
