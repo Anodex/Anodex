@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  activeElapsedMs,
-  seriesIdOf,
-  type AgentRun,
-  type AgentRunStatus
-} from '@shared/agentRun.types'
+import { activeElapsedMs, seriesIdOf, type AgentRun } from '@shared/agentRun.types'
+import type { Plan } from '@shared/plan.types'
+import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
+import { useLoadedConversation } from '../../hooks/useLoadedConversation'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { useArrival } from '../../components/ui/useArrival'
@@ -16,16 +14,14 @@ import { formatRelativeTime } from '../../lib/time'
 import { AgentRunEditor, type AgentRunEditorSeed } from './AgentRunEditor'
 import { AgentRunConversation } from './AgentRunConversation'
 import {
-  STATUS_ICON,
   continueLabel,
   formatCompactTokens,
-  plainStopReason,
   ranOut,
+  ranOutBrief,
   runStatusLabel,
   spentLine,
   goalHeadline,
   isTerminalStatus,
-  providerIcon,
   providerLabel
 } from './agentRunFormat'
 import { useAwayArrivals } from './useAwayArrivals'
@@ -34,7 +30,6 @@ import { KeepGoingDialog } from './KeepGoingDialog'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
 import styles from './AgentView.module.css'
-import { shortenId } from '../../components/shortenId'
 import { plainSummary } from '@shared/titleText'
 import { runOutcomeText } from './agentRunFormat'
 import { AGENT_EXAMPLES } from './agentExamples'
@@ -199,16 +194,123 @@ function AwayBand({
   )
 }
 
-type StatusFilter = AgentRunStatus | 'all'
+/** Which part of the list a run belongs in: what needs you, what is working, what is done. */
+type Section = 'needs-you' | 'working' | 'finished'
 
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'running', label: 'Running' },
-  { value: 'needs-review', label: 'Needs review' },
-  { value: 'done', label: 'Done' },
-  { value: 'stopped', label: 'Stopped' },
-  { value: 'error', label: 'Error' }
-]
+const SECTION_ORDER: Section[] = ['needs-you', 'working', 'finished']
+const SECTION_LABEL: Record<Section, string> = {
+  'needs-you': 'Needs you',
+  working: 'Working',
+  finished: 'Finished'
+}
+
+/**
+ * A run waiting on a person comes first: a plan to approve, or a run that ran
+ * out of room and is one click from carrying on. Sorted by age alone, a plan
+ * waiting for approval sat below runs that needed nothing from anyone.
+ */
+function sectionOf(run: AgentRun): Section {
+  if (run.status === 'running') return 'working'
+  if (run.status === 'needs-review' || (ranOut(run) && !run.parentRunId)) return 'needs-you'
+  return 'finished'
+}
+
+type DotTone = 'run' | 'wait' | 'ok' | 'stopped' | 'bad'
+
+function dotTone(run: AgentRun): DotTone {
+  if (run.status === 'running') return 'run'
+  if (run.status === 'needs-review' || ranOut(run)) return 'wait'
+  if (run.status === 'error') return 'bad'
+  // A run that claimed outcomes which never happened is not a clean green.
+  if (run.status === 'done') return run.flaggedTurns > 0 ? 'wait' : 'ok'
+  return 'stopped'
+}
+
+/** The plan step being worked on, or the next one, with its 1-based number. */
+function currentStep(run: AgentRun): { title: string; number: number; total: number } | null {
+  const steps = run.plan?.steps ?? []
+  const index = steps.findIndex((step) => step.status === 'in_progress')
+  const at = index >= 0 ? index : steps.findIndex((step) => step.status === 'pending')
+  if (at < 0) return null
+  return { title: steps[at].title, number: at + 1, total: steps.length }
+}
+
+/** The one line under a run's goal: what it is doing, waiting for, or ended with. */
+function runSubline(run: AgentRun): string {
+  if (run.status === 'needs-review') {
+    if (!run.plan) return 'Writing a plan before it acts'
+    const steps = run.plan.steps.length
+    return `Plan ready · ${steps} step${steps === 1 ? '' : 's'} · nothing changed yet`
+  }
+  if (run.status === 'running') {
+    const step = currentStep(run)
+    const turn = Math.min(run.turnsUsed + 1, run.limitsEnabled ? run.maxTurns : Infinity)
+    const turnText = run.limitsEnabled ? `turn ${turn} of ${run.maxTurns}` : `turn ${turn}`
+    return step
+      ? `${step.title} · step ${step.number} of ${step.total} · ${turnText}`
+      : `Working · ${turnText}`
+  }
+  return ranOutBrief(run) ?? (plainSummary(runOutcomeText(run)) || runStatusLabel(run))
+}
+
+/**
+ * What a running run did last, in the words the chat uses: "Edited
+ * src/settings/theme.ts". Read from its conversation, which the chat store keeps
+ * current as each turn lands.
+ */
+function useLastAction(run: AgentRun): string | null {
+  const conversation = useLoadedConversation(run.status === 'running' ? run.conversationId : null)
+  const messages = conversation?.messages ?? []
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const call = messages[index].toolCalls?.at(-1)
+    if (call) return `${toolActionLabel(call)} ${toolActionTarget(call)}`.trim()
+  }
+  return null
+}
+
+/**
+ * How far through its plan a running run is, as a ring that fills step by step.
+ * A run with no plan yet gets a turning arc instead: working, with no fraction
+ * to claim.
+ */
+function PlanRing({ run }: { run: AgentRun }): JSX.Element {
+  const steps = run.plan?.steps ?? []
+  const done = steps.filter((step) => step.status === 'completed').length
+  const radius = 19
+  const length = 2 * Math.PI * radius
+  const known = steps.length > 0
+  const fraction = known ? done / steps.length : 0.28
+  return (
+    <svg
+      className={`${styles.ring} ${known ? '' : styles.ringSpin}`}
+      viewBox="0 0 46 46"
+      role="img"
+      aria-label={known ? `${done} of ${steps.length} steps done` : 'Working'}
+    >
+      <defs>
+        <linearGradient id={`ring-${run.id}`} x1="0" x2="1">
+          <stop offset="0" stopColor="var(--accent-violet)" />
+          <stop offset="1" stopColor="var(--accent)" />
+        </linearGradient>
+      </defs>
+      <circle className={styles.ringTrack} cx="23" cy="23" r={radius} />
+      <circle
+        className={styles.ringFill}
+        cx="23"
+        cy="23"
+        r={radius}
+        stroke={`url(#ring-${run.id})`}
+        strokeDasharray={`${Math.max(0.001, fraction) * length} ${length}`}
+        transform="rotate(-90 23 23)"
+      />
+      {known && (
+        <text x="23" y="27" textAnchor="middle" className={styles.ringText}>
+          {done}/{steps.length}
+        </text>
+      )}
+    </svg>
+  )
+}
 
 function RunCard({
   run,
@@ -229,7 +331,7 @@ function RunCard({
   cardRef
 }: {
   run: AgentRun
-  /** Sub-agents this run delegated, rendered as their own cards beneath it. */
+  /** Sub-agents this run delegated, rendered as their own rows beneath it. */
   subAgents?: AgentRun[]
   /** Where this run sits among its parent's sub-agents — decides its mark. */
   subAgentIndex?: number | null
@@ -254,23 +356,34 @@ function RunCard({
 }): JSX.Element {
   const justArrived = useJustArrived(run, orchestrated)
   const arrived = orchestrated ? spotlit : justArrived
+  // A sub-agent stays a row even while it works: the live card is for the run
+  // the person started, and three of them stacked would bury it.
+  const live = run.status === 'running' && subAgentIndex === null
+  const lastAction = useLastAction(run)
+  const tone = dotTone(run)
+  const project = projectName(run.projectId)
+  const subAgentText = describeSubAgents(subAgents)
 
   return (
     <div
       ref={cardRef}
-      className={`${styles.runCard} ${styles[`runCard-${run.status}`]} ${
-        arrived ? styles.arrived : ''
-      }`}
+      className={`${styles.run} ${live ? styles.live : styles.row} ${
+        styles[`run-${run.status}`] ?? ''
+      } ${arrived ? styles.arrived : ''}`}
     >
-      {run.status === 'running' && (
-        <span className={styles.cometEdge} aria-hidden="true">
-          <span className={styles.cometHalo} />
-          <span className={styles.cometCore} />
-        </span>
-      )}
-      <div className={styles.runRow}>
-        <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
-          <div className={styles.runTitleRow}>
+      <button type="button" className={styles.runMain} onClick={() => openRun(run)}>
+        {live ? (
+          <PlanRing run={run} />
+        ) : (
+          <span
+            className={`${styles.dot} ${styles[`dot-${tone}`]} ${
+              run.status === 'needs-review' ? styles.dotWaiting : ''
+            }`}
+            title={`${runStatusLabel(run)} · ${providerLabel(run)}`}
+          />
+        )}
+        <span className={styles.runText}>
+          <span className={styles.runGoal}>
             {run.parentRunId && subAgentIndex !== null && (
               // The same mark and name this run carries beside its parent's
               // title and at the head of its section in the report — one
@@ -285,119 +398,118 @@ function RunCard({
                 {subAgentLabel}
               </span>
             )}
-            <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
-              <Icon name={STATUS_ICON[run.status]} size={12} />
-              {runStatusLabel(run)}
+            {goalHeadline(run.goal)}
+          </span>
+          <span className={`${styles.runSub} ${run.status === 'error' ? styles.runSubError : ''}`}>
+            {runSubline(run)}
+          </span>
+          {live && lastAction && <span className={styles.lastAction}>{lastAction}</span>}
+          {live && <BudgetMeters run={run} />}
+          <span className={styles.srOnly}>{runStatusLabel(run)}</span>
+        </span>
+        <span className={styles.runTags}>
+          {project && <span className={styles.runProject}>{project}</span>}
+          {seriesPlace && (
+            // Only on work that actually carried over — see `seriesPlaces`.
+            // Without it a continuation is indistinguishable from a run that
+            // happens to repeat the same goal.
+            <span className={styles.seriesMark} title="Part of one ongoing piece of work">
+              <Icon name="chevrons-up" size={12} />
+              run {seriesPlace.position} of {seriesPlace.total}
             </span>
-            {projectName(run.projectId) && (
-              <span className={styles.runProject}>{projectName(run.projectId)}</span>
-            )}
-            {/* On the list, one chip per card would be noise, so it waits for a
-                hover. Inside a run it is always visible -- see CopyableId. */}
-            <span className={styles.runId}>{shortenId(run.id)}</span>
-          </div>
-          <p className={styles.runGoal}>{goalHeadline(run.goal)}</p>
-          <div className={styles.runMeta}>
-            <span>{formatRelativeTime(run.updatedAt)}</span>
-            <span className={styles.runProvider}>
-              <Icon name={providerIcon(run)} size={12} />
-              {providerLabel(run)}
+          )}
+          {subAgentText && (
+            <span className={styles.subAgentCount}>
+              <Icon name="bot" size={12} />
+              {subAgentText}
             </span>
-            {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
-              <span
-                className={styles.unlimitedWarning}
-                title="Unlimited run on a paid API — no automatic spend ceiling."
-              >
-                <Icon name="alert" size={12} />
-                Unlimited spend
-              </span>
-            )}
-            {seriesPlace && (
-              // Only on work that actually carried over — see `seriesPlaces`.
-              // Without it a continuation is indistinguishable from a run
-              // that happens to repeat the same goal, which is the whole
-              // difference between pursuing something and restating it.
-              <span className={styles.seriesMark} title="Part of one ongoing piece of work">
-                <Icon name="chevrons-up" size={12} />
-                run {seriesPlace.position} of {seriesPlace.total}
-              </span>
-            )}
-            {describeSubAgents(subAgents) && (
-              <span className={styles.subAgentCount}>
-                <Icon name="bot" size={12} />
-                {describeSubAgents(subAgents)}
-              </span>
-            )}
-            {run.flaggedTurns > 0 && (
-              <span
-                className={styles.unlimitedWarning}
-                title={`The model described an outcome — a change, an approval, a denial — that didn't actually happen on ${run.flaggedTurns} turn${run.flaggedTurns === 1 ? '' : 's'}. Check the transcript before trusting this result.`}
-              >
-                <Icon name="alert" size={12} />
-                Possible fabrication ({run.flaggedTurns})
-              </span>
-            )}
-          </div>
-          {run.status === 'running' && <BudgetMeters run={run} />}
-          {(run.summary || run.lastError) && (
-            <p
-              className={`${styles.runResult} ${
-                run.status === 'error'
-                  ? styles.runResultError
-                  : run.status === 'stopped' && run.lastError
-                    ? styles.runResultWarn
-                    : ''
-              }`}
-            >
-              {run.status === 'error' ? 'Failed: ' : ''}
-              {plainStopReason(run) ?? plainSummary(runOutcomeText(run))}
-            </p>
           )}
-        </button>
-        <div className={styles.runActions}>
-          {run.status === 'running' && (
-            <button
-              type="button"
-              className={styles.iconAction}
-              onClick={() => void handleStop(run)}
-              disabled={stoppingId === run.id}
-              aria-label="Stop run"
-              title="Stop run"
+          {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
+            <span
+              className={styles.unlimitedWarning}
+              title="Unlimited run on a paid API — no automatic spend ceiling."
             >
-              <Icon name="stop" size={14} />
-            </button>
+              <Icon name="alert" size={12} />
+              Unlimited spend
+            </span>
           )}
-          {/* Continue, not Retry. Retry starts the same goal over from
-              nothing; this starts the next run of an ongoing piece of work,
-              which reads what the runs before it did. Offered only once a
-              run has finished, because continuing something still in flight
-              would have two runs acting on one series at once. */}
-          {run.status !== 'running' && !run.parentRunId && (
-            <button
-              type="button"
-              className={styles.iconAction}
-              onClick={() => continueRun(run)}
-              aria-label="Continue this work in a new run"
-              title="Continue this work in a new run"
+          {run.flaggedTurns > 0 && (
+            <span
+              className={styles.unlimitedWarning}
+              title={`The model described an outcome — a change, an approval, a denial — that didn't actually happen on ${run.flaggedTurns} turn${run.flaggedTurns === 1 ? '' : 's'}. Check the transcript before trusting this result.`}
             >
-              <Icon name="chevrons-up" size={14} />
-            </button>
+              <Icon name="alert" size={12} />
+              Possible fabrication ({run.flaggedTurns})
+            </span>
           )}
-          {/* The same decision as Continue, made once instead of every time.
-              Offered beside it rather than buried in the Scheduler, because
-              "this should keep happening" is a thought you have while looking
-              at what just happened. */}
-          {run.status !== 'running' && !run.parentRunId && (
-            <button
-              type="button"
-              className={styles.iconAction}
-              onClick={() => keepGoing(run)}
-              aria-label="Keep this work going on a schedule"
-              title="Keep this work going on a schedule"
-            >
-              <Icon name="clock" size={14} />
-            </button>
-          )}
+        </span>
+      </button>
+
+      {run.status === 'needs-review' && run.plan && (
+        <Button variant="primary" size="sm" onClick={() => openRun(run)}>
+          Review plan
+        </Button>
+      )}
+      {/* A run that ran out of room gets the way on, on its row, rather than
+          behind a hover-only icon. The phone's card does the same. Not for a
+          sub-agent: its parent decides whether it goes on. */}
+      {ranOut(run) && !run.parentRunId && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => continueRun(run)}
+          title={spentLine(run)}
+        >
+          {continueLabel(run)}
+        </Button>
+      )}
+
+      <span className={styles.runWhen}>{formatRelativeTime(run.updatedAt)}</span>
+
+      <div className={styles.runActions}>
+        {run.status === 'running' && (
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => void handleStop(run)}
+            disabled={stoppingId === run.id}
+            aria-label="Stop run"
+            title="Stop run"
+          >
+            <Icon name="stop" size={14} />
+          </button>
+        )}
+        {/* Continue, not Retry. Retry starts the same goal over from nothing;
+            this starts the next run of an ongoing piece of work, which reads
+            what the runs before it did. Only once a run has finished, because
+            continuing something still in flight would have two runs acting on
+            one series at once. */}
+        {isTerminalStatus(run.status) && !run.parentRunId && !ranOut(run) && (
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => continueRun(run)}
+            aria-label="Continue this work in a new run"
+            title="Continue this work in a new run"
+          >
+            <Icon name="chevrons-up" size={14} />
+          </button>
+        )}
+        {/* The same decision as Continue, made once instead of every time. */}
+        {isTerminalStatus(run.status) && !run.parentRunId && (
+          <button
+            type="button"
+            className={styles.iconAction}
+            onClick={() => keepGoing(run)}
+            aria-label="Keep this work going on a schedule"
+            title="Keep this work going on a schedule"
+          >
+            <Icon name="clock" size={14} />
+          </button>
+        )}
+        {/* Not while a plan waits: Retry would start the same goal again from
+            nothing, beside the run that is only waiting for an answer. */}
+        {run.status !== 'needs-review' && (
           <button
             type="button"
             className={styles.iconAction}
@@ -407,29 +519,18 @@ function RunCard({
           >
             <Icon name="refresh" size={14} />
           </button>
-          <button
-            type="button"
-            className={styles.iconAction}
-            onClick={() => deleteRun(run)}
-            disabled={run.status === 'running'}
-            aria-label="Delete run"
-            title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
-          >
-            <Icon name="trash" size={14} />
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          className={styles.iconAction}
+          onClick={() => deleteRun(run)}
+          disabled={run.status === 'running'}
+          aria-label="Delete run"
+          title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
+        >
+          <Icon name="trash" size={14} />
+        </button>
       </div>
-      {/* A run that ran out of room gets the way on, where it is read, rather than
-          behind a hover-only icon. The phone's card does the same. Not for a
-          sub-agent: its parent decides whether it goes on. */}
-      {ranOut(run) && !run.parentRunId && (
-        <div className={styles.runFooter}>
-          <span className={styles.runSpent}>{spentLine(run)}</span>
-          <Button variant="primary" size="sm" onClick={() => continueRun(run)}>
-            {continueLabel(run)}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
@@ -460,7 +561,6 @@ export function AgentView(): JSX.Element {
   const [exampleSeed, setExampleSeed] = useState<AgentRunEditorSeed | null>(null)
   const [stoppingId, setStoppingId] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [awayOnly, setAwayOnly] = useState(false)
   /** The finished run whose work is being put on a schedule, if any. */
@@ -490,11 +590,7 @@ export function AgentView(): JSX.Element {
   const keepGoingRun = runs.find((run) => run.id === keepGoingId) ?? null
 
   const awayIds = new Set(away.runs.map((run) => run.id))
-  const visibleRuns = awayOnly
-    ? runs.filter((run) => awayIds.has(run.id))
-    : statusFilter === 'all'
-      ? runs
-      : runs.filter((run) => run.status === statusFilter)
+  const visibleRuns = awayOnly ? runs.filter((run) => awayIds.has(run.id)) : runs
 
   const closeEditor = (): void => {
     setCreating(false)
@@ -590,10 +686,10 @@ export function AgentView(): JSX.Element {
     await deleteRun(run.id)
   }
 
-  const handleApprove = async (run: AgentRun): Promise<void> => {
+  const handleApprove = async (run: AgentRun, plan?: Plan): Promise<void> => {
     setDecidingId(run.id)
     try {
-      await approveRunPlan(run.id)
+      await approveRunPlan(run.id, plan)
     } finally {
       setDecidingId(null)
     }
@@ -628,7 +724,7 @@ export function AgentView(): JSX.Element {
           onStop={() => void handleStop(selectedRun)}
           onRetry={() => retryRun(selectedRun)}
           onDelete={() => void handleDelete(selectedRun)}
-          onApprove={() => void handleApprove(selectedRun)}
+          onApprove={(plan) => void handleApprove(selectedRun, plan)}
           onReject={() => void handleReject(selectedRun)}
           onContinueInChat={() => void continueInChat(selectedRun)}
           onContinue={() => continueRun(selectedRun)}
@@ -666,37 +762,13 @@ export function AgentView(): JSX.Element {
           <AwayBand
             runs={away.runs}
             filtered={awayOnly}
-            onShow={() => {
-              setAwayOnly(true)
-              setStatusFilter('all')
-            }}
+            onShow={() => setAwayOnly(true)}
             onClearFilter={() => setAwayOnly(false)}
             onDismiss={() => {
               setAwayOnly(false)
               away.dismiss()
             }}
           />
-        )}
-
-        {runs.length > 0 && (
-          <div className={styles.filterRow}>
-            {STATUS_FILTERS.map((filter) => (
-              <button
-                key={filter.value}
-                type="button"
-                className={`${styles.filterTab} ${
-                  !awayOnly && statusFilter === filter.value ? styles.filterTabActive : ''
-                }`}
-                onClick={() => {
-                  setAwayOnly(false)
-                  setStatusFilter(filter.value)
-                }}
-                aria-pressed={!awayOnly && statusFilter === filter.value}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
         )}
 
         {runs.length === 0 ? (
@@ -715,10 +787,6 @@ export function AgentView(): JSX.Element {
               }))}
             />
           </>
-        ) : visibleRuns.length === 0 ? (
-          <div className={styles.empty}>
-            <p>No {statusFilter} runs.</p>
-          </div>
         ) : (
           <div className={styles.runList} ref={listRef}>
             {away.sweeping && beamTop !== null && (
@@ -728,50 +796,70 @@ export function AgentView(): JSX.Element {
                 aria-hidden="true"
               />
             )}
-            {groupRunsByParent(visibleRuns).map(({ run, children }) => {
-              // Resolved once for the whole fan-out, because whether a label
-              // is usable depends on the other tasks — see `subAgentNames`.
-              const names = subAgentNames(
-                children.map((child) => child.delegatedTask ?? child.goal)
+            {SECTION_ORDER.map((section) => {
+              const groups = groupRunsByParent(visibleRuns).filter(
+                ({ run }) => sectionOf(run) === section
               )
-              const card = (
-                entry: AgentRun,
-                subAgents: AgentRun[] = [],
-                subAgentIndex: number | null = null
-              ): JSX.Element => (
-                <RunCard
-                  key={entry.id}
-                  run={entry}
-                  subAgents={subAgents}
-                  subAgentIndex={subAgentIndex}
-                  subAgentLabel={subAgentIndex === null ? null : names[subAgentIndex]}
-                  seriesPlace={places.get(entry.id) ?? null}
-                  stoppingId={stoppingId}
-                  projectName={projectName}
-                  openRun={(r) => setSelectedRunId(r.id)}
-                  handleStop={(r) => void handleStop(r)}
-                  retryRun={retryRun}
-                  continueRun={continueRun}
-                  keepGoing={(run) => setKeepGoingId(run.id)}
-                  deleteRun={(r) => void handleDelete(r)}
-                  orchestrated={away.orchestrated(entry.id)}
-                  spotlit={away.spotlightId === entry.id}
-                  cardRef={(element) => {
-                    if (element) cardEls.current.set(entry.id, element)
-                    else cardEls.current.delete(entry.id)
-                  }}
-                />
-              )
-              if (children.length === 0) return card(run)
+              if (groups.length === 0) return null
               return (
-                <div key={run.id} className={styles.runGroup}>
-                  {card(run, children)}
-                  {/* Indented under the run that sent them out, so the shape of
-                      a fan-out is legible without opening anything. */}
-                  <div className={styles.subRuns}>
-                    {children.map((child, index) => card(child, [], index))}
-                  </div>
-                </div>
+                <section
+                  key={section}
+                  className={styles.section}
+                  aria-label={SECTION_LABEL[section]}
+                >
+                  <h2 className={styles.sectionHead}>
+                    {SECTION_LABEL[section]}
+                    {section !== 'finished' && <b>{groups.length}</b>}
+                  </h2>
+                  {groups.map(({ run, children }) => {
+                    // Resolved once for the whole fan-out, because whether a
+                    // label is usable depends on the other tasks — see
+                    // `subAgentNames`.
+                    const names = subAgentNames(
+                      children.map((child) => child.delegatedTask ?? child.goal)
+                    )
+                    const card = (
+                      entry: AgentRun,
+                      subAgents: AgentRun[] = [],
+                      subAgentIndex: number | null = null
+                    ): JSX.Element => (
+                      <RunCard
+                        key={entry.id}
+                        run={entry}
+                        subAgents={subAgents}
+                        subAgentIndex={subAgentIndex}
+                        subAgentLabel={subAgentIndex === null ? null : names[subAgentIndex]}
+                        seriesPlace={places.get(entry.id) ?? null}
+                        stoppingId={stoppingId}
+                        projectName={projectName}
+                        openRun={(r) => setSelectedRunId(r.id)}
+                        handleStop={(r) => void handleStop(r)}
+                        retryRun={retryRun}
+                        continueRun={continueRun}
+                        keepGoing={(r) => setKeepGoingId(r.id)}
+                        deleteRun={(r) => void handleDelete(r)}
+                        orchestrated={away.orchestrated(entry.id)}
+                        spotlit={away.spotlightId === entry.id}
+                        cardRef={(element) => {
+                          if (element) cardEls.current.set(entry.id, element)
+                          else cardEls.current.delete(entry.id)
+                        }}
+                      />
+                    )
+                    if (children.length === 0) return card(run)
+                    return (
+                      <div key={run.id} className={styles.runGroup}>
+                        {card(run, children)}
+                        {/* Indented under the run that sent them out, so the
+                            shape of a fan-out is legible without opening
+                            anything. */}
+                        <div className={styles.subRuns}>
+                          {children.map((child, index) => card(child, [], index))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </section>
               )
             })}
           </div>

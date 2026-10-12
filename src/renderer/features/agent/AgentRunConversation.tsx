@@ -31,6 +31,7 @@ import {
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
 import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
+import { toolsCanChangeFiles } from '@shared/tools.types'
 import { CopyableId } from '../../components/CopyableId'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
@@ -51,7 +52,8 @@ interface AgentRunConversationProps {
   onStop: () => void
   onRetry: () => void
   onDelete: () => void
-  onApprove: () => void
+  /** Approve the plan, as proposed or with the person's edits. */
+  onApprove: (plan?: Plan) => void
   onReject: () => void
   onContinueInChat: () => void
   /** Start the next run of this work, as the list's Continue does. */
@@ -123,10 +125,19 @@ function useTick(active: boolean): void {
  * read as finished work above a box saying it had not finished — both true, and
  * together nonsense.
  */
-function PlanList({ plan, finished }: { plan: Plan; finished: boolean }): JSX.Element {
+function PlanList({
+  plan,
+  finished,
+  live = false
+}: {
+  plan: Plan
+  finished: boolean
+  /** The run is working now, so its current step says so. */
+  live?: boolean
+}): JSX.Element {
   return (
-    <ul className={styles.planSteps}>
-      {plan.steps.map((step, index) => (
+    <ol className={styles.planSteps}>
+      {plan.steps.map((step) => (
         <li
           key={step.id}
           className={`${styles.planStep} ${styles[`planStep-${step.status}`]} ${
@@ -135,19 +146,140 @@ function PlanList({ plan, finished }: { plan: Plan; finished: boolean }): JSX.El
         >
           <span className={styles.planStepIcon}>
             {step.status === 'completed' ? (
-              <Icon name="check" size={12} />
-            ) : step.status === 'in_progress' ? (
+              <Icon name="check" size={11} />
+            ) : step.status === 'in_progress' && live ? (
               <Spinner size={11} />
-            ) : (
-              <Icon name="circle" size={12} />
-            )}
+            ) : null}
           </span>
           <span className={styles.planStepTitle}>
-            {index + 1}. {step.title}
+            {step.title}
+            {live && step.status === 'in_progress' && <small>now</small>}
           </span>
         </li>
       ))}
-    </ul>
+    </ol>
+  )
+}
+
+/** The edited titles as a plan, keeping each unchanged step's id. */
+function editedPlan(plan: Plan, titles: string[]): Plan {
+  const unused = [...plan.steps]
+  return {
+    ...plan,
+    updatedAt: Date.now(),
+    steps: titles.map((title) => {
+      const same = unused.findIndex((step) => step.title === title)
+      const id = same >= 0 ? unused.splice(same, 1)[0].id : crypto.randomUUID()
+      return { id, title, status: 'pending' as const }
+    })
+  }
+}
+
+/**
+ * A plan waiting for an answer: the plan, the two answers, and what approving
+ * allows. Edit turns the steps into fields; Approve sends the edited plan, and
+ * the run is told the steps changed before it starts.
+ *
+ * Nothing else is on the page while it waits. Meters, turns and an empty state
+ * reading "hasn't started yet" described a run that had not been allowed to.
+ */
+function PlanReview({
+  run,
+  deciding,
+  onApprove,
+  onReject
+}: {
+  run: AgentRun
+  deciding: boolean
+  onApprove: (plan?: Plan) => void
+  onReject: () => void
+}): JSX.Element {
+  const plan = run.plan
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<string[]>(() => plan?.steps.map((step) => step.title) ?? [])
+  useEffect(() => {
+    if (!editing) setDraft(plan?.steps.map((step) => step.title) ?? [])
+  }, [plan, editing])
+
+  const titles = draft.map((title) => title.trim()).filter(Boolean)
+  const changed =
+    plan !== null &&
+    (titles.length !== plan.steps.length ||
+      titles.some((title, index) => title !== plan.steps[index].title))
+  const canApprove = plan !== null && titles.length > 0
+
+  return (
+    <section className={styles.review} aria-label="Plan waiting for approval">
+      <h3 className={styles.reviewHead}>{plan ? 'Here is the plan' : 'Writing a plan…'}</h3>
+      {!plan ? (
+        <p className={styles.reviewNote}>Working out a plan before it acts. Check back shortly.</p>
+      ) : editing ? (
+        <div className={styles.planEditor}>
+          {draft.map((title, index) => (
+            <div key={index} className={styles.planEditRow}>
+              <span className={styles.planEditNumber}>{index + 1}</span>
+              <input
+                className={styles.planEditInput}
+                value={title}
+                aria-label={`Step ${index + 1}`}
+                onChange={(event) =>
+                  setDraft((steps) =>
+                    steps.map((step, at) => (at === index ? event.target.value : step))
+                  )
+                }
+              />
+              <button
+                type="button"
+                className={styles.planEditRemove}
+                onClick={() => setDraft((steps) => steps.filter((_, at) => at !== index))}
+                aria-label={`Remove step ${index + 1}`}
+                title="Remove step"
+              >
+                <Icon name="close" size={13} />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className={styles.planEditAdd}
+            onClick={() => setDraft((steps) => [...steps, ''])}
+          >
+            <Icon name="plus" size={12} />
+            Add a step
+          </button>
+        </div>
+      ) : (
+        <ol className={styles.reviewSteps}>
+          {titles.map((title, index) => (
+            <li key={index}>{title}</li>
+          ))}
+        </ol>
+      )}
+      <p className={styles.reviewNote}>
+        <Icon name="shield-check" size={13} />
+        {toolsCanChangeFiles(run.enabledTools)
+          ? 'Until you approve it can only read and search. Approving lets it change files and run commands.'
+          : 'Until you approve it can only read and search.'}
+      </p>
+      <div className={styles.reviewActions}>
+        <Button variant="ghost" onClick={onReject} disabled={deciding || !plan}>
+          Reject
+        </Button>
+        {plan && (
+          <Button variant="secondary" onClick={() => setEditing((value) => !value)}>
+            {editing ? 'Done editing' : 'Edit plan'}
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          onClick={() => onApprove(changed && plan ? editedPlan(plan, titles) : undefined)}
+          loading={deciding}
+          disabled={!canApprove}
+        >
+          {changed ? 'Approve changes and run' : 'Approve and run'}
+        </Button>
+      </div>
+    </section>
   )
 }
 
@@ -252,6 +384,19 @@ function GoalImage({ attachment }: { attachment: ChatAttachment }): JSX.Element 
       title={attachment.name}
       imageClassName={styles.goalImage}
     />
+  )
+}
+
+/** Past this, a one-line goal no longer fits the two lines the title gets. */
+const TITLE_CHARS = 160
+
+/** Whether the goal holds more than its title shows: more lines, files, or length. */
+function goalSaysMore(run: AgentRun): boolean {
+  const headline = goalHeadline(run.goal)
+  return (
+    run.goal.trim() !== headline ||
+    headline.length > TITLE_CHARS ||
+    (run.attachments?.length ?? 0) > 0
   )
 }
 
@@ -564,9 +709,14 @@ export function AgentRunConversation({
   return (
     <div className={styles.view}>
       <div className={styles.header}>
-        <button type="button" className={styles.backButton} onClick={onBack}>
-          <Icon name="chevron-left" size={14} />
-          All runs
+        <button
+          type="button"
+          className={styles.backButton}
+          onClick={onBack}
+          aria-label="All runs"
+          title="All runs"
+        >
+          <Icon name="chevron-left" size={16} />
         </button>
         <div className={styles.headerText}>
           <div className={styles.titleRow}>
@@ -618,9 +768,10 @@ export function AgentRunConversation({
               variant="secondary"
               onClick={onStop}
               disabled={stopping}
-              iconLeft={stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
+              aria-label="Stop run"
+              title="Stop run"
             >
-              Stop
+              {stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
             </Button>
           )}
           {/* First, and the one in colour, when the run ran out of room: going on
@@ -630,17 +781,23 @@ export function AgentRunConversation({
               {continueLabel(run)}
             </Button>
           )}
-          <Button
-            variant="secondary"
-            onClick={onRetry}
-            iconLeft={<Icon name="refresh" size={14} />}
-          >
-            Retry
-          </Button>
+          {/* Not while a plan waits: Retry starts the goal again from nothing,
+              beside a run that only needs an answer. */}
+          {!reviewing && (
+            <Button
+              variant="secondary"
+              onClick={onRetry}
+              aria-label="Retry with these settings"
+              title="Retry with these settings"
+            >
+              <Icon name="refresh" size={14} />
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={onDelete}
             disabled={run.status === 'running'}
+            aria-label="Delete run"
             title={run.status === 'running' ? 'Stop the run before deleting it' : 'Delete run'}
           >
             <Icon name="trash" size={14} />
@@ -650,52 +807,15 @@ export function AgentRunConversation({
 
       <div className={styles.body}>
         {reviewing && (
-          <div className={styles.review}>
-            <div className={styles.reviewHead}>
-              <Icon name="eye" size={16} />
-              {run.plan ? 'Plan proposed — nothing has been written yet' : 'Planning…'}
-            </div>
-            {run.plan ? (
-              <PlanList plan={run.plan} finished={false} />
-            ) : (
-              <p className={styles.reviewNote}>
-                Working out a plan before it acts. Check back shortly.
-              </p>
-            )}
-            <p className={styles.reviewNote}>
-              Approving lets this run start acting — writing files and running commands. Until then
-              it can only read and search.
-            </p>
-            <div className={styles.reviewActions}>
-              <Button variant="secondary" onClick={onReject} disabled={deciding || !run.plan}>
-                Reject
-              </Button>
-              <Button variant="primary" onClick={onApprove} loading={deciding} disabled={!run.plan}>
-                Approve &amp; run
-              </Button>
-            </div>
-          </div>
+          <PlanReview run={run} deciding={deciding} onApprove={onApprove} onReject={onReject} />
         )}
 
-        <GoalBlock run={run} />
+        {/* The goal is the title. Its own block only when it says more than
+            the title can: more lines, attached files, or more than two lines
+            of title. */}
+        {goalSaysMore(run) && <GoalBlock run={run} />}
 
-        {seriesPlace && <JournalBlock run={run} />}
-
-        {ranOut(run) ? (
-          // Amber, not the failure red: running out of turns is a limit doing its
-          // job, and the card in the list already says so in amber.
-          <p className={`${styles.turnError} ${styles.turnWarn}`}>{ranOutDetail(run)}</p>
-        ) : (
-          (run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
-          run.lastError && (
-            <p className={styles.turnError}>
-              {run.status === 'error' ? 'Failed: ' : ''}
-              {run.lastError}
-            </p>
-          )
-        )}
-
-        <BudgetBlock run={run} />
+        {!reviewing && <BudgetBlock run={run} />}
 
         {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
           <p className={styles.turnError + ' ' + styles.bounded}>
@@ -704,59 +824,91 @@ export function AgentRunConversation({
           </p>
         )}
 
-        {showLivePlan && run.plan && (
-          <div className={styles.plan}>
-            <div className={styles.planTitle}>
-              <Icon name="check" size={12} />
-              Plan · {planTally(run.plan)}
-            </div>
-            <PlanList plan={run.plan} finished={run.status === 'done'} />
-            {planOutranResult(run) && (
-              <p className={styles.planNote}>
-                Every step was ticked off, but the run never said it had finished. Open the last
-                turn to check, or continue it.
-              </p>
+        {!reviewing && (
+          <div className={`${styles.split} ${showLivePlan ? '' : styles.splitSingle}`}>
+            {showLivePlan && run.plan && (
+              // Beside the turns rather than above them, so where the run is and
+              // what it did are on screen together. Narrow panes stack it back.
+              <aside className={styles.plan} aria-label="Plan">
+                <div className={styles.planTitle}>Plan · {planTally(run.plan)}</div>
+                <PlanList
+                  plan={run.plan}
+                  finished={run.status === 'done'}
+                  live={run.status === 'running'}
+                />
+                {planOutranResult(run) && (
+                  <p className={styles.planNote}>
+                    Every step was ticked off, but the run never said it had finished. Open the last
+                    turn to check, or continue it.
+                  </p>
+                )}
+              </aside>
             )}
-          </div>
-        )}
 
-        {turns.length === 0 ? (
-          <div className={styles.empty}>
-            <Icon name="bot" size={32} className={styles.emptyIcon} />
-            <p>
-              {run.conversationId
-                ? 'This run hasn’t taken a turn yet.'
-                : 'This run hasn’t started yet.'}
-            </p>
-          </div>
-        ) : (
-          <div className={styles.turns}>
-            <span className={styles.sectionLabel}>
-              {turns.length} turn{turns.length === 1 ? '' : 's'}
-            </span>
-            {turns.map((message, index) => (
-              <TurnView
-                key={message.id}
-                message={message}
-                number={index + 1}
-                defaultOpen={index === turns.length - 1}
-              />
-            ))}
-            {run.status === 'running' && (
-              <div className={styles.working}>
-                <Spinner size={14} />
-                Still working — this updates as each turn finishes.
-              </div>
-            )}
+            <div className={styles.work}>
+              {seriesPlace && <JournalBlock run={run} />}
+
+              {ranOut(run) ? (
+                // Amber, not the failure red: running out of turns is a limit
+                // doing its job, and the row in the list already says so in amber.
+                <p className={`${styles.turnError} ${styles.turnWarn}`}>{ranOutDetail(run)}</p>
+              ) : (
+                (run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
+                run.lastError && (
+                  <p className={styles.turnError}>
+                    {run.status === 'error' ? 'Failed: ' : ''}
+                    {run.lastError}
+                  </p>
+                )
+              )}
+
+              {turns.length === 0 ? (
+                <div className={styles.empty}>
+                  <Icon name="bot" size={32} className={styles.emptyIcon} />
+                  <p>
+                    {run.conversationId
+                      ? 'This run hasn’t taken a turn yet.'
+                      : 'This run hasn’t started yet.'}
+                  </p>
+                </div>
+              ) : (
+                <div className={styles.turns}>
+                  <span className={styles.sectionLabel}>
+                    {turns.length} turn{turns.length === 1 ? '' : 's'}
+                  </span>
+                  {/* Newest first: the turn worth reading is the one that just
+                      happened, and on a long run it was a scroll away. */}
+                  {turns
+                    .map((message, index) => ({ message, number: index + 1 }))
+                    .reverse()
+                    .map(({ message, number }) => (
+                      <TurnView
+                        key={message.id}
+                        message={message}
+                        number={number}
+                        defaultOpen={number === turns.length}
+                      />
+                    ))}
+                  {run.status === 'running' && (
+                    <div className={styles.working}>
+                      <Spinner size={14} />
+                      Still working — this updates as each turn finishes.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
       <div className={styles.footer}>
-        <span className={styles.footerNote}>
-          A record of what ran unattended — read-only, so it keeps telling the truth.
-        </span>
-        <Button variant="secondary" onClick={onContinueInChat} disabled={!run.conversationId}>
+        <Button
+          variant="secondary"
+          onClick={onContinueInChat}
+          disabled={!run.conversationId}
+          title="Carry on from this run in a chat of your own; the run's record stays as it was"
+        >
           Continue in chat
         </Button>
       </div>

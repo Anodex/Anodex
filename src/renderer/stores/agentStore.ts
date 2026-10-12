@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AgentRun, CreateAgentRunRequest } from '@shared/agentRun.types'
+import type { Plan } from '@shared/plan.types'
 import { anodex } from '../lib/anodex'
 import { notifyError } from './uiStore'
 
@@ -10,7 +11,7 @@ interface AgentState {
   create: (request: CreateAgentRunRequest) => Promise<AgentRun | null>
   stop: (id: string) => Promise<void>
   delete: (id: string) => Promise<void>
-  approvePlan: (id: string) => Promise<void>
+  approvePlan: (id: string, plan?: Plan) => Promise<void>
   rejectPlan: (id: string) => Promise<void>
   /** Called by the IPC bridge when the main process broadcasts a run list change. */
   setRuns: (runs: AgentRun[]) => void
@@ -54,9 +55,9 @@ export const useAgentStore = create<AgentState>((set) => ({
     }
   },
 
-  approvePlan: async (id) => {
+  approvePlan: async (id, plan) => {
     try {
-      await anodex.agent.approvePlan(id)
+      await anodex.agent.approvePlan(id, plan)
     } catch (error) {
       notifyError('Could not approve plan', error instanceof Error ? error.message : undefined)
     }

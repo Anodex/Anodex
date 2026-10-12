@@ -112,9 +112,10 @@ export function registerAgentHandlers(): void {
     if (run) discardJournalIfSeriesGone(seriesIdOf(run), agentRunStore.list())
   })
 
-  ipcMain.handle(IpcChannel.Agent.approvePlan, (_event, id: string) => {
+  ipcMain.handle(IpcChannel.Agent.approvePlan, (_event, id: string, plan?: unknown) => {
     try {
-      agentRunService.approvePlan(id)
+      // The edited plan, when the person changed it; checked by the service.
+      agentRunService.approvePlan(id, plan)
     } catch (error) {
       log.error('Failed to approve agent run plan:', id, error)
       throw error instanceof Error ? error : new Error('Could not approve this plan.')

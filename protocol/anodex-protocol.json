@@ -14,6 +14,21 @@
           "type": {
             "kind": "string"
           }
+        },
+        {
+          "name": "plan",
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "$ref": "Plan"
+              }
+            ]
+          }
         }
       ],
       "result": {

@@ -49,8 +49,10 @@ import {
   buildPlanningPrompt,
   CONTINUE_PROMPT,
   PLAN_APPROVED_PROMPT,
-  PLAN_RETRY_PROMPT
+  PLAN_RETRY_PROMPT,
+  planApprovedWithChangesPrompt
 } from './agentPrompts'
+import { acceptEditedPlan, planTitlesChanged } from '@shared/planEdit'
 import { budgetExceededReason, turnBudgetLeftovers } from './agentBudgets'
 import { buildContextEpochHandoff } from '../chat/contextEpochHandoff'
 import { isRecoverableGenerationStop } from '../chat/recoverableStop'
@@ -249,8 +251,14 @@ class AgentRunService {
     return agentRunStore.get(run.id)!
   }
 
-  /** Approve a plan awaiting review and resume the run's normal turn loop. */
-  approvePlan(runId: string): void {
+  /**
+   * Approve a plan awaiting review and resume the run's normal turn loop.
+   *
+   * With `editedPlan`, the person changed the steps before approving: the run
+   * and its conversation take the new plan, and the first prompt says so. A
+   * malformed edit is refused rather than half-applied.
+   */
+  approvePlan(runId: string, editedPlan?: unknown): void {
     const run = agentRunStore.get(runId)
     if (!run) throw new Error('Agent run not found.')
     if (run.status !== 'needs-review') throw new Error('This run is not waiting for plan review.')
@@ -259,11 +267,24 @@ class AgentRunService {
     const conversation = conversationStore.get(run.conversationId)
     if (!conversation) throw new Error("This run's conversation could not be found.")
 
-    const updated = agentRunStore.update(runId, { status: 'running' })
+    let plan = run.plan
+    let firstPrompt = PLAN_APPROVED_PROMPT
+    if (editedPlan !== undefined && run.plan) {
+      const accepted = acceptEditedPlan(editedPlan, run.plan)
+      if (!accepted) throw new Error('That plan could not be read. Each step needs a title.')
+      if (planTitlesChanged(run.plan, accepted)) {
+        plan = accepted
+        firstPrompt = planApprovedWithChangesPrompt(accepted.steps.map((step) => step.title))
+        conversation.plan = accepted
+        conversationStore.save(conversation)
+      }
+    }
+
+    const updated = agentRunStore.update(runId, { status: 'running', plan })
     this.broadcastRunsChanged()
     void this.runLoop(updated, conversation, {
       startTurn: updated.turnsUsed + 1,
-      firstPrompt: PLAN_APPROVED_PROMPT
+      firstPrompt
     })
   }
 
