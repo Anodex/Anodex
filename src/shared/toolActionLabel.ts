@@ -17,10 +17,14 @@ export function toolActionLabel(call: Pick<ToolCall, 'name' | 'title' | 'status'
 /** What the call acted on: its title without the action word it starts with. */
 export function toolActionTarget(call: Pick<ToolCall, 'name' | 'title'>): string {
   const { action, target } = splitToolTitle(call.title)
+  const known = TOOL_ACTIONS[call.name]
+  // "Finish goal" split into "Finished the goal · goal": a target the words
+  // already say is not a target.
+  if (target && known && known[0].toLowerCase().includes(target.toLowerCase())) return ''
   if (target) return target
   // A title that is only its action: worth showing beside a known tool's words,
   // and already said by an unknown one's.
-  return TOOL_ACTIONS[call.name] ? action : ''
+  return known ? action : ''
 }
 
 function splitToolTitle(title: string): { action: string; target: string } {

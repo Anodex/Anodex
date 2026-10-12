@@ -28,6 +28,10 @@ describe('toolActionLabel', () => {
     expect(toolActionTarget({ name: 'read_file', title: 'Read src/App.tsx' })).toBe('src/App.tsx')
   })
 
+  it('drops a target the words already say', () => {
+    expect(toolActionTarget({ name: 'finish_goal', title: 'Finish goal' })).toBe('')
+  })
+
   it('says a one-word title once, not twice', () => {
     expect(toolActionTarget({ name: 'mystery', title: 'Thinking' })).toBe('')
     expect(toolActionTarget({ name: 'finish_goal', title: 'Finish' })).toBe('Finish')
