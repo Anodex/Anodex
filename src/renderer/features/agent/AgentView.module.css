@@ -561,11 +561,15 @@
   background: repeating-linear-gradient(to right, var(--border-strong) 0 4px, transparent 4px 8px);
 }
 
+/* A fixed slot for up to four actions, so the times above and below line up
+   however many a row offers. */
 .runActions {
   display: flex;
   flex: none;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-1);
+  width: calc(28px * 4 + var(--space-1) * 3);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
