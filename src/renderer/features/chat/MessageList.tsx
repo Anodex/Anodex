@@ -19,6 +19,9 @@ import styles from './MessageList.module.css'
 const STICK_THRESHOLD = 120
 const RAIL_TOP_OFFSET = 24
 const RAIL_GAP = 14
+
+/** How many of your messages a chat needs before the jump-to rail appears. */
+const USER_RAIL_MIN_MESSAGES = 3
 const RAIL_MAX_WIDTH = 18
 const RAIL_MIN_WIDTH = 4
 const RAIL_MOUSE_RADIUS = 100
@@ -324,7 +327,10 @@ export function MessageList({
           </span>
         </button>
       )}
-      {userMarkers.length > 0 && (
+      {/* Only once there is somewhere to jump to. With one or two messages the
+          rail was a lone 4px mark at the transcript's edge that read as a stray
+          pixel, and the whole conversation was already on screen. */}
+      {userMarkers.length >= USER_RAIL_MIN_MESSAGES && (
         <UserScrollRail markers={userMarkers} onSelect={scrollToMessage} />
       )}
       {showJumpButton && (

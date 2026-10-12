@@ -109,7 +109,7 @@
   margin-bottom: var(--space-3);
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-xs);
-  color: var(--warn);
+  color: var(--warn-text);
   background: color-mix(in srgb, var(--warn) 9%, transparent);
   border: 1px solid color-mix(in srgb, var(--warn) 28%, var(--border));
   border-radius: var(--radius-md);
@@ -206,7 +206,7 @@
 }
 
 .conflictStatus {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .diffWrap {

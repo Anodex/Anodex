@@ -54,7 +54,7 @@ test('every main screen opens without crashing', async () => {
     const { window } = run
     for (const [rail, heading] of [
       ['Scheduler', /Schedul/],
-      ['Agent', /Agent/],
+      ['Agents', /Agents/],
       ['Critical Thinking', /Critical Thinking/],
       ['Email', /Email/],
       ['Chat', /Chat/]

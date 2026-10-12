@@ -39,6 +39,9 @@
   --light-text-on-accent: #ffffff;
   /* The dark-mode pastel blue reads as near-invisible on a light surface. */
   --light-code-inline-text: #1a56db;
+  /* Warning text on cream: #f5a623 measured 1.9:1 here. This is the phone's
+     warnInk, 5:1 on the light grounds, same hue. */
+  --light-warn-text: #8a5a00;
 
   /* Chart series, re-stepped for a light surface — see the note in
      ./midnight.css. These are their own values, not the dark set lightened:
@@ -65,6 +68,7 @@
   --text-faint: var(--light-text-faint);
   --text-on-accent: var(--light-text-on-accent);
   --code-inline-text: var(--light-code-inline-text);
+  --warn-text: var(--light-warn-text);
   --series-1: var(--light-series-1);
   --series-2: var(--light-series-2);
   --series-3: var(--light-series-3);
@@ -86,6 +90,7 @@
     --text-faint: var(--light-text-faint);
     --text-on-accent: var(--light-text-on-accent);
     --code-inline-text: var(--light-code-inline-text);
+    --warn-text: var(--light-warn-text);
     --series-1: var(--light-series-1);
     --series-2: var(--light-series-2);
     --series-3: var(--light-series-3);

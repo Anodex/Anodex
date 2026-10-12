@@ -286,19 +286,26 @@ export function Sidebar(): JSX.Element {
             expanded={searching || workspaceExpanded}
             onToggle={() => setWorkspaceExpanded((v) => !v)}
             actions={
-              <div className={styles.headerActions}>
-                <button
-                  type="button"
-                  className={styles.headerIcon}
-                  onClick={
-                    hasExpandedProjects ? handleCollapseAllProjects : handleExpandAllProjects
-                  }
-                  aria-label={hasExpandedProjects ? 'Collapse all projects' : 'Expand all projects'}
-                  title={hasExpandedProjects ? 'Collapse all' : 'Expand all'}
-                >
-                  <Icon name={hasExpandedProjects ? 'chevrons-up' : 'chevron-down'} size={14} />
-                </button>
-              </div>
+              // Nothing to expand with no projects. And the double chevron, not the
+              // single one: beside the heading's own toggle, a second single arrow
+              // read as the same control drawn twice.
+              workspaceProjects.length > 0 ? (
+                <div className={styles.headerActions}>
+                  <button
+                    type="button"
+                    className={styles.headerIcon}
+                    onClick={
+                      hasExpandedProjects ? handleCollapseAllProjects : handleExpandAllProjects
+                    }
+                    aria-label={
+                      hasExpandedProjects ? 'Collapse all projects' : 'Expand all projects'
+                    }
+                    title={hasExpandedProjects ? 'Collapse all' : 'Expand all'}
+                  >
+                    <Icon name={hasExpandedProjects ? 'chevrons-up' : 'chevrons-down'} size={14} />
+                  </button>
+                </div>
+              ) : undefined
             }
           >
             {workspaceProjects.length === 0 ? (

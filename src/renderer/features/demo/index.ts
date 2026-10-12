@@ -61,7 +61,7 @@ async function play(name: string, script: () => Promise<void>): Promise<void> {
 
 const demos = {
   scheduler: (only?: number) => play('Scheduler', () => runSchedulerDemo(only)),
-  agent: (only?: number) => play('Agent', () => runAgentDemo(only)),
+  agent: (only?: number) => play('Agents', () => runAgentDemo(only)),
   projects: () => play('Projects', runProjectDemo),
   chat: () => play('Chat', runChatDemo),
   settings: () => play('Settings tour', runSettingsTour),

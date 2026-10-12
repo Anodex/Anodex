@@ -11,6 +11,7 @@ import { anodex } from '../lib/anodex'
 import { notifyError, useUiStore } from './uiStore'
 import { useSettingsStore } from './settingsStore'
 import { resolveModelContextSize } from '@shared/modelContextSize'
+import { readableModelName } from '../lib/modelName'
 
 const INITIAL_ENGINE: EngineState = { status: 'unloaded', generating: false, vision: false }
 
@@ -172,7 +173,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
             ? { model: { contextSize } }
             : {})
         })
-        useUiStore.getState().notify({ kind: 'success', title: 'Model ready', message: model.name })
+        useUiStore.getState().notify({
+          kind: 'success',
+          title: 'Model ready',
+          message: readableModelName(model.name)
+        })
       } else {
         notifyError('Failed to load model', result.error.detail ?? result.error.message)
       }

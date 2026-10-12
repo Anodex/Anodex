@@ -17,8 +17,12 @@ import { AgentRunEditor, type AgentRunEditorSeed } from './AgentRunEditor'
 import { AgentRunConversation } from './AgentRunConversation'
 import {
   STATUS_ICON,
-  STATUS_LABEL,
+  continueLabel,
   formatCompactTokens,
+  plainStopReason,
+  ranOut,
+  runStatusLabel,
+  spentLine,
   goalHeadline,
   isTerminalStatus,
   providerIcon,
@@ -283,7 +287,7 @@ function RunCard({
             )}
             <span className={`${styles.statusBadge} ${styles[`status-${run.status}`]}`}>
               <Icon name={STATUS_ICON[run.status]} size={12} />
-              {STATUS_LABEL[run.status]}
+              {runStatusLabel(run)}
             </span>
             {projectName(run.projectId) && (
               <span className={styles.runProject}>{projectName(run.projectId)}</span>
@@ -346,7 +350,7 @@ function RunCard({
               }`}
             >
               {run.status === 'error' ? 'Failed: ' : ''}
-              {plainSummary(runOutcomeText(run))}
+              {plainStopReason(run) ?? plainSummary(runOutcomeText(run))}
             </p>
           )}
         </button>
@@ -415,6 +419,17 @@ function RunCard({
           </button>
         </div>
       </div>
+      {/* A run that ran out of room gets the way on, where it is read, rather than
+          behind a hover-only icon. The phone's card does the same. Not for a
+          sub-agent: its parent decides whether it goes on. */}
+      {ranOut(run) && !run.parentRunId && (
+        <div className={styles.runFooter}>
+          <span className={styles.runSpent}>{spentLine(run)}</span>
+          <Button variant="primary" size="sm" onClick={() => continueRun(run)}>
+            {continueLabel(run)}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -616,6 +631,7 @@ export function AgentView(): JSX.Element {
           onApprove={() => void handleApprove(selectedRun)}
           onReject={() => void handleReject(selectedRun)}
           onContinueInChat={() => void continueInChat(selectedRun)}
+          onContinue={() => continueRun(selectedRun)}
           seriesPlace={places.get(selectedRun.id) ?? null}
         />
         {editor}
@@ -630,7 +646,7 @@ export function AgentView(): JSX.Element {
     <div className={styles.view}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Agent</h1>
+          <h1 className={styles.title}>Agents</h1>
           <p className={styles.subtitle}>
             Hand off a goal and Anodex works it unattended, checking in as it goes, until it
             finishes or runs out of turns.

@@ -69,7 +69,8 @@ export async function deliverReminder(
     reached.push('on the desktop')
   }
 
-  const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  // Numeric hour, as every other time in the app writes it: "3:27 PM", not "03:27 PM".
+  const time = at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   const where = reached.length ? reached.join(' and ') : 'nowhere'
   return `Reminded ${where} at ${time}${notes.length ? `; ${notes.join(', ')}` : ''}`
 }

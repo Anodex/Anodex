@@ -51,7 +51,9 @@
   bottom: calc(100% + 4px);
   left: 0;
   z-index: 20;
-  width: 260px;
+  /* The footer's own width, not a fixed 260px: the sidebar clips what overflows it,
+     and a wider menu was cut off at its right edge. */
+  width: 100%;
   max-height: 340px;
   overflow-y: auto;
   padding: var(--space-2);
@@ -67,7 +69,7 @@
   bottom: calc(100% + 4px);
   left: 0;
   z-index: 20;
-  width: 240px;
+  width: 100%;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);

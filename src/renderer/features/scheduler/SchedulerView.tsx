@@ -366,7 +366,7 @@ export function SchedulerView(): JSX.Element {
     <div className={styles.view}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Scheduled tasks</h1>
+          <h1 className={styles.title}>Scheduler</h1>
           <p className={styles.subtitle}>
             Run tasks on a schedule, using only the tools you allow. Type a prompt, pick when it
             runs, and Anodex takes it from there.

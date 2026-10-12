@@ -8,6 +8,7 @@ import { UsageHeatmap } from './UsageHeatmap'
 import { useUsageProfile } from './useUsageProfile'
 import pageStyles from '../../SettingsPage.module.css'
 import styles from './UsageActivitySection.module.css'
+import { readableModelName } from '../../../../lib/modelName'
 
 function describeInsight(insight: UsageInsight): string {
   switch (insight.kind) {
@@ -125,7 +126,9 @@ export function UsageActivitySection(): JSX.Element {
             <StatCard
               icon="cpu"
               label="Favorite model"
-              value={profile.favoriteModel?.modelName ?? '—'}
+              value={
+                profile.favoriteModel ? readableModelName(profile.favoriteModel.modelName) : '—'
+              }
             />
           </div>
 

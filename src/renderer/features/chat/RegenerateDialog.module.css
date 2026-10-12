@@ -24,7 +24,7 @@
    a question, so the icon stops reading as an ordinary action. */
 .headerIconWarn {
   composes: headerIcon;
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 

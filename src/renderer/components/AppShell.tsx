@@ -61,8 +61,9 @@ const RESIZE_STEP_LARGE = 48
 const NARROW_BREAKPOINT = 1012
 
 function getMainLabel(view: ReturnType<typeof useUiStore.getState>['view']): string {
-  if (view === 'scheduler') return 'Scheduled tasks'
-  if (view === 'agent') return 'Agent'
+  // The rail's names, which the pages and the phone now use too.
+  if (view === 'scheduler') return 'Scheduler'
+  if (view === 'agent') return 'Agents'
   if (view === 'critical-thinking') return 'Critical Thinking'
   if (view === 'email') return 'Email'
   return 'Chat'

@@ -96,7 +96,7 @@
 }
 
 .command {
-  color: var(--warn);
+  color: var(--warn-text);
   background: rgba(245, 166, 35, 0.12);
 }
 
@@ -134,7 +134,7 @@
   flex-shrink: 0;
   margin-left: auto;
   padding: 2px var(--space-2);
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;

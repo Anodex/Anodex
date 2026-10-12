@@ -163,7 +163,7 @@
 }
 
 .command {
-  color: var(--warn);
+  color: var(--warn-text);
   background: rgba(245, 166, 35, 0.1);
 }
 

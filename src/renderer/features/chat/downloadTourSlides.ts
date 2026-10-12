@@ -122,7 +122,7 @@ export const SLIDES: TourSlide[] = [
     id: 'agent',
     icon: 'bot',
     area: 'rail',
-    title: 'Agent',
+    title: 'Agents',
     body: 'Hand Anodex a longer task. It plans the steps, works through them, and reports back.',
     tip: 'Best for jobs with many steps',
     shortcut: 'goAgent'

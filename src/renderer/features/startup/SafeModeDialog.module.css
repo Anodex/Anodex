@@ -18,7 +18,7 @@
   width: 36px;
   height: 36px;
   flex-shrink: 0;
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
   border-radius: var(--radius-md);
 }

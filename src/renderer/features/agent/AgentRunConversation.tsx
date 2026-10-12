@@ -15,14 +15,19 @@ import { MessageContent } from '../chat/MessageContent'
 import {
   STATUS_ICON,
   STATUS_LABEL,
+  continueLabel,
   formatCompactTokens,
   formatDuration,
   goalHeadline,
   isLongGoal,
   providerIcon,
-  providerLabel
+  providerLabel,
+  ranOut,
+  ranOutDetail,
+  runStatusLabel
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
+import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
 import { CopyableId } from '../../components/CopyableId'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
@@ -46,6 +51,8 @@ interface AgentRunConversationProps {
   onApprove: () => void
   onReject: () => void
   onContinueInChat: () => void
+  /** Start the next run of this work, as the list's Continue does. */
+  onContinue: () => void
   /**
    * Where this run sits in ongoing work, or null when it stands alone.
    *
@@ -326,8 +333,10 @@ function TurnView({
                   className={`${styles.toolCall} ${styles[`tool-${call.status}`]}`}
                   title={call.detail ?? call.title}
                 >
-                  <code>{call.name}</code>
-                  <span className={styles.toolTitle}>{call.title}</span>
+                  {/* In words, as the chat and the phone say it, rather than the
+                      tool's identifier in code type. */}
+                  <span className={styles.toolAction}>{toolActionLabel(call)}</span>
+                  <span className={styles.toolTitle}>{toolActionTarget(call)}</span>
                 </span>
               ))}
             </div>
@@ -518,6 +527,7 @@ export function AgentRunConversation({
   onApprove,
   onReject,
   onContinueInChat,
+  onContinue,
   seriesPlace
 }: AgentRunConversationProps): JSX.Element {
   const conversation = useLoadedConversation(run.conversationId)
@@ -564,7 +574,7 @@ export function AgentRunConversation({
                 size={12}
                 className={run.status === 'running' ? styles.pulseIcon : undefined}
               />
-              {STATUS_LABEL[run.status]}
+              {runStatusLabel(run)}
             </span>
             <span className={styles.subMeta}>
               <Icon name={providerIcon(run)} size={12} />
@@ -583,13 +593,27 @@ export function AgentRunConversation({
         </div>
         <div className={styles.headerActions}>
           {run.status === 'running' && (
-            <Button variant="secondary" onClick={onStop} disabled={stopping}>
-              {stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
+            <Button
+              variant="secondary"
+              onClick={onStop}
+              disabled={stopping}
+              iconLeft={stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
+            >
               Stop
             </Button>
           )}
-          <Button variant="secondary" onClick={onRetry}>
-            <Icon name="refresh" size={14} />
+          {/* First, and the one in colour, when the run ran out of room: going on
+              is the answer the page exists to offer. */}
+          {ranOut(run) && !run.parentRunId && (
+            <Button variant="primary" onClick={onContinue}>
+              {continueLabel(run)}
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={onRetry}
+            iconLeft={<Icon name="refresh" size={14} />}
+          >
             Retry
           </Button>
           <Button
@@ -636,13 +660,19 @@ export function AgentRunConversation({
 
         {seriesPlace && <JournalBlock run={run} />}
 
-        {(run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
+        {ranOut(run) ? (
+          // Amber, not the failure red: running out of turns is a limit doing its
+          // job, and the card in the list already says so in amber.
+          <p className={`${styles.turnError} ${styles.turnWarn}`}>{ranOutDetail(run)}</p>
+        ) : (
+          (run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
           run.lastError && (
             <p className={styles.turnError}>
               {run.status === 'error' ? 'Failed: ' : ''}
               {run.lastError}
             </p>
-          )}
+          )
+        )}
 
         <BudgetBlock run={run} />
 

@@ -2,9 +2,14 @@
 
 export { formatBytes } from '@shared/format'
 
-/** Clock time, e.g. `14:32`. */
+/**
+ * Clock time, e.g. `9:22 PM`, or `21:22` on a 24-hour computer.
+ *
+ * `hour: 'numeric'`, not `'2-digit'`: the two-digit form wrote "09:22 PM" here
+ * while the scheduler beside it wrote "3:27 PM", one screen showing both.
+ */
 export function formatClock(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
 /** Elapsed time, e.g. `7m 34s`, `58s` — matches the "Worked for …" turn header. */
