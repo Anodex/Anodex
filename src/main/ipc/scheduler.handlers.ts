@@ -79,7 +79,12 @@ export function registerSchedulerHandlers(): void {
 
   ipcMain.handle(IpcChannel.Scheduler.create, (event, request: CreateScheduledTaskRequest) => {
     try {
-      return schedulerStore.create(withoutRemoteTools(event, request))
+      const task = schedulerStore.create(withoutRemoteTools(event, request))
+      // Every window shows the list, and a task added from the phone was not in
+      // it until the page was reloaded. The chat tools already said so; these
+      // handlers, which the phone uses, never did.
+      schedulerService.notifyTasksChanged()
+      return task
     } catch (error) {
       log.error('Failed to create scheduled task:', error)
       throw new Error('Could not create scheduled task.')
@@ -95,7 +100,9 @@ export function registerSchedulerHandlers(): void {
         // remote edit of the name or schedule leaves whatever was granted at the
         // computer alone instead of silently stripping it.
         const safe = isRemoteCall(event) ? { ...request, enabledTools: undefined } : request
-        return schedulerStore.update(id, safe)
+        const task = schedulerStore.update(id, safe)
+        schedulerService.notifyTasksChanged()
+        return task
       } catch (error) {
         log.error('Failed to update scheduled task:', id, error)
         throw new Error('Could not update scheduled task.')
@@ -105,6 +112,7 @@ export function registerSchedulerHandlers(): void {
 
   ipcMain.handle(IpcChannel.Scheduler.delete, (_event, id: string) => {
     schedulerStore.delete(id)
+    schedulerService.notifyTasksChanged()
   })
 
   ipcMain.handle(IpcChannel.Scheduler.runNow, async (_event, id: string) => {
