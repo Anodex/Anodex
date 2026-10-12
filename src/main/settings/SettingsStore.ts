@@ -255,7 +255,7 @@ export function migrateWelcomeForExistingInstalls(
   raw: DeepPartial<AppSettings>
 ): AppSettings {
   if (raw.welcome !== undefined) return settings
-  return { ...settings, welcome: { completed: true } }
+  return { ...settings, welcome: { ...settings.welcome, completed: true } }
 }
 
 /**

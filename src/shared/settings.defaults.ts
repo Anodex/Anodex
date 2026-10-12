@@ -59,7 +59,7 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
       accountStatus: 'active',
       syncStatus: 'local'
     },
-    welcome: { completed: false },
+    welcome: { completed: false, nameAsked: false },
     appearance: {
       theme: 'midnight',
       customTheme: {

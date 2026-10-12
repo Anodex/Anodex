@@ -8,11 +8,10 @@ import { formatRelativeTime } from '../../lib/time'
 import styles from './TranscriptRecallCard.module.css'
 
 /**
- * Collapsed-by-default card listing which past conversations were retrieved
- * and injected into context for this turn — the "Past chats used"
- * counterpart to `MemoryUsedCard`. Without this, transcript recall is
- * invisible in the same way memory retrieval would be: no way to tell
- * whether (or why) a reply drew on an older conversation.
+ * A quiet line under a reply naming the past chats it drew on, opening to the
+ * excerpts. Only chats the reply actually used reach it (`recallTheReplyUsed`):
+ * recall runs on every turn, and a full-width box over every reply credited
+ * older chats with answers that had nothing to do with them.
  */
 export function TranscriptRecallCard({
   results
@@ -33,16 +32,24 @@ export function TranscriptRecallCard({
 
   return (
     <div className={styles.card}>
-      <button type="button" className={styles.row} onClick={() => setExpanded((value) => !value)}>
+      <button
+        type="button"
+        className={styles.row}
+        aria-expanded={expanded}
+        title={expanded ? 'Hide the excerpts' : 'Show what this reply drew on'}
+        onClick={() => setExpanded((value) => !value)}
+      >
         <span className={styles.icon}>
-          <Icon name="clock" size={14} />
+          <Icon name="clock" size={12} />
         </span>
         <span className={styles.title}>
-          Used {results.length} past {results.length === 1 ? 'chat' : 'chats'}
+          {results.length === 1
+            ? `From a past chat · ${results[0].title}`
+            : `From ${results.length} past chats`}
         </span>
         <Icon
           name={expanded ? 'chevron-down' : 'chevron-right'}
-          size={13}
+          size={12}
           className={styles.chevron}
         />
       </button>

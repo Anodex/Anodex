@@ -23,11 +23,15 @@ vi.mock('@main/scheduler/SchedulerStore', () => ({
       updated.push(request)
       return request
     },
+    delete: vi.fn(),
     list: () => []
   }
 }))
 
-vi.mock('@main/scheduler/SchedulerService', () => ({ schedulerService: { runNow: vi.fn() } }))
+const notifyTasksChanged = vi.fn<() => void>()
+vi.mock('@main/scheduler/SchedulerService', () => ({
+  schedulerService: { runNow: vi.fn(), notifyTasksChanged: () => notifyTasksChanged() }
+}))
 vi.mock('@main/scheduler/keepAwake', () => ({ setKeepAwake: vi.fn() }))
 vi.mock('@main/settings/SettingsStore', () => ({
   settingsStore: { get: () => ({ scheduler: { keepAwake: false } }), update: vi.fn() }
@@ -73,5 +77,30 @@ describe('tools on a task created from a phone', () => {
     // computer alone rather than quietly stripping them.
     await handlers.get('scheduler:update')!(remote, 'task_1', { enabledTools: ['run_command'] })
     expect((updated.at(-1) as { enabledTools?: string[] }).enabledTools).toBeUndefined()
+  })
+})
+
+/**
+ * The phone adds, edits and deletes tasks through these handlers. The desktop's
+ * Scheduler page only redraws when it is told, so a change made from the phone
+ * stayed invisible on the computer until the page was reloaded.
+ */
+describe('a change made through the handlers', () => {
+  const remote = { [REMOTE_CLIENT]: {} }
+  const task = {
+    prompt: 'Water the plants',
+    projectId: null,
+    recurrence: { type: 'once' as const, runAt: 0 },
+    enabledTools: []
+  }
+
+  it.each([
+    ['an add', () => handlers.get('scheduler:create')!(remote, task)],
+    ['an edit', () => handlers.get('scheduler:update')!(remote, 'task-1', { name: 'Plants' })],
+    ['a delete', () => handlers.get('scheduler:delete')!(remote, 'task-1')]
+  ])('tells every window after %s', async (_label, change) => {
+    notifyTasksChanged.mockClear()
+    await change()
+    expect(notifyTasksChanged).toHaveBeenCalledTimes(1)
   })
 })

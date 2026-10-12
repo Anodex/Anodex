@@ -18,6 +18,7 @@ import {
   migrateLegacyMaxTokens,
   migrateLegacyThemeMode,
   stripRetiredGeneralSettings,
+  migrateWelcomeForExistingInstalls,
   validatePatch
 } from '../SettingsStore'
 
@@ -285,6 +286,23 @@ describe('stripRetiredGeneralSettings', () => {
 
     expect(result.changed).toBe(false)
     expect(result.settings).toBe(settings)
+  })
+})
+
+describe('migrateWelcomeForExistingInstalls', () => {
+  it('marks an install from before the welcome as welcomed, but not yet asked its name', () => {
+    const settings = migrateWelcomeForExistingInstalls(baseSettings(), {})
+    // Skipping the welcome on update is right; skipping the one question it
+    // existed to ask is how "Anodex User" stayed for good.
+    expect(settings.welcome).toEqual({ completed: true, nameAsked: false })
+  })
+
+  it('leaves an install that has seen the welcome as it is', () => {
+    const defaults = baseSettings()
+    const settings = migrateWelcomeForExistingInstalls(defaults, {
+      welcome: { completed: false }
+    })
+    expect(settings).toBe(defaults)
   })
 })
 

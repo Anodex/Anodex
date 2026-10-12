@@ -330,11 +330,6 @@ function MessageBubbleImpl({
               <MemoryUsedCard entries={message.memoryUsed} />
             </div>
           )}
-          {!isUser && message.transcriptRecallUsed && message.transcriptRecallUsed.length > 0 && (
-            <div className={styles.memoryUsed}>
-              <TranscriptRecallCard results={message.transcriptRecallUsed} />
-            </div>
-          )}
           {showInitialActivity ? (
             <LiveActivityIndicator
               label={withSharing(reading ?? liveActivityLabel(message.toolCalls ?? [], false))}
@@ -396,6 +391,11 @@ function MessageBubbleImpl({
               streaming={Boolean(message.streaming)}
             />
           )}
+
+          {/* Under the reply, like its sources: where it came from, said quietly. */}
+          {!isUser && !message.streaming && message.transcriptRecallUsed?.length ? (
+            <TranscriptRecallCard results={message.transcriptRecallUsed} />
+          ) : null}
 
           {message.error &&
             (message.errorKind === 'bounded' ? (

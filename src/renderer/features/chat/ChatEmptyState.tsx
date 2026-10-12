@@ -22,6 +22,7 @@ import { timeLeftLabel, useDownloadRate } from './downloadRate'
 import styles from './ChatEmptyState.module.css'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { firstName, partOfDay } from '@shared/userIdentity'
+import { NamePrompt } from './NamePrompt'
 
 const SUGGESTIONS = [
   'Explain this error and how to fix it',
@@ -135,6 +136,8 @@ export function ChatEmptyState(): JSX.Element {
           Anodex is a local-first assistant for coding help and general chat.
         </p>
       </div>
+
+      <NamePrompt />
 
       {ready ? (
         <div className={styles.suggestions}>
