@@ -628,6 +628,13 @@ export const IpcChannel = {
      * changed. Sending the text here keeps one parser for both surfaces.
      */
     parseWhen: 'scheduler:parse-when',
+    /**
+     * One month of the schedule: what ran, what is coming, and what happens so
+     * often it is listed once (`ScheduleMonthWire`). For the phone, for the same
+     * reason as `parseWhen`: projecting a recurrence is `computeNextRunAt`, and a
+     * Kotlin copy of it would be a second opinion about when a task fires.
+     */
+    month: 'scheduler:month',
     getKeepAwake: 'scheduler:get-keep-awake',
     setKeepAwake: 'scheduler:set-keep-awake',
     /** main → renderer broadcast whenever tasks change (create/update/delete/run). */

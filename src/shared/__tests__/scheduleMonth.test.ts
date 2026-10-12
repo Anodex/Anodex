@@ -4,8 +4,8 @@ import type {
   ScheduledTaskRunStatus,
   TaskRecurrence,
   TaskRunRecord
-} from '@shared/scheduledTask.types'
-import { buildMonth, frequentCadence, monthGrid } from '../monthView'
+} from '../scheduledTask.types'
+import { buildMonth, frequentCadence, monthForWire, monthGrid } from '../scheduleMonth'
 
 /** Monday 12 October 2026, early afternoon. */
 const NOW = new Date(2026, 9, 12, 13, 0).getTime()
@@ -123,5 +123,18 @@ describe('monthGrid', () => {
     expect(grid.slice(0, 4)).toEqual([null, null, null, 1])
     expect(grid.length % 7).toBe(0)
     expect(grid.filter((d) => d !== null)).toHaveLength(31)
+  })
+})
+
+describe('monthForWire', () => {
+  it('flattens the month into plain arrays, in day order, with how each task repeats', () => {
+    const friday = task(
+      { type: 'weekly', hour: 16, minute: 0, weekdays: [5] },
+      { nextRunAt: on(16, 16) }
+    )
+    const wire = monthForWire(buildMonth([friday], 2026, 9, NOW), 2026, 9)
+    expect(wire.days.map((d) => d.day)).toEqual([16, 23, 30])
+    expect(wire.days[0].entries[0].repeats).toBe('Every Fri at 4:00 PM')
+    expect(JSON.parse(JSON.stringify(wire))).toEqual(wire)
   })
 })

@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { ScheduledTask } from '@shared/scheduledTask.types'
-import { describeRecurrence } from '@shared/parseWhen'
 import { formatClock } from '../../lib/format'
 import { Icon } from '../../components/Icon'
-import { buildMonth, monthGrid, type MonthEntry } from './monthView'
+import { buildMonth, monthGrid, type MonthEntry } from '@shared/scheduleMonth'
 import styles from './MonthView.module.css'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -33,7 +32,6 @@ export function MonthView({
   const isThisMonth = shown.year === today.getFullYear() && shown.month === today.getMonth()
   const [chosen, setChosen] = useState<number>(isThisMonth ? today.getDate() : 1)
   const plan = useMemo(() => buildMonth(tasks, shown.year, shown.month), [tasks, shown])
-  const byId = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
   const move = (delta: number): void => {
     const next = new Date(shown.year, shown.month + delta, 1)
@@ -151,7 +149,6 @@ export function MonthView({
               : `${chosenEntries.length} thing${chosenEntries.length === 1 ? '' : 's'}`}
           </p>
           {chosenEntries.map((entry) => {
-            const task = byId.get(entry.taskId)
             return (
               <button
                 key={entry.key}
@@ -162,9 +159,7 @@ export function MonthView({
                 <span className={styles.time}>{formatClock(entry.at)}</span>
                 <span>
                   <b>{entry.name}</b>
-                  {task && (
-                    <span className={styles.rec}>{describeRecurrence(task.recurrence)}</span>
-                  )}
+                  <span className={styles.rec}>{entry.repeats}</span>
                   <span className={`${styles.state} ${styles[`state-${entry.state}`]}`}>
                     {STATE_LABEL[entry.state]}
                   </span>

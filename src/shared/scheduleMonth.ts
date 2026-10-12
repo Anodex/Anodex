@@ -1,5 +1,6 @@
-import { computeNextRunAt } from '@shared/nextRun'
-import type { ScheduledTask, ScheduledTaskRunStatus } from '@shared/scheduledTask.types'
+import { computeNextRunAt } from './nextRun'
+import { describeRecurrence } from './parseWhen'
+import type { ScheduledTask, ScheduledTaskRunStatus } from './scheduledTask.types'
 
 /** One thing on one day: a run that happened, or one the schedule says is coming. */
 export interface MonthEntry {
@@ -8,6 +9,8 @@ export interface MonthEntry {
   name: string
   at: number
   reminder: boolean
+  /** How the task repeats, in the scheduler's own words: "Every Fri at 4:00 PM". */
+  repeats: string
   /** What happened, for a run in the past; `upcoming` for one still to come. */
   state: ScheduledTaskRunStatus | 'upcoming'
 }
@@ -91,6 +94,7 @@ export function buildMonth(
     const cadence = frequentCadence(task)
     const reminder = task.kind === 'reminder'
     const into = cadence ? everyByDay : days
+    const repeats = describeRecurrence(task.recurrence)
     if (cadence && task.enabled) {
       every.push({
         taskId: task.id,
@@ -110,6 +114,7 @@ export function buildMonth(
         name: task.name,
         at: run.startedAt,
         reminder,
+        repeats,
         state: run.status
       })
     }
@@ -124,6 +129,7 @@ export function buildMonth(
           name: task.name,
           at,
           reminder,
+          repeats,
           state: 'upcoming'
         })
       }
@@ -147,4 +153,25 @@ export function monthGrid(year: number, month: number): Array<number | null> {
   for (let day = 1; day <= length; day++) cells.push(day)
   while (cells.length % 7 !== 0) cells.push(null)
   return cells
+}
+
+/** A month as the phone is sent it: plain arrays, since a Map does not cross a socket. */
+export interface ScheduleMonthWire {
+  year: number
+  month: number
+  days: Array<{ day: number; entries: MonthEntry[] }>
+  every: EveryEntry[]
+  everyByDay: Array<{ day: number; entries: MonthEntry[] }>
+}
+
+export function monthForWire(plan: MonthPlan, year: number, month: number): ScheduleMonthWire {
+  const flat = (map: Map<number, MonthEntry[]>): Array<{ day: number; entries: MonthEntry[] }> =>
+    [...map.entries()].sort(([a], [b]) => a - b).map(([day, entries]) => ({ day, entries }))
+  return {
+    year,
+    month,
+    days: flat(plan.days),
+    every: plan.every,
+    everyByDay: flat(plan.everyByDay)
+  }
 }
