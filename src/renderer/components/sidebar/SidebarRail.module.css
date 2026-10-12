@@ -33,13 +33,6 @@
   background: var(--bg-surface-2);
 }
 
-.profileImage {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .railDivider {
   width: 24px;
   height: 1px;

@@ -49,6 +49,7 @@ export type IconName =
   | 'restore'
   | 'chevrons-up'
   | 'chevrons-down'
+  | 'camera'
   | 'download'
   | 'eye'
   | 'shield-question'
@@ -349,6 +350,13 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <path d="m7 11 5-5 5 5" />
       <path d="m7 17 5-5 5 5" />
+    </>
+  ),
+  // The phone's CAMERA, path for path: the two apps draw the same glyph.
+  camera: (
+    <>
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <path d="M12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
     </>
   ),
   'chevrons-down': (

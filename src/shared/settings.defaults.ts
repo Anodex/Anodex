@@ -54,10 +54,12 @@ export function createDefaultSettings(modelsDirectory: string): AppSettings {
     profile: {
       displayName: 'Anodex User',
       avatarBase64: null,
+      avatarLook: 0,
       planTier: 'free',
       accountStatus: 'active',
       syncStatus: 'local'
     },
+    welcome: { completed: false },
     appearance: {
       theme: 'midnight',
       customTheme: {

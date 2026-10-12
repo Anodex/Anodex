@@ -109,6 +109,11 @@ export interface ProfileSettings {
   displayName: string
   /** Base64-encoded avatar image, or null if none is set. */
   avatarBase64: string | null
+  /**
+   * Which of the mark's six gradients draws the avatar when there is no photo:
+   * an index into `AVATAR_LOOKS`. Chosen in the welcome; the phone draws the same.
+   */
+  avatarLook: number
   /** Account tier shown for transparency. */
   planTier: 'free' | 'pro' | 'dev'
   /** Account lifecycle state. */
@@ -646,6 +651,16 @@ export interface GitSettings {
   attributionEmail: string
 }
 
+/**
+ * Whether the first-run welcome (name and picture, a model, the phone) has been
+ * seen. False only on a fresh install: an install from before the welcome existed
+ * is marked complete when it first loads, so an update never puts someone who is
+ * already set up through it.
+ */
+export interface WelcomeSettings {
+  completed: boolean
+}
+
 export interface AppSettings {
   /** Directory scanned for `.gguf` model files. */
   modelsDirectory: string
@@ -676,6 +691,8 @@ export interface AppSettings {
   ui: UiSettings
   assistantStyle: AssistantStyleSettings
   profile: ProfileSettings
+  /** The first-run welcome. */
+  welcome: WelcomeSettings
   appearance: AppearanceSettings
   general: GeneralSettings
   workspace: WorkspaceSettings

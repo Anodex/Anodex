@@ -187,3 +187,73 @@ test('web search setup tests before saving, and saves nothing that failed', asyn
     await run.dispose()
   }
 })
+
+test('a new user is welcomed, named, and greeted by that name', async () => {
+  const run = await launchFresh(undefined, { welcome: true })
+  try {
+    const { window } = run
+    await expect(window.getByRole('heading', { name: 'Welcome to Anodex' })).toBeVisible()
+    // Continue waits for a name.
+    await expect(window.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
+    await window.getByLabel('Your name').fill('Sam Rivera')
+    await expect(window.getByRole('heading', { name: 'Nice to meet you, Sam.' })).toBeVisible()
+    await window.getByRole('button', { name: 'Colour 4' }).click()
+    await window.getByRole('button', { name: 'Continue', exact: true }).click()
+
+    // The model step greets by name; skipped here, since nothing is downloaded in a test.
+    await expect(window.getByText('Hi Sam')).toBeVisible()
+    await window.getByRole('button', { name: 'Skip for now' }).click()
+
+    // The phone step offers the app first, and its download page.
+    await expect(window.getByText('Bring Anodex to your phone')).toBeVisible()
+    await expect(window.getByAltText('QR code for the Android download')).toBeVisible()
+    await expect(window.getByRole('link', { name: /Or open the download page/ })).toHaveAttribute(
+      'href',
+      'https://github.com/Anodex/anodex-mobile/releases/latest'
+    )
+    await window.getByRole('button', { name: '2 · Pair' }).click()
+    // A code to scan — or, where this machine cannot listen, a reason why.
+    await expect(
+      window
+        .getByAltText('Pairing code')
+        .or(window.getByText(/could not start|Could not show a code/))
+    ).toBeVisible({ timeout: 15_000 })
+    await window.getByRole('button', { name: "Skip, I'll do this later" }).click()
+
+    // Leaving without a phone turns remote access back off.
+    await expect
+      .poll(
+        async () =>
+          (
+            await window.evaluate(() =>
+              (globalThis as unknown as { anodex: AnodexApi }).anodex.remote.status()
+            )
+          ).listening
+      )
+      .toBe(false)
+
+    await expect(window.getByRole('heading', { name: "You're all set, Sam." })).toBeVisible()
+    await expect(window.getByText('Pair a phone any time in Settings → Remote')).toBeVisible()
+    await window.getByRole('button', { name: 'Start chatting' }).click()
+
+    await expect(window.getByRole('dialog', { name: 'Welcome to Anodex' })).toHaveCount(0)
+    await expect(
+      window.getByRole('heading', { name: /^Good (morning|afternoon|evening), Sam\.$/ })
+    ).toBeVisible()
+    const profile = await window.evaluate(() =>
+      (globalThis as unknown as { anodex: AnodexApi }).anodex.settings.get()
+    )
+    expect(profile).toMatchObject({ profile: { displayName: 'Sam Rivera', avatarLook: 3 } })
+    await run.quit()
+
+    // Seen once: the same profile opens straight to the app.
+    const again = await launchFresh(run.userDataDir, { welcome: true })
+    try {
+      await expect(again.window.getByRole('dialog', { name: 'Welcome to Anodex' })).toHaveCount(0)
+    } finally {
+      await again.dispose()
+    }
+  } finally {
+    await run.dispose()
+  }
+})
