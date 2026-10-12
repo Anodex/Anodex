@@ -17,25 +17,15 @@
   border-bottom: 1px solid var(--border);
 }
 
-.titleRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.titleIcon {
-  color: var(--accent);
-}
-
 .header h1 {
   margin: 0;
   color: var(--text);
   font-size: var(--text-2xl);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .header p {
-  margin: var(--space-1) 0 0 32px;
+  margin: var(--space-1) 0 0;
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
@@ -228,7 +218,7 @@
   gap: var(--space-2);
   margin-top: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: var(--text-sm);
   background: var(--warn-soft);
   border-radius: var(--radius-md);
@@ -454,7 +444,7 @@
 
 .status-stopped,
 .status-partial {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 
@@ -767,7 +757,7 @@
 }
 
 .step-limited .stepIcon {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .activityList {
@@ -1003,7 +993,7 @@
   justify-content: flex-start;
   margin-bottom: var(--space-3);
   padding: var(--space-3);
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
   border: 0;
 }
@@ -1051,7 +1041,7 @@
 }
 
 .limitReason {
-  color: var(--warn);
+  color: var(--warn-text);
   font-size: var(--text-xs);
 }
 

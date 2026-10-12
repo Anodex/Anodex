@@ -107,7 +107,7 @@
 }
 
 .status-stopped {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 
@@ -440,7 +440,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* ---- turns ---- */
@@ -569,10 +569,10 @@
   border-radius: var(--radius-md);
 }
 
-.toolCall code {
-  font-family: var(--font-mono);
-  color: var(--code-inline-text);
+.toolAction {
   flex: none;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .toolTitle {
@@ -612,8 +612,13 @@
   border-radius: var(--radius-md);
 }
 
+.turnError.turnWarn {
+  color: var(--warn-text);
+  background: var(--warn-soft);
+}
+
 .turnError.bounded {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 

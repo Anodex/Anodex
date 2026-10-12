@@ -191,7 +191,7 @@
 }
 
 .projectIcon {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 
@@ -236,7 +236,7 @@
 }
 
 .projectPill {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 

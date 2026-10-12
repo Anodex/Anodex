@@ -5,6 +5,7 @@ import { Icon } from '../../../../components/Icon'
 import { ModelLogo } from '../../../../components/ModelLogo'
 import { Spinner } from '../../../../components/ui/Spinner'
 import styles from './AiModelsSettings.module.css'
+import { readableModelName } from '../../../../lib/modelName'
 
 /** The active local model, its status, and quick engine-level actions. */
 export function EnginePanel({
@@ -70,7 +71,9 @@ export function EnginePanel({
             </div>
             <div className={styles.engineTitleBlock}>
               <div className={styles.engineTitleRow}>
-                <h3 className={styles.engineName}>{engine.model?.name ?? 'No model loaded'}</h3>
+                <h3 className={styles.engineName}>
+                  {engine.model ? readableModelName(engine.model.name) : 'No model loaded'}
+                </h3>
                 <span className={`${styles.statusPill} ${styles[`status${statusLabel}`]}`}>
                   <span className={styles.statusDot} />
                   {statusLabel}

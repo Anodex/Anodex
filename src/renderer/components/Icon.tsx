@@ -48,6 +48,7 @@ export type IconName =
   | 'maximize'
   | 'restore'
   | 'chevrons-up'
+  | 'chevrons-down'
   | 'download'
   | 'eye'
   | 'shield-question'
@@ -348,6 +349,12 @@ const GLYPHS: Record<IconName, ReactNode> = {
     <>
       <path d="m7 11 5-5 5 5" />
       <path d="m7 17 5-5 5 5" />
+    </>
+  ),
+  'chevrons-down': (
+    <>
+      <path d="m7 7 5 5 5-5" />
+      <path d="m7 13 5 5 5-5" />
     </>
   ),
   download: (

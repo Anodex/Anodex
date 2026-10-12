@@ -10,6 +10,7 @@ import { MessageContent } from '../chat/MessageContent'
 import { describeRunTiming, formatDuration, formatNextRun } from './scheduleFormat'
 import { useCountdown } from './useCountdown'
 import styles from './SchedulerConversation.module.css'
+import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
 
 /** One run paired with the messages it produced, newest run first. */
 interface RunSegment {
@@ -118,8 +119,8 @@ function RunSegmentView({
                         className={`${styles.toolCall} ${styles[`tool-${call.status}`]}`}
                         title={call.detail ?? call.title}
                       >
-                        <code>{call.name}</code>
-                        <span className={styles.toolTitle}>{call.title}</span>
+                        <span className={styles.toolAction}>{toolActionLabel(call)}</span>
+                        <span className={styles.toolTitle}>{toolActionTarget(call)}</span>
                       </span>
                     ))}
                   </div>

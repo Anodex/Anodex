@@ -219,7 +219,7 @@
   background: color-mix(in srgb, var(--warn-soft) 26%, var(--bg-surface));
 }
 .mid .icon {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 .mid .seg {
   background: var(--warn);
@@ -228,7 +228,7 @@
   background: var(--warn);
 }
 .mid .label {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .high {

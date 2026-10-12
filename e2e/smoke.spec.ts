@@ -601,7 +601,7 @@ test('a running download stays clear of the settings close button', async ({
     // header cannot lay itself out around it. Without the reserved padding
     // the two all but touch.
     const barBox = await bar.boundingBox()
-    // The sidebar has its own "Close settings" control, so pin the corner one.
+    // The corner button, by its title as well as its name.
     const closeBox = await mainWindow
       .locator('button[aria-label="Close settings"][title="Close"]')
       .boundingBox()
@@ -850,7 +850,7 @@ test('a delegated run shows its sub-agents nested underneath it', async () => {
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    await window.getByRole('button', { name: 'Agents', exact: true }).click()
 
     await expect(window.getByText('Find the bugs in the parser')).toBeVisible()
 
@@ -922,7 +922,7 @@ test('a finished run offers to continue the work', async () => {
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    await window.getByRole('button', { name: 'Agents', exact: true }).click()
 
     // A lone run says nothing about a series: "run 1 of 1" on every card
     // would be true and useless.
@@ -998,7 +998,7 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    await window.getByRole('button', { name: 'Agents', exact: true }).click()
 
     // Two runs in one series, so the cards say where each sits.
     await expect(window.getByText('run 2 of 2')).toBeVisible()
@@ -1112,7 +1112,7 @@ test('a scheduled continuation starts the next run of the same work', async () =
     // selector in this file to an exact match; this one cannot follow it, and
     // a merge applied it here anyway — the comment above was already saying
     // why that would not work.
-    await window.getByRole('button', { name: /^Agent/ }).click()
+    await window.getByRole('button', { name: /^Agents/ }).click()
 
     // Two runs of one series: the seeded one, and the one the schedule just
     // started. The mark only appears on series with more than one run, so its
@@ -1168,7 +1168,7 @@ test('a finished run can be put on a schedule from the run list', async () => {
   try {
     const window = await app.firstWindow()
     await waitForStartup(window)
-    await window.getByRole('button', { name: 'Agent', exact: true }).click()
+    await window.getByRole('button', { name: 'Agents', exact: true }).click()
 
     await window.getByRole('button', { name: 'Keep this work going on a schedule' }).click()
 

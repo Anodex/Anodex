@@ -80,7 +80,7 @@
 }
 
 .summaryCard.warning > strong {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .summaryCard.healthy > strong {
@@ -298,7 +298,7 @@
 }
 
 .entry.warning .severity {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 

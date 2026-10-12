@@ -129,7 +129,7 @@ export async function runAgentRun(run: DemoRun): Promise<void> {
 export async function runAgentDemo(only?: number): Promise<void> {
   const queue = only === undefined ? DEMO_RUNS : [DEMO_RUNS[only]].filter(Boolean)
 
-  if (only === undefined) await gotoView('Agent')
+  if (only === undefined) await gotoView('Agents')
 
   for (const [index, run] of queue.entries()) {
     await runAgentRun(run)

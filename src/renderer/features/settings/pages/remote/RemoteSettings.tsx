@@ -430,9 +430,12 @@ export function RemoteSettings(): JSX.Element {
                     // connection is refused.
                     'Paired to an older identity of this computer, so it can no longer connect. ' +
                     'Pair it again.'
-                  : device.connected
-                    ? `Connected now${routeLabel(device.route)}`
-                    : `Last seen ${formatSeen(device.lastSeenEpochMs)}`
+                  : // Led by when it was paired: two of the same phone are otherwise
+                    // two identical rows, and nothing says which one to unpair.
+                    `Paired ${formatPaired(device.pairedAtEpochMs)} · ` +
+                    (device.connected
+                      ? `connected now${routeLabel(device.route)}`
+                      : `last seen ${formatSeen(device.lastSeenEpochMs)}`)
               }
               control={
                 <Button variant="danger" onClick={() => setConfirmingUnpair(device)}>
@@ -550,10 +553,22 @@ function formatSeen(epochMs: number): string {
   if (minutes === 1) return 'a minute ago'
   if (minutes < 60) return `${minutes} minutes ago`
   const hours = Math.round(minutes / 60)
-  return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+  if (hours < 24) return hours === 1 ? 'an hour ago' : `${hours} hours ago`
+  const days = Math.round(hours / 24)
+  return days === 1 ? 'yesterday' : `${days} days ago`
 }
 
-/** How a connected device reaches this computer, as a suffix to "Connected now". */
+/** "Oct 11, 2:14 PM": a pairing's own moment, which is what tells two phones apart. */
+function formatPaired(epochMs: number): string {
+  return new Date(epochMs).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
+/** How a connected device reaches this computer, as a suffix to "connected now". */
 function routeLabel(route: RemotePairedDevice['route']): string {
   switch (route) {
     case 'home':
