@@ -12,6 +12,7 @@ import { Icon } from '../Icon'
 import { StatusDot } from '../ui/StatusDot'
 import { NavigationCount } from './NavigationCount'
 import styles from './SidebarRail.module.css'
+import { UserAvatar } from '../UserAvatar'
 
 interface SidebarRailProps {
   counts: NavigationBadgeCounts
@@ -190,8 +191,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         data-tour="profile"
         title="Profile and settings"
       >
-        {settings?.profile.avatarBase64 ? (
-          <img src={settings.profile.avatarBase64} alt="" className={styles.profileImage} />
+        {settings ? (
+          <UserAvatar profile={settings.profile} size={24} />
         ) : (
           <Icon name="user" size={16} />
         )}

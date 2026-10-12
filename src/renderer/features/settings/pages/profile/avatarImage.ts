@@ -55,6 +55,39 @@ export async function downscaleAvatar(dataUrl: string): Promise<string> {
 }
 
 /**
+ * A chosen photo as a round avatar wants it: the centre square, at
+ * {@link AVATAR_MAX_EDGE}.
+ *
+ * Every avatar is drawn as a circle, here and on the phone. A tall photo kept
+ * whole is letterboxed inside that circle, or cropped differently by each screen
+ * that draws it; cropping once, to the middle, means every screen shows the same
+ * face. Returns the original on a decode failure, as {@link downscaleAvatar} does.
+ */
+export async function cropAvatarToSquare(dataUrl: string): Promise<string> {
+  const image = await loadImage(dataUrl).catch(() => null)
+  if (!image || image.naturalWidth === 0 || image.naturalHeight === 0) return dataUrl
+  const side = Math.min(image.naturalWidth, image.naturalHeight)
+  const edge = Math.min(AVATAR_MAX_EDGE, side)
+  const canvas = document.createElement('canvas')
+  canvas.width = edge
+  canvas.height = edge
+  const context = canvas.getContext('2d')
+  if (!context) return dataUrl
+  context.drawImage(
+    image,
+    (image.naturalWidth - side) / 2,
+    (image.naturalHeight - side) / 2,
+    side,
+    side,
+    0,
+    0,
+    edge,
+    edge
+  )
+  return canvas.toDataURL(AVATAR_MIME, AVATAR_QUALITY)
+}
+
+/**
  * Size past which a stored avatar is worth re-encoding even when its pixel
  * dimensions are already small — an over-compressed source can still be large.
  */

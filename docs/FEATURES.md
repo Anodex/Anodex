@@ -52,6 +52,23 @@ of day-to-day work:
   path confinement, checkpoints, diffs, restore flows, secure credential storage,
   and local diagnostics are all part of the design.
 
+## First Run
+
+A fresh install opens on a short welcome, after the startup starfield:
+
+- **You.** What Anodex should call you, and a picture: a photo (cropped to its
+  centre) or initials on one of the mark's six gradients. Used in greetings, on the
+  profile, and on a paired phone. Stored only on this computer.
+- **Model.** One recommendation that fits this computer's memory, graphics and free
+  disk space, downloadable in place. A model too large for the disk is never the
+  first thing offered.
+- **Phone.** A QR for the Android download (it is not on the Play Store), then the
+  pairing code, with an address, port and short code for a phone that cannot scan.
+  Remote access is turned on only while waiting, and back off if nothing pairs.
+
+Every step can be skipped; the last screen says what was set up and where to find
+whatever was not. An install from before the welcome existed never sees it.
+
 ## Local-first Desktop AI
 
 Anodex is built as a desktop app using Electron, React, TypeScript, Zustand, and
@@ -564,6 +581,9 @@ Key capabilities:
 - Run a task immediately.
 - Pause and resume tasks.
 - Search and sort task cards.
+- See the month: a List | Month switch shows each day's runs — what ran, what failed,
+  what is coming — with daily and weekday tasks listed once above the calendar rather
+  than in every square. The phone shows the same month, worked out by the computer.
 - Enable a keep-awake option.
 - Record last run status, summary, and history.
 - Show completion or failure notifications.

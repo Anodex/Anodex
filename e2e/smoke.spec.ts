@@ -40,7 +40,7 @@ async function expandTurnActivity(window: Page): Promise<void> {
  */
 test('app launches and shows the main window', async () => {
   const app = await electron.launch({
-    args: ['out/main/index.js']
+    args: ['out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -53,7 +53,7 @@ test('app launches and shows the main window', async () => {
 
 test('app shell does not render nested buttons', async () => {
   const app = await electron.launch({
-    args: ['out/main/index.js']
+    args: ['out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -69,7 +69,7 @@ test('app shell does not render nested buttons', async () => {
 test('the navigation rail stays put while the chat panel opens and closes', async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-sidebar-e2e-'))
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -129,7 +129,7 @@ test('Chats and Workspace switch the sidebar list without switching the open con
   const folderPath = join(userDataDir, 'workspace')
   await mkdir(folderPath)
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -212,7 +212,7 @@ test('Chats and Workspace switch the sidebar list without switching the open con
 
 test('GitHub settings exposes the guided hosted-MCP setup', async () => {
   const app = await electron.launch({
-    args: ['out/main/index.js']
+    args: ['out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -234,7 +234,7 @@ test('past user messages open the edit and regenerate review', async ({
 }, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-edit-message-e2e-'))
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -385,7 +385,7 @@ test('persisted visual inspection screenshots reopen inside the conversation', a
   )
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -500,7 +500,7 @@ test('persisted uploaded images reopen inline in user messages', async () => {
   )
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -539,7 +539,7 @@ test('visual preview storage reports usage and clears stored pixels', async () =
   await writeFile(join(assetDir, 'message-1-preview.png'), ONE_PIXEL_PNG)
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -574,7 +574,7 @@ test('a running download stays clear of the settings close button', async ({
 }, testInfo) => {
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-download-header-e2e-'))
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -657,7 +657,9 @@ interface PageGlobals {
  */
 test('the app shell cannot be navigated away', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'anodex-nav-'))
-  const app = await electron.launch({ args: [`--user-data-dir=${dir}`, 'out/main/index.js'] })
+  const app = await electron.launch({
+    args: [`--user-data-dir=${dir}`, 'out/main/index.js', '--skip-welcome']
+  })
 
   try {
     const w = await app.firstWindow()
@@ -751,7 +753,7 @@ test('sub-agent settings explain why a default local machine gets none', async (
   // shown when they are off.
   const userDataDir = await mkdtemp(join(tmpdir(), 'anodex-subagents-e2e-'))
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -844,7 +846,7 @@ test('a delegated run shows its sub-agents nested underneath it', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify(runs), 'utf-8')
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -916,7 +918,7 @@ test('a finished run offers to continue the work', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -992,7 +994,7 @@ test('a continuing run shows the journal of the work it belongs to', async () =>
   )
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -1093,7 +1095,7 @@ test('a scheduled continuation starts the next run of the same work', async () =
   )
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {
@@ -1162,7 +1164,7 @@ test('a finished run can be put on a schedule from the run list', async () => {
   await writeFile(join(userDataDir, 'agent-runs', 'runs.json'), JSON.stringify([finished]), 'utf-8')
 
   const app = await electron.launch({
-    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js']
+    args: [`--user-data-dir=${userDataDir}`, 'out/main/index.js', '--skip-welcome']
   })
 
   try {

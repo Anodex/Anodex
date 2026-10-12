@@ -35,9 +35,20 @@ export interface FreshApp {
  * Always a temporary profile: a journey that opened the person's own would read
  * and write their real chats and settings.
  */
-export async function launchFresh(userDataDir?: string): Promise<FreshApp> {
+export async function launchFresh(
+  userDataDir?: string,
+  options: { welcome?: boolean } = {}
+): Promise<FreshApp> {
   const dir = userDataDir ?? (await mkdtemp(join(tmpdir(), 'anodex-journey-')))
-  const app = await electron.launch({ args: [`--user-data-dir=${dir}`, 'out/main/index.js'] })
+  // A fresh profile opens on the first-run welcome. Every journey but the
+  // welcome's own skips it; see `--skip-welcome` in the main process.
+  const app = await electron.launch({
+    args: [
+      `--user-data-dir=${dir}`,
+      'out/main/index.js',
+      ...(options.welcome ? [] : ['--skip-welcome'])
+    ]
+  })
   const window = await app.firstWindow()
   const pageErrors: string[] = []
   window.on('pageerror', (error) => pageErrors.push(error.message))

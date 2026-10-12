@@ -20,6 +20,8 @@ import { DownloadTour } from './DownloadTour'
 import { downloadShortfallBytes } from './diskSpace'
 import { timeLeftLabel, useDownloadRate } from './downloadRate'
 import styles from './ChatEmptyState.module.css'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { firstName, partOfDay } from '@shared/userIdentity'
 
 const SUGGESTIONS = [
   'Explain this error and how to fix it',
@@ -118,12 +120,17 @@ export function ChatEmptyState(): JSX.Element {
   const ready = useModelStore((s) => s.engine.status === 'ready')
   const sendMessage = useChatStore((s) => s.sendMessage)
   const openSettings = useUiStore((s) => s.openSettings)
+  // Greeted by name once there is one: the welcome asked for it so that this, the
+  // profile and the phone would have something to say.
+  const name = useSettingsStore((s) => firstName(s.settings?.profile.displayName))
 
   return (
     <div className={styles.empty}>
       <div className={styles.hero}>
         <AnodexLogo variant="icon" size={72} className={styles.heroIcon} />
-        <h2 className={styles.heading}>How can I help you build?</h2>
+        <h2 className={styles.heading}>
+          {name ? `Good ${partOfDay()}, ${name}.` : 'How can I help you build?'}
+        </h2>
         <p className={styles.subtitle}>
           Anodex is a local-first assistant for coding help and general chat.
         </p>
@@ -155,7 +162,7 @@ export function ChatEmptyState(): JSX.Element {
  *  user to figure out which model and whether it'll even run on their
  *  machine. Falls back to the plain "open settings" callout if hardware
  *  detection fails or nothing in the catalog fits. */
-function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
+export function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
   const models = useModelStore((s) => s.models)
   const downloads = useModelStore((s) => s.downloads)
   const downloadModel = useModelStore((s) => s.downloadModel)
@@ -194,12 +201,27 @@ function NoModelOnboarding({ onOpenSettings }: { onOpenSettings: () => void }): 
     }
   }, [])
 
+  // Only models this computer can actually fetch. The best model by memory and
+  // graphics was, on one real machine, 45 GB against 26.5 GB free — so a new
+  // user's very first button read "Not enough space". One already on disk always
+  // counts; when nothing fits, the full list is used and the card says why.
+  const fitting = useMemo(() => {
+    const onDisk = new Set(models.map((model) => basename(model.path).toLowerCase()))
+    return liveModels.filter(
+      (model) =>
+        onDisk.has(recommendedModelFileName(model).toLowerCase()) ||
+        downloadShortfallBytes(hardware, model, partials[model.id] ?? 0) === 0
+    )
+  }, [hardware, liveModels, models, partials])
+
   const bestOverall = useMemo(() => {
     if (loadingHardware) return null
-    return buildRecommendedSlots(hardware, undefined, liveModels).find(
-      (slot) => slot.id === 'overall'
-    )
-  }, [hardware, loadingHardware, liveModels])
+    return buildRecommendedSlots(
+      hardware,
+      undefined,
+      fitting.length > 0 ? fitting : liveModels
+    ).find((slot) => slot.id === 'overall')
+  }, [hardware, loadingHardware, liveModels, fitting])
 
   // A download stopped on an earlier run is still on disk; the card offers to
   // resume it rather than presenting the model as untouched.

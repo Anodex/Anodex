@@ -99,6 +99,9 @@ const PHONE_ONLY = new Set([
   // is Kotlin and cannot, and a second parser over there would drift from this one
   // without anything reporting it.
   'Scheduler.parseWhen',
+  // Same reasoning: the renderer builds the month from `@shared/scheduleMonth`
+  // itself, and this channel is the phone's way to the same function.
+  'Scheduler.month',
   // A client saying whether it wants tokens as they are generated. The renderer is
   // in the same process as the thing producing them — there is no connection between
   // them to be metered, and nothing to save by asking for less.

@@ -19,6 +19,10 @@ import { TodayStrip } from './TodayStrip'
 import { useCountdown } from './useCountdown'
 import { ExampleCards } from '../../components/ExampleCards'
 import styles from './SchedulerView.module.css'
+import { MonthView } from './MonthView'
+import { SegmentedToggle } from '../../components/ui/SegmentedToggle'
+
+const LAYOUT_KEY = 'anodex.scheduler.layout'
 
 type SortMode = 'nextRun' | 'name'
 
@@ -272,6 +276,23 @@ export function SchedulerView(): JSX.Element {
 
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('nextRun')
+  // List or Month, remembered on this computer: it is how somebody likes to look
+  // at their schedule, not part of it.
+  const [layout, setLayout] = useState<'list' | 'month'>(() => {
+    try {
+      return localStorage.getItem(LAYOUT_KEY) === 'month' ? 'month' : 'list'
+    } catch {
+      return 'list'
+    }
+  })
+  const chooseLayout = (next: 'list' | 'month'): void => {
+    setLayout(next)
+    try {
+      localStorage.setItem(LAYOUT_KEY, next)
+    } catch {
+      // Private window or blocked storage: it just will not be remembered.
+    }
+  }
   const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
   const [creatingSeed, setCreatingSeed] = useState<SchedulerTaskEditorSeed | null>(null)
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
@@ -373,14 +394,24 @@ export function SchedulerView(): JSX.Element {
           </p>
         </div>
         <div className={styles.headerActions}>
-          <SelectControl
-            value={sortMode}
-            onChange={(value) => setSortMode(value as SortMode)}
+          <SegmentedToggle
+            value={layout}
             options={[
-              { label: 'Sort by: Next run', value: 'nextRun' },
-              { label: 'Sort by: Name', value: 'name' }
+              { label: 'List', value: 'list' },
+              { label: 'Month', value: 'month' }
             ]}
+            onChange={chooseLayout}
           />
+          {layout === 'list' && (
+            <SelectControl
+              value={sortMode}
+              onChange={(value) => setSortMode(value as SortMode)}
+              options={[
+                { label: 'Sort by: Next run', value: 'nextRun' },
+                { label: 'Sort by: Name', value: 'name' }
+              ]}
+            />
+          )}
           <Button
             variant="primary"
             iconLeft={<Icon name="plus" size={16} />}
@@ -405,29 +436,37 @@ export function SchedulerView(): JSX.Element {
           </label>
         </div>
 
-        {/* Built from every task, not the filtered view — a day with half its
-            runs hidden by a search box would be a different day. */}
-        <TodayStrip tasks={tasks} />
-
-        {filteredTasks.length === 0 ? (
-          <div className={styles.empty}>
-            <Icon name="clock" size={40} className={styles.emptyIcon} />
-            <p>{tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}</p>
-          </div>
+        {layout === 'month' ? (
+          <MonthView tasks={filteredTasks} onOpenTask={setOpenTaskId} />
         ) : (
-          <div className={styles.taskList}>
-            {filteredTasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                runningId={runningId}
-                projectName={projectName}
-                onOpenReport={setOpenTaskId}
-                onRunNow={(t) => void handleRunNow(t)}
-                onEdit={setEditingTask}
-              />
-            ))}
-          </div>
+          <>
+            {/* Built from every task, not the filtered view — a day with half its
+            runs hidden by a search box would be a different day. */}
+            <TodayStrip tasks={tasks} />
+
+            {filteredTasks.length === 0 ? (
+              <div className={styles.empty}>
+                <Icon name="clock" size={40} className={styles.emptyIcon} />
+                <p>
+                  {tasks.length === 0 ? 'No scheduled tasks yet.' : 'No tasks match your search.'}
+                </p>
+              </div>
+            ) : (
+              <div className={styles.taskList}>
+                {filteredTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    runningId={runningId}
+                    projectName={projectName}
+                    onOpenReport={setOpenTaskId}
+                    onRunNow={(t) => void handleRunNow(t)}
+                    onEdit={setEditingTask}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         <div className={styles.divider} />

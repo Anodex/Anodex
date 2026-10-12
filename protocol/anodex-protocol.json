@@ -7640,6 +7640,38 @@
       }
     },
     {
+      "channel": "scheduler:month",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "year",
+          "optional": false,
+          "type": {
+            "kind": "unknown"
+          }
+        },
+        {
+          "name": "month",
+          "optional": false,
+          "type": {
+            "kind": "unknown"
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "null"
+          },
+          {
+            "$ref": "ScheduleMonthWire"
+          }
+        ]
+      }
+    },
+    {
       "channel": "scheduler:parse-when",
       "kind": "invoke",
       "servedBy": "ipcMain.handle",
@@ -11065,6 +11097,12 @@
           "optional": false,
           "type": {
             "$ref": "ProfileSettings"
+          }
+        },
+        "welcome": {
+          "optional": false,
+          "type": {
+            "$ref": "WelcomeSettings"
           }
         },
         "appearance": {
@@ -19669,6 +19707,63 @@
         }
       }
     },
+    "EveryEntry": {
+      "kind": "object",
+      "properties": {
+        "taskId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "reminder": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "cadence": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "hour": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        },
+        "minute": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "null"
+              },
+              {
+                "kind": "number"
+              }
+            ]
+          }
+        }
+      }
+    },
     "ExportCriticalThinkingPdfRequest": {
       "kind": "object",
       "properties": {
@@ -21877,6 +21972,71 @@
         }
       }
     },
+    "MonthEntry": {
+      "kind": "object",
+      "properties": {
+        "key": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "taskId": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "at": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "reminder": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        },
+        "repeats": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "state": {
+          "optional": false,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "literal",
+                "value": "error"
+              },
+              {
+                "kind": "literal",
+                "value": "success"
+              },
+              {
+                "kind": "literal",
+                "value": "stopped"
+              },
+              {
+                "kind": "literal",
+                "value": "upcoming"
+              }
+            ]
+          }
+        }
+      }
+    },
     "Omit<ConversationContextSnapshot, \"id\">": {
       "kind": "object",
       "properties": {
@@ -22355,6 +22515,12 @@
                 "kind": "string"
               }
             ]
+          }
+        },
+        "avatarLook": {
+          "optional": false,
+          "type": {
+            "kind": "number"
           }
         },
         "planTier": {
@@ -24548,6 +24714,84 @@
           "optional": false,
           "type": {
             "kind": "number"
+          }
+        }
+      }
+    },
+    "ScheduleMonthWire": {
+      "kind": "object",
+      "properties": {
+        "year": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "month": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "days": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "kind": "object",
+              "properties": {
+                "day": {
+                  "optional": false,
+                  "type": {
+                    "kind": "number"
+                  }
+                },
+                "entries": {
+                  "optional": false,
+                  "type": {
+                    "kind": "array",
+                    "of": {
+                      "$ref": "MonthEntry"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "every": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "$ref": "EveryEntry"
+            }
+          }
+        },
+        "everyByDay": {
+          "optional": false,
+          "type": {
+            "kind": "array",
+            "of": {
+              "kind": "object",
+              "properties": {
+                "day": {
+                  "optional": false,
+                  "type": {
+                    "kind": "number"
+                  }
+                },
+                "entries": {
+                  "optional": false,
+                  "type": {
+                    "kind": "array",
+                    "of": {
+                      "$ref": "MonthEntry"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -27523,6 +27767,17 @@
           }
         },
         "verified": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      }
+    },
+    "WelcomeSettings": {
+      "kind": "object",
+      "properties": {
+        "completed": {
           "optional": false,
           "type": {
             "kind": "boolean"

@@ -73,7 +73,7 @@ becoming a black box.
     </td>
     <td width="50%" valign="top">
       <h3>Automate</h3>
-      <p>Schedule recurring tasks, connect trusted tools, and keep meaningful actions visible and under your control.</p>
+      <p>Schedule recurring tasks and see the month ahead at a glance, connect trusted tools, and keep meaningful actions visible and under your control.</p>
     </td>
   </tr>
 </table>
@@ -85,8 +85,10 @@ workspace controls—see the [feature overview](docs/FEATURES.md).
 
 Anodex has a native Android companion: [**Anodex Mobile**](https://github.com/Anodex/anodex-mobile).
 
-Pair it over a QR code from **Settings → Remote** and you get Chat, Workspace, Agents,
-Email and Scheduler on your phone. Every bit of the work still happens on your machine
+Get the app and pair it from the last step of the first-run welcome, or later from
+**Settings → Remote**, and you get Chat, Workspace, Agents, Email and Scheduler on
+your phone. It is not on the Play Store yet: the latest signed build is always at
+[`releases/latest/download/anodex.apk`](https://github.com/Anodex/anodex-mobile/releases/latest/download/anodex.apk). Every bit of the work still happens on your machine
 — the phone renders, asks and answers; it never runs a model, holds a workspace,
 executes a tool, or touches a file. Your models, projects, keys and history do not
 leave your PC.

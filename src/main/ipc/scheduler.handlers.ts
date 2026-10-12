@@ -5,6 +5,7 @@ import type {
   UpdateScheduledTaskRequest
 } from '@shared/scheduledTask.types'
 import { parseWhen } from '@shared/parseWhen'
+import { buildMonth, monthForWire } from '@shared/scheduleMonth'
 import { isRemoteCall } from '../clients/clientRegistry'
 import { schedulerStore } from '../scheduler/SchedulerStore'
 import { schedulerService } from '../scheduler/SchedulerService'
@@ -65,6 +66,16 @@ export function registerSchedulerHandlers(): void {
   ipcMain.handle(IpcChannel.Scheduler.parseWhen, (_event, text: string) =>
     typeof text === 'string' ? parseWhen(text) : null
   )
+
+  // Months outside a sane range are refused as empty rather than thrown: a phone
+  // paging back through history should land on a blank month, not an error.
+  ipcMain.handle(IpcChannel.Scheduler.month, (_event, year: unknown, month: unknown) => {
+    if (!Number.isInteger(year) || !Number.isInteger(month)) return null
+    const y = year as number
+    const m = month as number
+    if (y < 2000 || y > 2100 || m < 0 || m > 11) return null
+    return monthForWire(buildMonth(schedulerStore.list(), y, m), y, m)
+  })
 
   ipcMain.handle(IpcChannel.Scheduler.create, (event, request: CreateScheduledTaskRequest) => {
     try {

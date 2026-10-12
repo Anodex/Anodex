@@ -10,8 +10,10 @@ import { TextControl } from '../../controls'
 import { UsageActivitySection } from './UsageActivitySection'
 import { PersonalitySection } from './PersonalitySection'
 import pageStyles from '../../SettingsPage.module.css'
-import { avatarNeedsDownscale, downscaleAvatar } from './avatarImage'
+import { avatarNeedsDownscale, cropAvatarToSquare, downscaleAvatar } from './avatarImage'
 import styles from './ProfileSettings.module.css'
+import { UserAvatar } from '../../../../components/UserAvatar'
+import { AvatarLookPicker } from '../../../../components/AvatarLookPicker'
 
 interface ProfileSettingsProps {
   settings: AppSettings
@@ -49,10 +51,10 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      // Downscaled before it is stored — see `downscaleAvatar`. Settings are
-      // rewritten whole on every change, so a full-size photo here is paid for
-      // by every later setting the user touches.
-      void downscaleAvatar(reader.result as string).then((avatarBase64) =>
+      // Cropped to its centre square and downscaled before it is stored — see
+      // `cropAvatarToSquare`. Settings are rewritten whole on every change, so a
+      // full-size photo here is paid for by every later setting the user touches.
+      void cropAvatarToSquare(reader.result as string).then((avatarBase64) =>
         update({ profile: { avatarBase64 } })
       )
     }
@@ -77,11 +79,7 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             onClick={() => fileInputRef.current?.click()}
             aria-label="Change avatar"
           >
-            {profile.avatarBase64 ? (
-              <img src={profile.avatarBase64} alt="" className={styles.avatarImage} />
-            ) : (
-              <span className={styles.avatarInitials}>{initials(profile.displayName)}</span>
-            )}
+            <UserAvatar profile={profile} size={104} />
           </button>
           <input
             ref={fileInputRef}
@@ -89,6 +87,15 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
             accept="image/*"
             className={styles.fileInput}
             onChange={handleAvatarChange}
+          />
+          <AvatarLookPicker
+            displayName={profile.displayName}
+            look={profile.avatarLook}
+            usingPhoto={Boolean(profile.avatarBase64)}
+            onPickLook={(avatarLook) =>
+              void update({ profile: { avatarLook, avatarBase64: null } })
+            }
+            onPickPhoto={() => fileInputRef.current?.click()}
           />
           {profile.avatarBase64 && (
             <button
@@ -173,15 +180,6 @@ export function ProfileSettings({ settings, update }: ProfileSettingsProps): JSX
       />
     </div>
   )
-}
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
 }
 
 /** Where Anodex keeps everything, with a way to copy the path. */

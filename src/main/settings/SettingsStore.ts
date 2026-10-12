@@ -100,17 +100,20 @@ class SettingsStore {
       }
       // Merge over defaults so missing/added fields are always populated.
       const merged = deepMerge(defaults, raw)
-      const migrated = migrateWindowsShellOffWindows(
-        migrateLegacyContextReplay(
-          migrateLegacyMaxTokens(
-            migrateLegacyGmailAccount(
-              migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+      const migrated = migrateWelcomeForExistingInstalls(
+        migrateWindowsShellOffWindows(
+          migrateLegacyContextReplay(
+            migrateLegacyMaxTokens(
+              migrateLegacyGmailAccount(
+                migrateLegacyThemeMode(migrateLegacyAssistantStyle(merged, raw), raw),
+                raw
+              ),
               raw
             ),
             raw
-          ),
-          raw
-        )
+          )
+        ),
+        raw
       )
       // Persist right away so the stray legacy fields (and, on the first pass,
       // their migrated values) only ever need handling once — left on disk,
@@ -131,7 +134,8 @@ class SettingsStore {
         (raw.generation as { maxTokens?: number } | undefined)?.maxTokens !== undefined ||
         retired.changed ||
         legacyContextReplayPresent ||
-        migrated.general.defaultShell !== merged.general.defaultShell
+        migrated.general.defaultShell !== merged.general.defaultShell ||
+        raw.welcome === undefined
       ) {
         try {
           // `persist` encrypts what it is given, and `migrated` still holds the
@@ -238,6 +242,20 @@ export function stripRetiredGeneralSettings(settings: Record<string, unknown>): 
 
   for (const key of retiredKeys) delete general[key]
   return { settings: { ...settings, general }, changed: true }
+}
+
+/**
+ * An install from before the first-run welcome existed has already been set up,
+ * so it is marked as having seen it. Without this every existing user would be
+ * walked through "What should Anodex call you?" the first time they updated.
+ * Persisted on that load (see the caller), so it is decided once.
+ */
+export function migrateWelcomeForExistingInstalls(
+  settings: AppSettings,
+  raw: DeepPartial<AppSettings>
+): AppSettings {
+  if (raw.welcome !== undefined) return settings
+  return { ...settings, welcome: { completed: true } }
 }
 
 /**
