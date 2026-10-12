@@ -10,6 +10,7 @@ import type {
 import { llamaService } from '../llama/LlamaService'
 import { isDroppedStreamMessage } from '../llama/droppedStreamError'
 import { requestToolConfirmation } from './tools.handlers'
+import type { ToolCall } from '@shared/tools.types'
 import { runBoundedChatGeneration } from '../chat/boundedChatRunner'
 import {
   abortAllGenerations,
@@ -114,6 +115,12 @@ export function registerChatHandlers(): void {
     // A temporary chat is the phone asking for nothing to be written.
     if (remote && !request.temporary) recordRemoteQuestion(request)
 
+    // A phone's turn is saved here rather than by a window, and the result carries no
+    // tool calls: the window builds them from the activity below. So they are kept as
+    // they go, by id, so each call's last status wins and the order is the order they
+    // started — the same shape `SchedulerService` keeps for a scheduled turn.
+    const toolCallsById = new Map<string, ToolCall>()
+
     try {
       const result = await runBoundedChatGeneration(request, {
         // This is the chat surface. It selects the conversational core prompt
@@ -165,6 +172,7 @@ export function registerChatHandlers(): void {
         },
         onActivity: (call) => {
           heartbeat.touch()
+          if (remote) toolCallsById.set(call.id, call)
           broadcastToWindows(IpcChannel.Tools.activity, {
             conversationId: request.conversationId,
             messageId: request.messageId,
@@ -176,7 +184,9 @@ export function registerChatHandlers(): void {
       })
 
       // A temporary chat is the phone asking for exactly this not to happen.
-      if (remote && !request.temporary) recordRemoteTurn(request, result)
+      if (remote && !request.temporary) {
+        recordRemoteTurn(request, { ...result, toolCalls: [...toolCallsById.values()] })
+      }
       // The phone that asked may have been closed since: tell it the answer is in.
       if (remote && !result.stopped) {
         notifyReplyReady(client, {
@@ -329,7 +339,7 @@ function recordRemoteQuestion(request: ChatRequest): void {
 
 function recordRemoteTurn(
   request: ChatRequest,
-  result: Awaited<ReturnType<typeof runBoundedChatGeneration>>
+  result: Awaited<ReturnType<typeof runBoundedChatGeneration>> & { toolCalls: ToolCall[] }
 ): void {
   try {
     const conversation = remoteTurnConversation(

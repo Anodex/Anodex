@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '@shared/conversation.types'
 import type { ChatMessage } from '@shared/chat.types'
-import { forRemote, REMOTE_MESSAGE_BYTES } from '../remoteTranscript'
+import type { ToolCall } from '@shared/tools.types'
+import { forRemote, REMOTE_MESSAGE_BYTES, REMOTE_TOOLS_PER_MESSAGE } from '../remoteTranscript'
 
 /**
  * What a phone is sent when it opens a conversation.
@@ -50,7 +51,52 @@ describe('forRemote', () => {
       ])
     )
 
-    expect(Object.keys(sent.messages[0]).sort()).toEqual(['attachments', 'content', 'id', 'role'])
+    expect(Object.keys(sent.messages[0]).sort()).toEqual([
+      'attachments',
+      'content',
+      'id',
+      'role',
+      'tools'
+    ])
+    // The tool call goes as a row, without its arguments.
+    expect(sent.messages[0].tools).toEqual([
+      { id: 't', name: 'read_file', title: 'read_file', status: 'success' }
+    ])
+  })
+
+  it('sends each tool call as one line, so the phone can show what a turn did', () => {
+    const ran: ToolCall = {
+      id: 't1',
+      name: 'run_command',
+      kind: 'command',
+      title: 'Run: echo hello',
+      detail: 'exit 0',
+      result: 'hello\n'.repeat(10_000),
+      status: 'success'
+    }
+    const sent = forRemote(conversation([message('a', { toolCalls: [ran] })]))
+
+    expect(sent.messages[0].tools).toEqual([
+      {
+        id: 't1',
+        name: 'run_command',
+        title: 'Run: echo hello',
+        detail: 'exit 0',
+        status: 'success'
+      }
+    ])
+  })
+
+  it('lists at most a fixed number of tool rows for one turn', () => {
+    const calls = Array.from({ length: REMOTE_TOOLS_PER_MESSAGE + 10 }, (_, i): ToolCall => ({
+      id: `t${i}`,
+      name: 'read_file',
+      kind: 'read',
+      title: `Read ${i}`,
+      status: 'success'
+    }))
+    const sent = forRemote(conversation([message('a', { toolCalls: calls })]))
+    expect(sent.messages[0].tools).toHaveLength(REMOTE_TOOLS_PER_MESSAGE)
   })
 
   it('names what was attached, without the paths', () => {
