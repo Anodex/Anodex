@@ -369,8 +369,22 @@
 }
 
 .planStep-completed .planStepTitle {
+  color: var(--text-muted);
+}
+
+/* Struck through only once the run has finished: see `PlanList`. */
+.planStep-completed.planFinished .planStepTitle {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+.planNote {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--warn-text);
+  font-size: var(--text-xs);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
 }
 
 /* ---- budget meters ---- */

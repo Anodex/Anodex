@@ -4,6 +4,7 @@
  * provider and budgets the exact same way.
  */
 import { activeElapsedMs, type AgentRun, type AgentRunStatus } from '@shared/agentRun.types'
+import type { Plan } from '@shared/plan.types'
 import { agentRunModelLabel, agentRunProviderVendor } from '@shared/agentRunProviders'
 import type { IconName } from '../../components/Icon'
 
@@ -225,4 +226,34 @@ export function ranOutDetail(run: BudgetFields): string | null {
     default:
       return null
   }
+}
+
+/**
+ * The "What changed:" line from the short report a run's turn ends with, or null.
+ *
+ * A turn's reply ends "What changed: … / Is it done: … / What would I do next: …".
+ * Squashed onto one line beside the reply, the labels ran into each other; this
+ * is the part of it worth reading at a glance. Tolerates markdown bold.
+ */
+export function whatChanged(content: string): string | null {
+  const line = /^\s*\**what changed\**\s*:\s*\**\s*(.+)$/im.exec(content)?.[1]
+  return line?.replace(/\*\*/g, '').trim() || null
+}
+
+/** "3 of 3 ticked off": the model's own tally, said as the model's. */
+export function planTally(plan: Plan): string {
+  const ticked = plan.steps.filter((step) => step.status === 'completed').length
+  return `${ticked} of ${plan.steps.length} ticked off`
+}
+
+/**
+ * A run that stopped short with every step of its plan ticked off.
+ *
+ * The model ticks its own steps; the service decides whether the run finished.
+ * When the two disagree, the page says so instead of showing both as fact.
+ */
+export function planOutranResult(run: Pick<AgentRun, 'status' | 'plan'>): boolean {
+  if (run.status !== 'stopped' && run.status !== 'error') return false
+  const steps = run.plan?.steps ?? []
+  return steps.length > 0 && steps.every((step) => step.status === 'completed')
 }

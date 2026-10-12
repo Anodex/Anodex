@@ -20,11 +20,14 @@ import {
   formatDuration,
   goalHeadline,
   isLongGoal,
+  planOutranResult,
+  planTally,
   providerIcon,
   providerLabel,
   ranOut,
   ranOutDetail,
-  runStatusLabel
+  runStatusLabel,
+  whatChanged
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
 import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
@@ -77,6 +80,11 @@ function turnDot(message: ChatMessage): TurnDot {
 
 /** Collapsed one-liner for a turn: its reply, or a fallback when it only ran tools. */
 function turnGist(message: ChatMessage): string {
+  // A run's turns end in a short report — "What changed: …", "Is it done: …",
+  // "What would I do next: …" — and squashed onto one line with the reply above
+  // it, the labels ran into each other. What changed is the line worth reading.
+  const changed = whatChanged(message.content)
+  if (changed) return changed
   const text = message.content.replace(/\s+/g, ' ').trim()
   if (text) return text
   const count = message.toolCalls?.length ?? 0
@@ -107,11 +115,24 @@ function useTick(active: boolean): void {
   }, [active])
 }
 
-function PlanList({ plan }: { plan: Plan }): JSX.Element {
+/**
+ * A run's plan, step by step.
+ *
+ * A ticked step is only struck through once the run itself finished. The model
+ * ticks its own steps, and a run that ticked all three and then ran out of turns
+ * read as finished work above a box saying it had not finished — both true, and
+ * together nonsense.
+ */
+function PlanList({ plan, finished }: { plan: Plan; finished: boolean }): JSX.Element {
   return (
     <ul className={styles.planSteps}>
       {plan.steps.map((step, index) => (
-        <li key={step.id} className={`${styles.planStep} ${styles[`planStep-${step.status}`]}`}>
+        <li
+          key={step.id}
+          className={`${styles.planStep} ${styles[`planStep-${step.status}`]} ${
+            finished ? styles.planFinished : ''
+          }`}
+        >
           <span className={styles.planStepIcon}>
             {step.status === 'completed' ? (
               <Icon name="check" size={12} />
@@ -635,7 +656,7 @@ export function AgentRunConversation({
               {run.plan ? 'Plan proposed — nothing has been written yet' : 'Planning…'}
             </div>
             {run.plan ? (
-              <PlanList plan={run.plan} />
+              <PlanList plan={run.plan} finished={false} />
             ) : (
               <p className={styles.reviewNote}>
                 Working out a plan before it acts. Check back shortly.
@@ -687,9 +708,15 @@ export function AgentRunConversation({
           <div className={styles.plan}>
             <div className={styles.planTitle}>
               <Icon name="check" size={12} />
-              Plan
+              Plan · {planTally(run.plan)}
             </div>
-            <PlanList plan={run.plan} />
+            <PlanList plan={run.plan} finished={run.status === 'done'} />
+            {planOutranResult(run) && (
+              <p className={styles.planNote}>
+                Every step was ticked off, but the run never said it had finished. Open the last
+                turn to check, or continue it.
+              </p>
+            )}
           </div>
         )}
 
