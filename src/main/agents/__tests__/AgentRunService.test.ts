@@ -82,13 +82,13 @@ describe('runPreflightReason', () => {
   it('stops before spending a full turn when planning already exhausted the token budget', () => {
     const reason = runPreflightReason(baseRun({ maxTokens: 1_000 }), 2, 1_000, 0)
 
-    expect(reason).toMatch(/token budget of 1,000 reached/)
+    expect(reason).toMatch(/Ran out of tokens: it used its budget of 1,000 tokens/)
   })
 
   it('stops before spending a full turn when planning already exhausted the time budget', () => {
     const reason = runPreflightReason(baseRun({ maxDurationMinutes: 1 }), 2, 0, 61_000)
 
-    expect(reason).toMatch(/1-minute time budget reached/)
+    expect(reason).toMatch(/Ran out of time: it reached its 1-minute limit/)
   })
 
   it('checks the turn-count gap before the token/time budget', () => {
@@ -144,7 +144,7 @@ describe('activeElapsedMs — what the duration budget is measured against', () 
         0,
         approvedAt - createdAt
       )
-    ).toContain('30-minute time budget')
+    ).toContain('30-minute limit')
   })
 
   it('still stops a run that really has worked past its budget', () => {
@@ -155,7 +155,7 @@ describe('activeElapsedMs — what the duration budget is measured against', () 
         0,
         activeElapsedMs(worked, 0)
       )
-    ).toContain('30-minute time budget')
+    ).toContain('30-minute limit')
   })
 
   it('treats a run persisted before these fields existed as having worked nothing', () => {

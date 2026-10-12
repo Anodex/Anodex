@@ -33,7 +33,9 @@
   --light-border-strong: #d1cdc2;
   --light-text: #23211d;
   --light-text-muted: #6f6a60;
-  --light-text-faint: #a29c8f;
+  /* Lifted with Midnight's: 3.9:1 at worst, up from 2.2:1, and still under
+     --light-text-muted. Same warm hue. */
+  --light-text-faint: #77716a;
   --light-text-on-accent: #ffffff;
   /* The dark-mode pastel blue reads as near-invisible on a light surface. */
   --light-code-inline-text: #1a56db;

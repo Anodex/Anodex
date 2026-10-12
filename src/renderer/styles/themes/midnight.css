@@ -30,7 +30,10 @@
   /* Text */
   --text: #f0f0f0;
   --text-muted: #a0a0a0;
-  --text-faint: #606060;
+  /* A step lighter than #606060, which measured 3.1:1 on the page and could not
+     be read outside: 5.7:1 now, still the quiet step under --text-muted. The
+     phone lifted its copy in the same change. */
+  --text-faint: #8a8a8a;
   --text-on-accent: #ffffff;
 
   /* Brand accents — single muted blue everywhere by default, no rainbow

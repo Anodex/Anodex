@@ -16,13 +16,13 @@ describe('budgetExceededReason', () => {
 
   it('returns a token-budget reason once tokens used reach the cap', () => {
     const reason = budgetExceededReason(run({ maxTokens: 5000 }), 5000, 1000)
-    expect(reason).toContain('token budget')
+    expect(reason).toContain('Ran out of tokens')
     expect(reason).toContain('5,000')
   })
 
   it('returns a time-budget reason once elapsed time reaches the cap', () => {
     const reason = budgetExceededReason(run({ maxDurationMinutes: 10 }), 100, 10 * 60_000)
-    expect(reason).toContain('10-minute time budget')
+    expect(reason).toContain('10-minute limit')
   })
 
   it('checks the token budget before the time budget when both are exceeded', () => {
@@ -31,11 +31,11 @@ describe('budgetExceededReason', () => {
       100,
       2 * 60_000
     )
-    expect(reason).toContain('token budget')
+    expect(reason).toContain('Ran out of tokens')
   })
 
   it('treats usage strictly above the cap as exceeded too', () => {
-    expect(budgetExceededReason(run({ maxTokens: 100 }), 150, 0)).toContain('token budget')
+    expect(budgetExceededReason(run({ maxTokens: 100 }), 150, 0)).toContain('Ran out of tokens')
   })
 })
 
@@ -61,7 +61,7 @@ describe('turnBudgetLeftovers', () => {
     expect(message).toContain('5,668')
     expect(message).toContain('300,000')
     expect(message).toContain('10 of 120 minutes')
-    expect(message).toContain('turn limit was the binding constraint')
+    expect(message).toContain('turn limit is what stopped it')
   })
 
   it('reports under 1% as "<1" rather than rounding it away to zero', () => {
@@ -74,7 +74,7 @@ describe('turnBudgetLeftovers', () => {
     const message = turnBudgetLeftovers(run, 250_000, 100 * 60_000)
 
     expect(message).toContain('250,000')
-    expect(message).not.toContain('turn limit was the binding constraint')
+    expect(message).not.toContain('turn limit is what stopped it')
   })
 
   it('does not divide by a zero token budget', () => {

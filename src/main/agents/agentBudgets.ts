@@ -13,11 +13,13 @@ export function budgetExceededReason(
   tokensUsedSoFar: number,
   elapsedMs: number
 ): string | null {
+  // Said the way a person would, because the phone shows this sentence as well as
+  // the desk: what ran out, and that the work was not finished.
   if (tokensUsedSoFar >= run.maxTokens) {
-    return `Stopped: token budget of ${run.maxTokens.toLocaleString()} reached.`
+    return `Ran out of tokens: it used its budget of ${run.maxTokens.toLocaleString()} tokens before finishing.`
   }
   if (elapsedMs >= run.maxDurationMinutes * 60_000) {
-    return `Stopped: ${run.maxDurationMinutes}-minute time budget reached.`
+    return `Ran out of time: it reached its ${run.maxDurationMinutes}-minute limit before finishing.`
   }
   return null
 }
@@ -51,7 +53,7 @@ export function turnBudgetLeftovers(
   const tokenPct = run.maxTokens > 0 ? (tokensUsed / run.maxTokens) * 100 : 0
   const minutesUsed = Math.round(elapsedMs / 60_000)
   const spent =
-    `Used ${tokensUsed.toLocaleString()} of ${run.maxTokens.toLocaleString()} tokens ` +
+    `It used ${tokensUsed.toLocaleString()} of ${run.maxTokens.toLocaleString()} tokens ` +
     `(${tokenPct < 1 ? '<1' : Math.round(tokenPct)}%) and ${minutesUsed} of ` +
     `${run.maxDurationMinutes} minutes.`
   // Only worth saying when the other budgets really were untouched; a run that
@@ -61,8 +63,5 @@ export function turnBudgetLeftovers(
   // window, the model, and the task, and this code can see none of that. An
   // earlier wording blamed a small context window, and then a 65,536-token run
   // that had simply been inefficient reported that its window was too small.
-  return (
-    `${spent} The turn limit was the binding constraint, not the budget — raise it ` +
-    'if the run was making progress.'
-  )
+  return `${spent} The turn limit is what stopped it, so continue it if it was making progress.`
 }

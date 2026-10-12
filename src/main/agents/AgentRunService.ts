@@ -135,7 +135,7 @@ const PLANNING_TOOLS = ['find_skill', 'load_skill', 'write_plan']
  * - `startTurn > run.maxTurns`: planning alone already used up every
  *   available turn (e.g. `maxTurns: 1` with `requirePlan: true`). The `for`
  *   loop's own bound (`turn <= run.maxTurns`) would then never be true, so it
- *   falls through to the generic "Stopped after N turns without finishing"
+ *   falls through to the generic "Ran out of turns"
  *   message — worded as if N turns of real work had been attempted, when
  *   execution never got to run even once.
  * - token/time budget already exhausted by planning: the post-turn check
@@ -705,7 +705,7 @@ class AgentRunService {
         conversation.id,
         'stopped',
         runOutcome(),
-        `Stopped after ${run.maxTurns} turns without finishing. ` +
+        `Ran out of turns: it used all ${run.maxTurns} of its turns before finishing. ` +
           turnBudgetLeftovers(run, tokensUsed, workedMs())
       )
     } catch (error) {
