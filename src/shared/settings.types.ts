@@ -659,6 +659,13 @@ export interface GitSettings {
  */
 export interface WelcomeSettings {
   completed: boolean
+  /**
+   * Whether someone without a name has been asked for one outside the welcome,
+   * once, in the chat. An update skips the welcome, so without this an existing
+   * install stays "Anodex User" for good. Set by Save or Not now, and by the
+   * welcome itself, which already asked.
+   */
+  nameAsked: boolean
 }
 
 export interface AppSettings {

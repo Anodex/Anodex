@@ -126,7 +126,7 @@ if (!app.requestSingleInstanceLock()) {
       // welcome would cover the app they came to drive. They pass this switch;
       // a person never does. The one test of the welcome itself leaves it off.
       if (app.commandLine.hasSwitch('skip-welcome') && !settingsStore.get().welcome.completed) {
-        settingsStore.update({ welcome: { completed: true } })
+        settingsStore.update({ welcome: { completed: true, nameAsked: true } })
       }
       // Settings are loaded, and nothing has scanned yet — clear out model
       // files the user added that have since been deleted, so they stop

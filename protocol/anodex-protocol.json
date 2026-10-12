@@ -27782,6 +27782,12 @@
           "type": {
             "kind": "boolean"
           }
+        },
+        "nameAsked": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
         }
       }
     },

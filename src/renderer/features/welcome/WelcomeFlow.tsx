@@ -30,7 +30,7 @@ function Welcome(): JSX.Element {
   const [paired, setPaired] = useState(false)
 
   const finish = (): void => {
-    void update({ welcome: { completed: true } })
+    void update({ welcome: { completed: true, nameAsked: true } })
   }
 
   return (
