@@ -140,7 +140,7 @@ describe('editing a plan before approving it', () => {
   it('keeps an added step through a broadcast', () => {
     const { rerender } = render(<CriticalThinkingView />)
 
-    fireEvent.click(screen.getByText('Add step'))
+    fireEvent.click(screen.getByText('Add a step'))
     setRuns(rebroadcast())
     rerender(<CriticalThinkingView />)
 

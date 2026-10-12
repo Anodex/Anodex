@@ -22,11 +22,12 @@ import { criticalThinkingAttention } from '../../lib/navigationBadges'
 import { WebSearchSetupDialog } from '../web-search/WebSearchSetupDialog'
 import { CriticalThinkingReport } from './CriticalThinkingReport'
 import { CriticalThinkingProgress } from './CriticalThinkingProgress'
+import { citationNumbers, sameUrl } from './reportSources'
 import styles from './CriticalThinkingView.module.css'
 
 const STATUS_LABEL: Record<CriticalThinkingStatus, string> = {
   planning: 'Building plan',
-  'needs-review': 'Plan review',
+  'needs-review': 'Plan ready',
   researching: 'Researching',
   synthesizing: 'Writing report',
   validating: 'Validating',
@@ -574,19 +575,33 @@ function RunDetail(props: RunDetailProps): JSX.Element {
   const resumable = ['partial', 'stopped', 'failed'].includes(run.status) && Boolean(run.plan)
   const reportReady =
     run.status === 'completed' || run.status === 'partial' || run.status === 'stopped'
+  const [questionOpen, setQuestionOpen] = useState(false)
+  const [pointedSource, setPointedSource] = useState<string | null>(null)
+  // The plan's title is the question said short. A long question as the page
+  // heading pushed the report below the fold; it stays one click away.
+  const heading = run.plan?.title.trim() || run.question
+  const counts = researchCounts(run)
   return (
     <div className={styles.runDetail}>
       <div className={styles.runHeader}>
         <div className={styles.runHeading}>
-          <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
-          <h2>{run.question}</h2>
+          <h2 title={run.question}>{heading}</h2>
+          {heading !== run.question && (
+            <button
+              type="button"
+              className={`${styles.runQuestion} ${questionOpen ? styles.runQuestionOpen : ''}`}
+              onClick={() => setQuestionOpen((open) => !open)}
+              aria-expanded={questionOpen}
+              title={questionOpen ? 'Fold the question' : 'Show the whole question'}
+            >
+              {run.question}
+            </button>
+          )}
           <div className={styles.runMeta}>
+            <StatusBadge status={run.status} hasReport={Boolean(run.report)} />
+            {counts && <span>{counts}</span>}
             <span>{providerLabel(run)}</span>
             <span>{formatRelativeTime(run.updatedAt)}</span>
-            {run.sources.some((source) => source.verified) && (
-              <span>{run.sources.filter((source) => source.verified).length} pages verified</span>
-            )}
-            {run.evidenceCount > 0 && <span>{run.evidenceCount} evidence artifacts</span>}
           </div>
         </div>
         <div className={styles.runActions}>
@@ -638,48 +653,47 @@ function RunDetail(props: RunDetailProps): JSX.Element {
       )}
 
       {run.status === 'needs-review' && props.draftPlan && (
-        <section className={styles.planEditor}>
-          <div className={styles.sectionHeading}>
-            <div>
-              <p className={styles.cardEyebrow}>Review before research</p>
-              <h3>Edit the plan or start as written</h3>
-            </div>
-            <Icon name="pencil" size={18} />
-          </div>
-          <label>
-            <span>Plan title</span>
-            <input
-              value={props.draftPlan.title}
-              onChange={(event) => props.onUpdatePlanTitle(event.target.value)}
-            />
-          </label>
-          <div className={styles.planStepEditor}>
+        // The plan reads as a list. Each line is a field drawn as text, so
+        // reading it costs nothing and changing a step is a click on it —
+        // as a form of boxes, it asked to be filled in before it had been read.
+        <section className={styles.planEditor} aria-label="Plan">
+          <input
+            className={styles.planTitleInput}
+            value={props.draftPlan.title}
+            onChange={(event) => props.onUpdatePlanTitle(event.target.value)}
+            aria-label="Plan title"
+            title="Click to rename the plan"
+          />
+          <ol className={styles.planStepEditor}>
             {props.draftPlan.steps.map((step, index) => (
-              <div key={step.id} className={styles.planStepRow}>
-                <span>{index + 1}</span>
+              <li key={step.id} className={styles.planStepRow}>
+                <span className={styles.planStepNumber}>{index + 1}</span>
                 <input
                   value={step.title}
                   onChange={(event) => props.onUpdatePlanStep(index, event.target.value)}
                   aria-label={`Research step ${index + 1}`}
+                  title="Click to change this step"
                 />
                 <button
                   type="button"
                   onClick={() => props.onRemovePlanStep(index)}
                   disabled={props.draftPlan!.steps.length === 1}
                   aria-label={`Remove step ${index + 1}`}
+                  title="Remove step"
                 >
                   <Icon name="close" size={13} />
                 </button>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
           <button type="button" className={styles.addStep} onClick={props.onAddPlanStep}>
-            <Icon name="plus" size={13} /> Add step
+            <Icon name="plus" size={13} /> Add a step
           </button>
           <div className={styles.planApproval}>
             <p>
-              Starting grants this run access only to web search and public-page reading. It cannot
-              edit files, run commands, send email, or call connected MCP tools.
+              <Icon name="shield-check" size={14} />
+              Searches the web and reads public pages. Nothing else: no files, commands, email or
+              connected tools.
             </p>
             <Button
               variant="primary"
@@ -725,12 +739,20 @@ function RunDetail(props: RunDetailProps): JSX.Element {
               </span>
             </div>
           )}
-          <section className={styles.reportCard}>
-            <div ref={props.reportRef}>
-              <CriticalThinkingReport report={run.report} />
-            </div>
-          </section>
-          <Sources run={run} />
+          <div className={styles.reportLayout}>
+            <section
+              className={styles.reportBody}
+              // Pointing at a citation lights its source beside the text.
+              onMouseOver={(event) => setPointedSource(citedHref(event.target as HTMLElement))}
+              onFocus={(event) => setPointedSource(citedHref(event.target))}
+              onMouseLeave={() => setPointedSource(null)}
+            >
+              <div ref={props.reportRef}>
+                <CriticalThinkingReport report={run.report} />
+              </div>
+            </section>
+            <Sources run={run} pointed={pointedSource} />
+          </div>
         </>
       )}
 
@@ -827,40 +849,76 @@ function stopReasonLabel(reason: CriticalThinkingTerminationReason): string {
   return labels[reason]
 }
 
-function Sources({ run }: { run: CriticalThinkingRun }): JSX.Element | null {
-  const verifiedSources = run.sources.filter((source) => source.verified)
-  if (verifiedSources.length === 0) return null
+/** The link a pointer or focus is on, when it is one of the report's citations. */
+function citedHref(target: HTMLElement): string | null {
+  const link = target.closest('a')
+  return link && /^\d+$/.test(link.textContent?.trim() ?? '') ? link.getAttribute('href') : null
+}
+
+/** "5 pages read · 3 searches": what the run actually did, counted the same everywhere. */
+function researchCounts(run: CriticalThinkingRun): string | null {
+  const pages = run.sources.filter((source) => source.verified).length
+  const searches = run.steps.reduce(
+    (total, step) => total + step.rounds.reduce((sum, round) => sum + round.queries.length, 0),
+    0
+  )
+  const parts = [
+    pages > 0 ? `${pages} page${pages === 1 ? '' : 's'} read` : null,
+    searches > 0 ? `${searches} search${searches === 1 ? '' : 'es'}` : null
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
+ * The sources beside the report, numbered as the text cites them, so citation 3
+ * is the third line here. Pages it read but never cited follow, unnumbered.
+ */
+function Sources({
+  run,
+  pointed
+}: {
+  run: CriticalThinkingRun
+  pointed: string | null
+}): JSX.Element | null {
+  const verified = run.sources.filter((source) => source.verified)
+  if (verified.length === 0) return null
+  const numbers = citationNumbers(run.report)
+  const numbered = verified
+    .map((source) => ({ source, number: numbers.get(sameUrl(source.url)) ?? null }))
+    .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity))
+  const pointedKey = pointed ? sameUrl(pointed) : null
+
   return (
-    <section className={styles.sourcesSection}>
-      <div className={styles.sectionHeading}>
-        <div>
-          <p className={styles.cardEyebrow}>Evidence trail</p>
-          <h3>Sources reviewed</h3>
-        </div>
-        <span className={styles.sourceCount}>{verifiedSources.length}</span>
-      </div>
-      <div className={styles.sourceGrid}>
-        {verifiedSources.map((source) => (
-          <a
-            key={source.url}
-            href={source.url}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.sourceCard}
-          >
-            <span className={styles.sourceTitle}>{source.title}</span>
-            {source.snippet && <span className={styles.sourceSnippet}>{source.snippet}</span>}
-            <span className={styles.sourceHost}>{safeHostname(source.url)}</span>
-          </a>
+    <aside className={styles.sourcesSection} aria-label="Sources">
+      <p className={styles.cardEyebrow}>Sources</p>
+      <ol className={styles.sourceList}>
+        {numbered.map(({ source, number }) => (
+          <li key={source.url}>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`${styles.sourceRow} ${
+                pointedKey === sameUrl(source.url) ? styles.sourcePointed : ''
+              }`}
+              title={source.snippet ?? source.title}
+            >
+              <span className={styles.sourceNumber}>{number ?? '·'}</span>
+              <span className={styles.sourceText}>
+                <span className={styles.sourceTitle}>{source.title}</span>
+                <span className={styles.sourceHost}>{safeHostname(source.url)}</span>
+              </span>
+            </a>
+          </li>
         ))}
-      </div>
-    </section>
+      </ol>
+    </aside>
   )
 }
 
 function safeHostname(value: string): string {
   try {
-    return new URL(value).hostname
+    return new URL(value).hostname.replace(/^www\./, '')
   } catch {
     return value.length > 80 ? `${value.slice(0, 79)}…` : value
   }
