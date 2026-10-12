@@ -185,6 +185,22 @@ export function WelcomePhone({
                 <code className={styles.fp}>
                   {pairing ? groupFingerprint(pairing.fingerprint) : '…'}
                 </code>
+                {pairing && (
+                  // For a phone whose camera cannot read the code: the phone's
+                  // "Enter the code instead" asks for exactly these three.
+                  <details className={styles.manual}>
+                    <summary>Can&apos;t scan it?</summary>
+                    Tap <i>Enter the code instead</i> on the phone and type:
+                    <dl>
+                      <dt>Address</dt>
+                      <dd>{pairing.address}</dd>
+                      <dt>Port</dt>
+                      <dd>{pairing.port}</dd>
+                      <dt>Code</dt>
+                      <dd>{pairing.shortCode}</dd>
+                    </dl>
+                  </details>
+                )}
                 {problem ? (
                   <p className={styles.hint}>{problem}</p>
                 ) : (

@@ -12,7 +12,9 @@
   z-index: 900;
   display: grid;
   place-items: center;
-  overflow: auto;
+  /* Down only: the star layer is offset past the edge and would otherwise add a
+     sideways scrollbar to a screen that never needs one. */
+  overflow: hidden auto;
   background:
     radial-gradient(1200px 600px at 50% 120%, rgb(124 92 255 / 16%), transparent 60%),
     radial-gradient(800px 500px at 15% -10%, rgb(56 189 248 / 10%), transparent 60%),
@@ -472,4 +474,33 @@
 
 .no {
   color: #8a8a8a;
+}
+
+.manual {
+  margin-top: 8px;
+  color: #a0a0a0;
+  font-size: 12.5px;
+}
+
+.manual summary {
+  color: #8fb3ff;
+  cursor: pointer;
+}
+
+.manual dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 6px 0 0;
+}
+
+.manual dt {
+  color: #8a8a8a;
+}
+
+.manual dd {
+  margin: 0;
+  color: #f0f0f0;
+  font-family: var(--font-mono);
+  user-select: text;
 }
