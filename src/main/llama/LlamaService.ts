@@ -68,6 +68,7 @@ import {
 } from './contextAssembler'
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
+import { summaryContextSize } from './summaryContextSize'
 import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
 import { installExactDetokenize, type NativeVocabulary } from './exactDetokenize'
 import {
@@ -1964,13 +1965,12 @@ class LlamaService extends EventEmitter {
   }
 
   /**
-   * Return the dedicated `summaryContext`/`summarySequence` used by both
-   * `summarizeForToast` and `summarizeHistoryForCompaction` — never the
-   * active conversation's own context/KV cache. Recreated if the existing
-   * context is smaller than `minContextSize`: the two callers ask for
-   * different sizes (1024 for a toast title, 4096 for compaction), and a
-   * naive `??=` would silently keep whichever one happened to run first,
-   * starving the other of room it actually needs.
+   * Return the dedicated `summaryContext`/`summarySequence` used by the
+   * background callers (toasts, titles, suggestions, digests, compaction) —
+   * never the active conversation's own context/KV cache. Created once at
+   * `summaryContextSize`, which covers all of them, so it is not rebuilt between
+   * calls: rebuilding it straight after a call crashed hybrid models (see
+   * `summaryContextSize.ts`). Recreated only for a caller that needs more.
    */
   private async ensureSummarySequence(minContextSize: number): Promise<LlamaContextSequence> {
     if (!this.model) throw new Error('No model loaded.')
@@ -1980,7 +1980,9 @@ class LlamaService extends EventEmitter {
       this.summaryContext = undefined
       this.summarySequence = undefined
     }
-    this.summaryContext ??= await this.model.createContext({ contextSize: minContextSize })
+    this.summaryContext ??= await this.model.createContext({
+      contextSize: summaryContextSize(minContextSize)
+    })
     this.summarySequence ??= this.summaryContext.getSequence()
     await this.summarySequence.clearHistory()
     return this.summarySequence
