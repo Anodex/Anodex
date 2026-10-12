@@ -3,7 +3,9 @@
   gap: var(--space-3);
   width: 100%;
   max-width: 440px;
-  margin: 0 auto;
+  margin: var(--space-6) auto var(--space-2);
+  text-align: left;
+  user-select: text;
   padding: var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
