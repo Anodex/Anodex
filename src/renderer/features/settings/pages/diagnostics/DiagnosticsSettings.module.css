@@ -15,7 +15,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
-  margin-bottom: var(--space-7);
+  margin-bottom: var(--space-8);
 }
 
 .summaryCard {
@@ -420,8 +420,8 @@
 .bundleDialog {
   display: flex;
   width: 680px;
-  max-width: calc(100vw - var(--space-12));
-  max-height: calc(100vh - var(--space-12));
+  max-width: calc(100vw - var(--space-10) - var(--space-2));
+  max-height: calc(100vh - var(--space-10) - var(--space-2));
   min-height: 0;
   flex-direction: column;
 }
