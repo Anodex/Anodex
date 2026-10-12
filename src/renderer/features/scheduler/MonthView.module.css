@@ -1,4 +1,7 @@
 .month {
+  /* The page body is a flex column; without this the calendar is squeezed to
+     fit it and every week past the second is clipped. */
+  flex-shrink: 0;
   overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border);
