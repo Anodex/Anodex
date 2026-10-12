@@ -407,44 +407,43 @@ function RunCard({
           {live && <BudgetMeters run={run} />}
           <span className={styles.srOnly}>{runStatusLabel(run)}</span>
         </span>
+        <span className={styles.runTags}>
+          {project && <span className={styles.runProject}>{project}</span>}
+          {seriesPlace && (
+            // Only on work that actually carried over — see `seriesPlaces`.
+            // Without it a continuation is indistinguishable from a run that
+            // happens to repeat the same goal.
+            <span className={styles.seriesMark} title="Part of one ongoing piece of work">
+              <Icon name="chevrons-up" size={12} />
+              run {seriesPlace.position} of {seriesPlace.total}
+            </span>
+          )}
+          {subAgentText && (
+            <span className={styles.subAgentCount}>
+              <Icon name="bot" size={12} />
+              {subAgentText}
+            </span>
+          )}
+          {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
+            <span
+              className={styles.unlimitedWarning}
+              title="Unlimited run on a paid API — no automatic spend ceiling."
+            >
+              <Icon name="alert" size={12} />
+              Unlimited spend
+            </span>
+          )}
+          {run.flaggedTurns > 0 && (
+            <span
+              className={styles.unlimitedWarning}
+              title={`The model described an outcome — a change, an approval, a denial — that didn't actually happen on ${run.flaggedTurns} turn${run.flaggedTurns === 1 ? '' : 's'}. Check the transcript before trusting this result.`}
+            >
+              <Icon name="alert" size={12} />
+              Possible fabrication ({run.flaggedTurns})
+            </span>
+          )}
+        </span>
       </button>
-
-      <span className={styles.runTags}>
-        {project && <span className={styles.runProject}>{project}</span>}
-        {seriesPlace && (
-          // Only on work that actually carried over — see `seriesPlaces`.
-          // Without it a continuation is indistinguishable from a run that
-          // happens to repeat the same goal.
-          <span className={styles.seriesMark} title="Part of one ongoing piece of work">
-            <Icon name="chevrons-up" size={12} />
-            {seriesPlace.position} of {seriesPlace.total}
-          </span>
-        )}
-        {subAgentText && (
-          <span className={styles.subAgentCount} title={subAgentText}>
-            <Icon name="bot" size={12} />
-            {subAgents.length}
-          </span>
-        )}
-        {run.status === 'running' && !run.limitsEnabled && run.provider !== 'local' && (
-          <span
-            className={styles.unlimitedWarning}
-            title="Unlimited run on a paid API — no automatic spend ceiling."
-          >
-            <Icon name="alert" size={12} />
-            Unlimited spend
-          </span>
-        )}
-        {run.flaggedTurns > 0 && (
-          <span
-            className={styles.unlimitedWarning}
-            title={`The model described an outcome — a change, an approval, a denial — that didn't actually happen on ${run.flaggedTurns} turn${run.flaggedTurns === 1 ? '' : 's'}. Check the transcript before trusting this result.`}
-          >
-            <Icon name="alert" size={12} />
-            Possible fabrication ({run.flaggedTurns})
-          </span>
-        )}
-      </span>
 
       {run.status === 'needs-review' && run.plan && (
         <Button variant="primary" size="sm" onClick={() => openRun(run)}>
