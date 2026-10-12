@@ -120,6 +120,23 @@ describe('stripSubstantialCodeFences', () => {
 })
 
 describe('stripLeakedEngineText', () => {
+  it('drops reasoning whose <think> was in the prompt, as Qwen3.8 leaked it', () => {
+    expect(stripLeakedEngineText('Blue is a colour.\n</think>\n\nBlue is a colour.')).toBe(
+      'Blue is a colour.'
+    )
+  })
+
+  it('drops a whole reasoning block at the start of a reply', () => {
+    expect(stripLeakedEngineText('<think>\nThey want a colour.\n</think>\n\nRed.')).toBe('Red.')
+  })
+
+  it('keeps the tags when a reply is about them', () => {
+    const example = 'The template wraps reasoning like this:\n```\n<think>\n…\n</think>\n```'
+    expect(stripLeakedEngineText(example)).toBe(example)
+    const inline = 'Qwen closes its reasoning with </think> before answering.'
+    expect(stripLeakedEngineText(inline)).toBe(inline)
+  })
+
   it('removes all three observed leaked marker variants', () => {
     // Regression: observed live with a Gemma fine-tune — node-llama-cpp's
     // Gemma4ChatWrapper expects a paired `<|channel>thought` / `<channel|>`
