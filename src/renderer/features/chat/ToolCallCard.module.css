@@ -176,7 +176,7 @@
 
 .denied .icon,
 .denied .actionLabel {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 @keyframes revealDiff {

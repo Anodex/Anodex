@@ -15,14 +15,22 @@ import { MessageContent } from '../chat/MessageContent'
 import {
   STATUS_ICON,
   STATUS_LABEL,
+  continueLabel,
   formatCompactTokens,
   formatDuration,
   goalHeadline,
   isLongGoal,
+  planOutranResult,
+  planTally,
   providerIcon,
-  providerLabel
+  providerLabel,
+  ranOut,
+  ranOutDetail,
+  runStatusLabel,
+  whatChanged
 } from './agentRunFormat'
 import styles from './AgentRunConversation.module.css'
+import { toolActionLabel, toolActionTarget } from '@shared/toolActionLabel'
 import { CopyableId } from '../../components/CopyableId'
 import { SubAgentMark } from './SubAgentMark'
 import { subAgentNames } from '@shared/subAgents'
@@ -46,6 +54,8 @@ interface AgentRunConversationProps {
   onApprove: () => void
   onReject: () => void
   onContinueInChat: () => void
+  /** Start the next run of this work, as the list's Continue does. */
+  onContinue: () => void
   /**
    * Where this run sits in ongoing work, or null when it stands alone.
    *
@@ -70,6 +80,11 @@ function turnDot(message: ChatMessage): TurnDot {
 
 /** Collapsed one-liner for a turn: its reply, or a fallback when it only ran tools. */
 function turnGist(message: ChatMessage): string {
+  // A run's turns end in a short report — "What changed: …", "Is it done: …",
+  // "What would I do next: …" — and squashed onto one line with the reply above
+  // it, the labels ran into each other. What changed is the line worth reading.
+  const changed = whatChanged(message.content)
+  if (changed) return changed
   const text = message.content.replace(/\s+/g, ' ').trim()
   if (text) return text
   const count = message.toolCalls?.length ?? 0
@@ -100,11 +115,24 @@ function useTick(active: boolean): void {
   }, [active])
 }
 
-function PlanList({ plan }: { plan: Plan }): JSX.Element {
+/**
+ * A run's plan, step by step.
+ *
+ * A ticked step is only struck through once the run itself finished. The model
+ * ticks its own steps, and a run that ticked all three and then ran out of turns
+ * read as finished work above a box saying it had not finished — both true, and
+ * together nonsense.
+ */
+function PlanList({ plan, finished }: { plan: Plan; finished: boolean }): JSX.Element {
   return (
     <ul className={styles.planSteps}>
       {plan.steps.map((step, index) => (
-        <li key={step.id} className={`${styles.planStep} ${styles[`planStep-${step.status}`]}`}>
+        <li
+          key={step.id}
+          className={`${styles.planStep} ${styles[`planStep-${step.status}`]} ${
+            finished ? styles.planFinished : ''
+          }`}
+        >
           <span className={styles.planStepIcon}>
             {step.status === 'completed' ? (
               <Icon name="check" size={12} />
@@ -326,8 +354,10 @@ function TurnView({
                   className={`${styles.toolCall} ${styles[`tool-${call.status}`]}`}
                   title={call.detail ?? call.title}
                 >
-                  <code>{call.name}</code>
-                  <span className={styles.toolTitle}>{call.title}</span>
+                  {/* In words, as the chat and the phone say it, rather than the
+                      tool's identifier in code type. */}
+                  <span className={styles.toolAction}>{toolActionLabel(call)}</span>
+                  <span className={styles.toolTitle}>{toolActionTarget(call)}</span>
                 </span>
               ))}
             </div>
@@ -518,6 +548,7 @@ export function AgentRunConversation({
   onApprove,
   onReject,
   onContinueInChat,
+  onContinue,
   seriesPlace
 }: AgentRunConversationProps): JSX.Element {
   const conversation = useLoadedConversation(run.conversationId)
@@ -564,7 +595,7 @@ export function AgentRunConversation({
                 size={12}
                 className={run.status === 'running' ? styles.pulseIcon : undefined}
               />
-              {STATUS_LABEL[run.status]}
+              {runStatusLabel(run)}
             </span>
             <span className={styles.subMeta}>
               <Icon name={providerIcon(run)} size={12} />
@@ -583,13 +614,27 @@ export function AgentRunConversation({
         </div>
         <div className={styles.headerActions}>
           {run.status === 'running' && (
-            <Button variant="secondary" onClick={onStop} disabled={stopping}>
-              {stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
+            <Button
+              variant="secondary"
+              onClick={onStop}
+              disabled={stopping}
+              iconLeft={stopping ? <Spinner size={14} /> : <Icon name="stop" size={14} />}
+            >
               Stop
             </Button>
           )}
-          <Button variant="secondary" onClick={onRetry}>
-            <Icon name="refresh" size={14} />
+          {/* First, and the one in colour, when the run ran out of room: going on
+              is the answer the page exists to offer. */}
+          {ranOut(run) && !run.parentRunId && (
+            <Button variant="primary" onClick={onContinue}>
+              {continueLabel(run)}
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={onRetry}
+            iconLeft={<Icon name="refresh" size={14} />}
+          >
             Retry
           </Button>
           <Button
@@ -611,7 +656,7 @@ export function AgentRunConversation({
               {run.plan ? 'Plan proposed — nothing has been written yet' : 'Planning…'}
             </div>
             {run.plan ? (
-              <PlanList plan={run.plan} />
+              <PlanList plan={run.plan} finished={false} />
             ) : (
               <p className={styles.reviewNote}>
                 Working out a plan before it acts. Check back shortly.
@@ -636,13 +681,19 @@ export function AgentRunConversation({
 
         {seriesPlace && <JournalBlock run={run} />}
 
-        {(run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
+        {ranOut(run) ? (
+          // Amber, not the failure red: running out of turns is a limit doing its
+          // job, and the card in the list already says so in amber.
+          <p className={`${styles.turnError} ${styles.turnWarn}`}>{ranOutDetail(run)}</p>
+        ) : (
+          (run.status === 'error' || (run.status === 'stopped' && run.lastError)) &&
           run.lastError && (
             <p className={styles.turnError}>
               {run.status === 'error' ? 'Failed: ' : ''}
               {run.lastError}
             </p>
-          )}
+          )
+        )}
 
         <BudgetBlock run={run} />
 
@@ -657,9 +708,15 @@ export function AgentRunConversation({
           <div className={styles.plan}>
             <div className={styles.planTitle}>
               <Icon name="check" size={12} />
-              Plan
+              Plan · {planTally(run.plan)}
             </div>
-            <PlanList plan={run.plan} />
+            <PlanList plan={run.plan} finished={run.status === 'done'} />
+            {planOutranResult(run) && (
+              <p className={styles.planNote}>
+                Every step was ticked off, but the run never said it had finished. Open the last
+                turn to check, or continue it.
+              </p>
+            )}
           </div>
         )}
 

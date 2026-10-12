@@ -68,32 +68,6 @@
   border-color: var(--border-strong);
 }
 
-.sidebarFooter {
-  margin-top: auto;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-}
-
-.backButton {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-align: left;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.backButton:hover {
-  color: var(--text);
-}
-
 .content {
   display: flex;
   min-width: 0;

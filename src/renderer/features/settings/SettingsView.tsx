@@ -77,7 +77,6 @@ const NAV_GROUPS: NavGroup[] = [
 export function SettingsView(): JSX.Element {
   const settings = useSettingsStore((state) => state.settings)
   const update = useSettingsStore((state) => state.update)
-  const setView = useUiStore((state) => state.setView)
   const section = useUiStore((state) => state.settingsSection)
   const setSection = useUiStore((state) => state.setSettingsSection)
 
@@ -119,12 +118,6 @@ export function SettingsView(): JSX.Element {
                 ))}
               </div>
             ))}
-          </div>
-          <div className={styles.sidebarFooter}>
-            <button type="button" className={styles.backButton} onClick={() => setView('chat')}>
-              <Icon name="close" size={16} />
-              Close settings
-            </button>
           </div>
         </nav>
 

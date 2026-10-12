@@ -39,10 +39,14 @@ function sortActiveFirst<T>(items: readonly T[], isActive: (item: T) => boolean)
 function ModelLabel({ text }: { text: string }): JSX.Element {
   const tailLength = Math.min(12, Math.floor(text.length / 3))
   if (tailLength < 2) return <span className={styles.label}>{text}</span>
+  // A space at the cut belongs to the tail. At the end of the head it is trailing
+  // white space in a no-wrap box and collapses, which read "8BInstruct"; at the start
+  // of the tail, whose white space is preserved, it stays a space.
+  const head = text.slice(0, text.length - tailLength).trimEnd()
   return (
     <span className={styles.label}>
-      <span className={styles.labelHead}>{text.slice(0, text.length - tailLength)}</span>
-      <span className={styles.labelTail}>{text.slice(text.length - tailLength)}</span>
+      <span className={styles.labelHead}>{head}</span>
+      <span className={styles.labelTail}>{text.slice(head.length)}</span>
     </span>
   )
 }

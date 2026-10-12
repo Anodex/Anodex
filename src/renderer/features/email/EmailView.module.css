@@ -24,12 +24,17 @@
  * search row — four stacked bands that between them pushed the first message
  * a quarter of the way down the window.
  */
+/* Still one bar, not a header over a toolbar: see the comment in EmailView. But
+   its title is drawn at the size and inset every other section's is, so moving
+   from Agents or Scheduler to Email no longer changes what a page title is. */
 .cmdBar {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
 }
 
 .cmdTitle {
@@ -42,7 +47,7 @@
 .title {
   margin: 0;
   color: var(--text);
-  font-size: var(--text-md);
+  font-size: var(--text-2xl);
   font-weight: 600;
 }
 
@@ -66,7 +71,7 @@
 /* A pass that produced nothing is a fault, not a status — amber, because the
    page still works and the mail is still all there. */
 .digestStatusBlocked {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .grow {
@@ -529,7 +534,7 @@
 }
 
 .emptyMarkWarn {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .emptyMarkGood {
@@ -1318,7 +1323,7 @@
 }
 
 .toneAdjusted {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .toneMenuItem {

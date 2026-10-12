@@ -47,6 +47,7 @@ export async function runSettingsTour(): Promise<void> {
     await beat(PAGE_HOLD_MS)
   }
 
-  const close = byText<HTMLButtonElement>('button', 'Close settings')
+  // The corner X: the only close control, named but not labelled with text.
+  const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close settings"]')
   if (close) await clickElement(close)
 }

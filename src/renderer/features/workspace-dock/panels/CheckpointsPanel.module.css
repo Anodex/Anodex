@@ -96,7 +96,7 @@
 }
 
 .partialStatus {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .actionButton {

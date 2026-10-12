@@ -93,13 +93,24 @@ export interface GpuMemory {
 /**
  * Refine an aggregate VRAM reading with llama.cpp's per-device listing.
  *
- * Falls back to the aggregate untouched when the listing is empty, so a
- * platform or build that cannot list devices behaves exactly as before.
+ * Falls back to the aggregate when the listing is empty — but only when the
+ * aggregate covers a single device. With more than one it is the double count
+ * described above, and nothing left can split it: measured on a 24 GB card
+ * beside a Ryzen's integrated graphics, it read 55 GB, `unifiedSize` 0, and
+ * the hardware panel advertised "best target: 70B Q4" — models that would run
+ * mostly on the processor at a couple of tokens a second. Unknown is the honest
+ * reading there: the recommendation then rests on system RAM, which can under-
+ * promise but cannot send someone off to download 40 GB that will not run.
  */
 export function resolveGpuMemory(
   devices: GpuDevice[],
-  aggregate: { total: number; unifiedSize: number } | null
+  aggregate: { total: number; unifiedSize: number } | null,
+  /** How many GPUs the backend names, from `getGpuDeviceNames()`. */
+  deviceCount = 1
 ): GpuMemory {
+  if (devices.length === 0 && deviceCount > 1) {
+    return { vramBytes: null, unified: false, devices }
+  }
   if (devices.length === 0) {
     return {
       vramBytes: aggregate ? aggregate.total : null,

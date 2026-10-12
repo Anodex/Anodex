@@ -148,7 +148,7 @@
   color: var(--danger);
 }
 .controlAuditdenied {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .controlAuditsuccess span,
@@ -163,7 +163,7 @@
   gap: var(--space-2);
   flex-shrink: 0;
   padding: var(--space-2) var(--space-3);
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--info-soft);
   border-bottom: 1px solid var(--border);
 }

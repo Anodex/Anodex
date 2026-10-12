@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../../../../components/ui/ConfirmDialog'
 import { basename, scoreInstalledModel, type InstalledModelScore } from './scoring'
 import { ReliabilityScore } from './ReliabilityScore'
 import styles from './AiModelsSettings.module.css'
+import { readableModelName } from '../../../../lib/modelName'
 
 /** Every downloaded model, each with a hardware-fit score and a usage-based reliability score. */
 export function InstalledModelsList({
@@ -178,7 +179,7 @@ function InstalledModelRow({
           <div className={styles.modelNameBlock}>
             <div className={styles.modelNameRow}>
               <div className={styles.modelName} title={model.name}>
-                {model.name}
+                {readableModelName(model.name)}
               </div>
               {model.visionProjectorPath && (
                 <span

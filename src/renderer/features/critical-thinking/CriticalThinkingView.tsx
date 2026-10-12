@@ -360,10 +360,9 @@ export function CriticalThinkingView(): JSX.Element {
     <div className={styles.view}>
       <header className={styles.header}>
         <div>
-          <div className={styles.titleRow}>
-            <Icon name="insight" size={24} className={styles.titleIcon} />
-            <h1>Critical Thinking</h1>
-          </div>
+          {/* No icon: no other page's title has one, and the rail beside it
+              already shows the same glyph. */}
+          <h1>Critical Thinking</h1>
           <p>Plan, investigate, cross-check, and turn web evidence into a cited report.</p>
         </div>
         {selected && (

@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun } from '@shared/agentRun.types'
-import { goalHeadline, isLongGoal, providerLabel, runOutcomeText } from '../agentRunFormat'
+import type { Plan } from '@shared/plan.types'
+import {
+  continueLabel,
+  goalHeadline,
+  isLongGoal,
+  plainStopReason,
+  planOutranResult,
+  planTally,
+  providerLabel,
+  ranOut,
+  ranOutDetail,
+  runOutcomeText,
+  runStatusLabel,
+  spentLine,
+  whatChanged
+} from '../agentRunFormat'
 
 /**
  * `providerLabel` used to test for `local`, then `anthropic`, then fall through
@@ -116,5 +131,87 @@ describe('runOutcomeText', () => {
       'Partial.'
     )
     expect(runOutcomeText({ status: 'done', summary: null, lastError: null })).toBe('')
+  })
+})
+
+describe('runs that ran out', () => {
+  const stopped = {
+    status: 'stopped',
+    limitsEnabled: true,
+    maxTurns: 3,
+    turnsUsed: 3,
+    maxTokens: 50_000,
+    tokensUsed: 433,
+    maxDurationMinutes: 30,
+    activeMs: 11_000,
+    activeSinceAt: null
+  } as const
+
+  it('names which limit, and says what to do, in the phone’s words', () => {
+    expect(ranOut(stopped)).toBe('turns')
+    expect(runStatusLabel(stopped)).toBe('Ran out of turns')
+    expect(plainStopReason(stopped)).toBe(
+      'It used all 3 of its turns before finishing. Continue it to carry on.'
+    )
+    expect(continueLabel(stopped)).toBe('Continue for 3 more turns')
+    expect(spentLine(stopped)).toBe('433 tokens · under a minute')
+  })
+
+  it('reads the reason from the numbers, so older wording does not matter', () => {
+    expect(ranOut({ ...stopped, tokensUsed: 50_000 })).toBe('tokens')
+    expect(ranOut({ ...stopped, turnsUsed: 1, activeMs: 30 * 60_000 })).toBe('time')
+  })
+
+  it('leaves every other stop alone', () => {
+    expect(ranOut({ ...stopped, turnsUsed: 1 })).toBeNull()
+    expect(ranOut({ ...stopped, status: 'done' })).toBeNull()
+    expect(ranOut({ ...stopped, limitsEnabled: false })).toBeNull()
+    expect(runStatusLabel({ ...stopped, turnsUsed: 1 })).toBe('Stopped')
+    expect(plainStopReason({ ...stopped, turnsUsed: 1 })).toBeNull()
+  })
+
+  it('gives the run page the figures with the sentence', () => {
+    expect(ranOutDetail(stopped)).toBe(
+      'It used all 3 of its turns before finishing. It used 433 of 50,000 tokens and under a ' +
+        'minute, so the turn limit is what stopped it. Continue it if it was making progress.'
+    )
+  })
+})
+
+describe('whatChanged', () => {
+  it("reads the turn report's What changed line", () => {
+    const reply =
+      'I found the plan for saying hello in three languages.\n\n' +
+      'What changed: Created a plan with 3 steps to say hello in three languages.\n' +
+      'Is it done: No\nWhat would I do next: Start the first step.'
+    expect(whatChanged(reply)).toBe('Created a plan with 3 steps to say hello in three languages.')
+  })
+
+  it('tolerates bold labels, and gives nothing when there is no report', () => {
+    expect(whatChanged('**What changed:** Fixed the build.')).toBe('Fixed the build.')
+    expect(whatChanged('Just a reply.')).toBeNull()
+  })
+})
+
+describe('planOutranResult', () => {
+  const plan = (statuses: Array<'pending' | 'in_progress' | 'completed'>): Plan => ({
+    title: 'Plan',
+    updatedAt: 0,
+    steps: statuses.map((status, i) => ({ id: String(i), title: `Step ${i}`, status }))
+  })
+
+  it('flags a stopped run whose every step is ticked off', () => {
+    expect(planOutranResult({ status: 'stopped', plan: plan(['completed', 'completed']) })).toBe(
+      true
+    )
+    expect(planTally(plan(['completed', 'completed', 'pending']))).toBe('2 of 3 ticked off')
+  })
+
+  it('leaves finished runs and unfinished plans alone', () => {
+    expect(planOutranResult({ status: 'done', plan: plan(['completed']) })).toBe(false)
+    expect(planOutranResult({ status: 'stopped', plan: plan(['completed', 'pending']) })).toBe(
+      false
+    )
+    expect(planOutranResult({ status: 'stopped', plan: null })).toBe(false)
   })
 })

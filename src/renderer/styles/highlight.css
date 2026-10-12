@@ -53,7 +53,7 @@
 .hljs-template-variable,
 .hljs-attr,
 .hljs-attribute {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .hljs-built_in,

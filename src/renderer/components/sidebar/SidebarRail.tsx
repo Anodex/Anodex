@@ -109,8 +109,8 @@ export function SidebarRail({ counts }: SidebarRailProps): JSX.Element {
         onClick={() => navigate('agent')}
         data-tour="agent"
         aria-current={view === 'agent' ? 'page' : undefined}
-        aria-label={`Agent${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
-        title={`Agent${counts.agent > 0 ? ` (${counts.agent})` : ''}`}
+        aria-label={`Agents${counts.agent > 0 ? `, ${counts.agent} notification${counts.agent === 1 ? '' : 's'}` : ''}`}
+        title={`Agents${counts.agent > 0 ? ` (${counts.agent})` : ''}`}
       >
         <Icon name="bot" size={16} />
         <NavigationCount count={counts.agent} rail />

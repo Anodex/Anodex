@@ -528,7 +528,7 @@
 }
 
 .permActiveFull {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .permActiveUntethered {
@@ -573,7 +573,7 @@
 }
 
 .permItemIconFull {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .permItemIconUntethered {

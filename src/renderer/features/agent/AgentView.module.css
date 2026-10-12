@@ -433,7 +433,7 @@
 }
 
 .status-stopped {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 
@@ -478,7 +478,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* Three budgets as hairlines rather than accounting inside the status pill.
@@ -535,7 +535,7 @@
 }
 
 .meterWarn .meterHead b {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* An unlimited run has no ceiling to fill against, so it gets a broken rule
@@ -564,8 +564,21 @@
 }
 
 .runResultWarn {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
+}
+
+.runFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.runSpent {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
 }
 
 .runActions {

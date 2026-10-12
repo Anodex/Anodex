@@ -107,7 +107,7 @@
 }
 
 .status-stopped {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 
@@ -369,8 +369,22 @@
 }
 
 .planStep-completed .planStepTitle {
+  color: var(--text-muted);
+}
+
+/* Struck through only once the run has finished: see `PlanList`. */
+.planStep-completed.planFinished .planStepTitle {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+.planNote {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--warn-text);
+  font-size: var(--text-xs);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
 }
 
 /* ---- budget meters ---- */
@@ -440,7 +454,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 /* ---- turns ---- */
@@ -569,10 +583,10 @@
   border-radius: var(--radius-md);
 }
 
-.toolCall code {
-  font-family: var(--font-mono);
-  color: var(--code-inline-text);
+.toolAction {
   flex: none;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .toolTitle {
@@ -612,8 +626,13 @@
   border-radius: var(--radius-md);
 }
 
+.turnError.turnWarn {
+  color: var(--warn-text);
+  background: var(--warn-soft);
+}
+
 .turnError.bounded {
-  color: var(--warn);
+  color: var(--warn-text);
   background: var(--warn-soft);
 }
 

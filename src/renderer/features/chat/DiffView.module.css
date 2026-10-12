@@ -114,7 +114,7 @@
 }
 
 .lineText :global(.hljs-number) {
-  color: var(--warn);
+  color: var(--warn-text);
 }
 
 .lineText :global(.hljs-title),
