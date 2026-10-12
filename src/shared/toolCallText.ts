@@ -267,13 +267,38 @@ const STRAY_TOOL_MARKER_RE = new RegExp(
 )
 
 /**
+ * A Qwen-style reasoning block at the very start of the reply, where a model
+ * puts its reasoning. Anchored there so a reply that shows the tags later, as
+ * an example, keeps them.
+ */
+const LEAKED_THINK_BLOCK_RE = /^\s*<think>[\s\S]*?<\/think>[ \t]*\n*/i
+
+/** A `</think>` on a line of its own, and everything before it. */
+const LEAKED_THINK_CLOSE_RE = /^([\s\S]*?)(?:^|\n)[ \t]*<\/think>[ \t]*(?:\n|$)/
+
+/**
+ * Drop reasoning that streamed as reply text because its opening `<think>` was
+ * in the prompt, not the reply. The template opened the block, the wrapper did
+ * not recognise it as one (seen with Qwen3.8 under node-llama-cpp's plain Jinja
+ * wrapper), and the reply read "Blue is a colour.\n</think>\n\nBlue is a colour."
+ *
+ * Only a closer alone on its line, with no `<think>` and no code fence before
+ * it: anything else is a reply writing about the tags, and is left as it is.
+ */
+function stripUnopenedReasoning(text: string): string {
+  const match = LEAKED_THINK_CLOSE_RE.exec(text)
+  if (!match || /<think>|```/i.test(match[1])) return text
+  return text.slice(match[0].length)
+}
+
+/**
  * Remove everything from a reply that the model should never have written
  * itself: a chat template's own segment markers, and any tool-result block it
  * fabricated. Both are engine text — one the wrapper failed to consume, the
  * other invented outright — and neither belongs in front of a reader.
  */
 export function stripLeakedEngineText(text: string): string {
-  return text
+  return stripUnopenedReasoning(text.replace(LEAKED_THINK_BLOCK_RE, ''))
     .replace(LEAKED_CHANNEL_TOKEN_RE, '')
     .replace(FABRICATED_TOOL_OUTPUTS_RE, '')
     .replace(STRAY_TOOL_MARKER_RE, '')
