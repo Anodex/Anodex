@@ -11,6 +11,15 @@ describe('toolActionLabel', () => {
     )
   })
 
+  it('never says a failed or declined call happened', () => {
+    expect(toolActionLabel({ name: 'finish_goal', title: 'Finish goal', status: 'error' })).toBe(
+      'Finishing the goal failed'
+    )
+    expect(toolActionLabel({ name: 'run_command', title: 'Run: rm x', status: 'denied' })).toBe(
+      'Running a command was declined'
+    )
+  })
+
   it('and in the present while it is still going', () => {
     expect(toolActionLabel({ name: 'web_search', title: 'Search: x', status: 'running' })).toBe(
       'Searching the web'

@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun } from '@shared/agentRun.types'
+import type { Plan } from '@shared/plan.types'
 import {
   continueLabel,
   goalHeadline,
   isLongGoal,
   plainStopReason,
+  planOutranResult,
+  planTally,
   providerLabel,
   ranOut,
   ranOutDetail,
   runOutcomeText,
   runStatusLabel,
-  spentLine
+  spentLine,
+  whatChanged
 } from '../agentRunFormat'
 
 /**
@@ -171,5 +175,43 @@ describe('runs that ran out', () => {
       'It used all 3 of its turns before finishing. It used 433 of 50,000 tokens and under a ' +
         'minute, so the turn limit is what stopped it. Continue it if it was making progress.'
     )
+  })
+})
+
+describe('whatChanged', () => {
+  it("reads the turn report's What changed line", () => {
+    const reply =
+      'I found the plan for saying hello in three languages.\n\n' +
+      'What changed: Created a plan with 3 steps to say hello in three languages.\n' +
+      'Is it done: No\nWhat would I do next: Start the first step.'
+    expect(whatChanged(reply)).toBe('Created a plan with 3 steps to say hello in three languages.')
+  })
+
+  it('tolerates bold labels, and gives nothing when there is no report', () => {
+    expect(whatChanged('**What changed:** Fixed the build.')).toBe('Fixed the build.')
+    expect(whatChanged('Just a reply.')).toBeNull()
+  })
+})
+
+describe('planOutranResult', () => {
+  const plan = (statuses: Array<'pending' | 'in_progress' | 'completed'>): Plan => ({
+    title: 'Plan',
+    updatedAt: 0,
+    steps: statuses.map((status, i) => ({ id: String(i), title: `Step ${i}`, status }))
+  })
+
+  it('flags a stopped run whose every step is ticked off', () => {
+    expect(planOutranResult({ status: 'stopped', plan: plan(['completed', 'completed']) })).toBe(
+      true
+    )
+    expect(planTally(plan(['completed', 'completed', 'pending']))).toBe('2 of 3 ticked off')
+  })
+
+  it('leaves finished runs and unfinished plans alone', () => {
+    expect(planOutranResult({ status: 'done', plan: plan(['completed']) })).toBe(false)
+    expect(planOutranResult({ status: 'stopped', plan: plan(['completed', 'pending']) })).toBe(
+      false
+    )
+    expect(planOutranResult({ status: 'stopped', plan: null })).toBe(false)
   })
 })

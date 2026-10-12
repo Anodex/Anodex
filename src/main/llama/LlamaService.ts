@@ -2709,7 +2709,7 @@ class LlamaService extends EventEmitter {
       // system RAM — so on a machine with a card beside one, the aggregate
       // counts the same memory twice and reports the whole machine as unified.
       // See `resolveGpuMemory`; with no device listing this is the old reading.
-      const memory = resolveGpuMemory(devices, vram)
+      const memory = resolveGpuMemory(devices, vram, gpuNames.length)
       return { gpuNames, vramBytes: memory.vramBytes, unified: memory.unified }
     } catch (error) {
       log.warn('Hardware probe failed:', error)

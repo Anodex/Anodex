@@ -105,6 +105,21 @@ describe('resolveGpuMemory', () => {
     })
   })
 
+  it('does not trust the sum when it covers more than one GPU and none could be listed', () => {
+    // Measured: an RX 7900 XTX (24 GB) beside a Ryzen's integrated graphics,
+    // with the listing unavailable, read 55 GB and `unifiedSize` 0 — enough to
+    // advertise 70B models on a 24 GB card. Two named devices make the sum the
+    // double count; unknown is the honest answer.
+    expect(resolveGpuMemory([], { total: 55 * GB, unifiedSize: 0 }, 2)).toMatchObject({
+      vramBytes: null,
+      unified: false
+    })
+    // One named device is still the old reading.
+    expect(resolveGpuMemory([], { total: 24 * GB, unifiedSize: 0 }, 1)).toMatchObject({
+      vramBytes: 24 * GB
+    })
+  })
+
   it('reports no VRAM rather than zero when there is nothing to go on', () => {
     // `null` means unknown and callers treat it as such; `0` would read as a
     // machine with a GPU that has no memory.
