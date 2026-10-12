@@ -222,6 +222,7 @@ const REACHABLE_FROM_A_PHONE = [
   'scheduler:delete',
   'scheduler:get-keep-awake',
   'scheduler:list',
+  'scheduler:month',
   'scheduler:parse-when',
   'scheduler:run-now',
   'scheduler:set-keep-awake',
