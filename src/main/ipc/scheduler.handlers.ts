@@ -5,6 +5,7 @@ import type {
   UpdateScheduledTaskRequest
 } from '@shared/scheduledTask.types'
 import { parseWhen } from '@shared/parseWhen'
+import { splitTaskText } from '@shared/taskWords'
 import { buildMonth, monthForWire } from '@shared/scheduleMonth'
 import { isRemoteCall } from '../clients/clientRegistry'
 import { schedulerStore } from '../scheduler/SchedulerStore'
@@ -33,6 +34,19 @@ const log = createLogger('ipc:scheduler')
  * A task that genuinely needs tools is still made at the computer, where the list
  * of what it may touch is on screen in front of the person granting it.
  */
+/**
+ * A task that arrived with neither a name nor a kind (the phone's one-box
+ * Scheduler sends the whole sentence) is named from the words that are not its
+ * timing, and is a reminder if it asked to be reminded. One made with a name
+ * or a kind is left exactly as it was asked for.
+ */
+function withWordsUnderstood(request: CreateScheduledTaskRequest): CreateScheduledTaskRequest {
+  if (request.name?.trim() || request.kind !== undefined) return request
+  const { what, reminder } = splitTaskText(request.prompt)
+  const name = what.length > 60 ? `${what.slice(0, 57)}...` : what
+  return reminder ? { ...request, name, prompt: what, kind: 'reminder' } : { ...request, name }
+}
+
 function withoutRemoteTools(
   event: unknown,
   request: CreateScheduledTaskRequest
@@ -79,7 +93,7 @@ export function registerSchedulerHandlers(): void {
 
   ipcMain.handle(IpcChannel.Scheduler.create, (event, request: CreateScheduledTaskRequest) => {
     try {
-      const task = schedulerStore.create(withoutRemoteTools(event, request))
+      const task = schedulerStore.create(withWordsUnderstood(withoutRemoteTools(event, request)))
       // Every window shows the list, and a task added from the phone was not in
       // it until the page was reloaded. The chat tools already said so; these
       // handlers, which the phone uses, never did.

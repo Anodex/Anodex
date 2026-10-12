@@ -104,3 +104,47 @@ describe('a change made through the handlers', () => {
     expect(notifyTasksChanged).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * The phone's Scheduler has one box and sends the sentence as typed, with no
+ * name and no kind. It was stored as an AI task named with the whole sentence.
+ */
+describe('a task typed into the phone as one sentence', () => {
+  const remote = { [REMOTE_CLIENT]: {} }
+  const typed = (prompt: string): Record<string, unknown> => ({
+    prompt,
+    projectId: null,
+    recurrence: { type: 'daily' as const, hour: 18, minute: 0 },
+    enabledTools: []
+  })
+
+  it('is a reminder named for what to do when it asks to be reminded', async () => {
+    await handlers.get('scheduler:create')!(
+      remote,
+      typed('Every day at 6pm remind me to Water the fern')
+    )
+    expect(created.at(-1)).toMatchObject({
+      name: 'Water the fern',
+      prompt: 'Water the fern',
+      kind: 'reminder'
+    })
+  })
+
+  it('stays a task, named without its timing, when it asks for work', async () => {
+    await handlers.get('scheduler:create')!(remote, typed('Every weekday at 7am, sweep my mail'))
+    expect(created.at(-1)).toMatchObject({
+      name: 'Sweep my mail',
+      prompt: 'Every weekday at 7am, sweep my mail'
+    })
+    expect(created.at(-1)).not.toHaveProperty('kind')
+  })
+
+  it('is left alone when it was given a name', async () => {
+    await handlers.get('scheduler:create')!(remote, {
+      ...typed('Every day at 6pm remind me to Water the fern'),
+      name: 'Fern'
+    })
+    expect(created.at(-1)).toMatchObject({ name: 'Fern' })
+    expect(created.at(-1)).not.toHaveProperty('kind')
+  })
+})
