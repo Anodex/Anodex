@@ -585,7 +585,21 @@ function RunDetail(props: RunDetailProps): JSX.Element {
     <div className={styles.runDetail}>
       <div className={styles.runHeader}>
         <div className={styles.runHeading}>
-          <h2 title={run.question}>{heading}</h2>
+          {run.status === 'needs-review' && props.draftPlan ? (
+            // While the plan is being reviewed its title is the heading, and
+            // renaming it is a click on it — not a second copy in the form.
+            <h2>
+              <input
+                className={styles.headingInput}
+                value={props.draftPlan.title}
+                onChange={(event) => props.onUpdatePlanTitle(event.target.value)}
+                aria-label="Plan title"
+                title="Click to rename the plan"
+              />
+            </h2>
+          ) : (
+            <h2 title={run.question}>{heading}</h2>
+          )}
           {heading !== run.question && (
             <button
               type="button"
@@ -657,13 +671,6 @@ function RunDetail(props: RunDetailProps): JSX.Element {
         // reading it costs nothing and changing a step is a click on it —
         // as a form of boxes, it asked to be filled in before it had been read.
         <section className={styles.planEditor} aria-label="Plan">
-          <input
-            className={styles.planTitleInput}
-            value={props.draftPlan.title}
-            onChange={(event) => props.onUpdatePlanTitle(event.target.value)}
-            aria-label="Plan title"
-            title="Click to rename the plan"
-          />
           <ol className={styles.planStepEditor}>
             {props.draftPlan.steps.map((step, index) => (
               <li key={step.id} className={styles.planStepRow}>

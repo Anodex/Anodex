@@ -545,10 +545,26 @@
   border-color: var(--border-focus);
 }
 
-.planTitleInput {
-  margin: 0 0 var(--space-2) calc(var(--space-2) * -1);
-  font-size: var(--text-md) !important;
-  font-weight: 600;
+.headingInput {
+  width: 100%;
+  margin-left: calc(var(--space-2) * -1);
+  padding: 2px var(--space-2);
+  color: var(--text);
+  font: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  outline: none;
+  cursor: text;
+}
+
+.headingInput:hover {
+  background: var(--bg-surface);
+}
+
+.headingInput:focus {
+  background: var(--bg-input);
+  border-color: var(--border-focus);
 }
 
 .planStepEditor {
