@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatRequest } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
+import type { ToolCall } from '@shared/tools.types'
 
 vi.mock('../ConversationStore', () => ({ conversationStore: {} }))
 
@@ -153,6 +154,51 @@ describe('remoteTurnConversation', () => {
       1
     )
     expect(nothingChanged?.messages[1]).not.toHaveProperty('checkpoint')
+  })
+
+  it('keeps what the turn did, so a command run from the phone is on record', () => {
+    // Seen on a real phone: "Run echo hello" ran on this computer and the saved turn
+    // was a question and an answer, with no sign of the command on either screen.
+    const ran: ToolCall = {
+      id: 't1',
+      name: 'run_command',
+      kind: 'command',
+      title: 'Run: echo hello',
+      detail: 'exit 0',
+      status: 'success'
+    }
+    const saved = remoteTurnConversation(
+      undefined,
+      request(),
+      { content: 'It printed hello.', stats, toolCalls: [ran] },
+      1
+    )
+    expect(saved?.messages[1].toolCalls).toEqual([ran])
+
+    const quiet = remoteTurnConversation(
+      undefined,
+      request(),
+      { content: 'Hi.', stats, toolCalls: [] },
+      1
+    )
+    expect(quiet?.messages[1]).not.toHaveProperty('toolCalls')
+  })
+
+  it('still writes a turn whose only result was the work it did', () => {
+    const ran: ToolCall = {
+      id: 't1',
+      name: 'run_command',
+      kind: 'command',
+      title: 'Run: touch notes.txt',
+      status: 'success'
+    }
+    const saved = remoteTurnConversation(
+      undefined,
+      request(),
+      { content: '', stats, toolCalls: [ran] },
+      1
+    )
+    expect(saved?.messages[1].toolCalls).toHaveLength(1)
   })
 
   it('writes nothing for an answer that carries nothing', () => {
