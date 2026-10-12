@@ -19,7 +19,8 @@
   --light-slate-border-strong: #c6ccd6;
   --light-slate-text: #1d2530;
   --light-slate-text-muted: #5c6673;
-  --light-slate-text-faint: #939aa6;
+  /* Lifted with the others: 3.7:1 at worst, up from 2.3:1, under muted. */
+  --light-slate-text-faint: #6f7683;
   --light-slate-text-on-accent: #ffffff;
   /* Same reasoning as light.css's --light-code-inline-text. */
   --light-slate-code-inline-text: #1a56db;
