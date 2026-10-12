@@ -481,7 +481,7 @@ Why it is good:
 
 ## Autonomous Agent Runs
 
-The Agent page lets the user give Anodex a goal and let it work through multiple
+The Agents page lets the user give Anodex a goal and let it work through multiple
 turns.
 
 Key capabilities:
