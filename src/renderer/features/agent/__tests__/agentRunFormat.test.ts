@@ -10,6 +10,7 @@ import {
   planTally,
   providerLabel,
   ranOut,
+  ranOutBrief,
   ranOutDetail,
   runOutcomeText,
   runStatusLabel,
@@ -155,6 +156,14 @@ describe('runs that ran out', () => {
     )
     expect(continueLabel(stopped)).toBe('Continue for 3 more turns')
     expect(spentLine(stopped)).toBe('433 tokens · under a minute')
+  })
+
+  it('gives the run list a short line, since its Continue button says what to do', () => {
+    expect(ranOutBrief(stopped)).toBe('Used all 3 turns before finishing')
+    expect(ranOutBrief({ ...stopped, tokensUsed: 50_000 })).toBe(
+      'Used its 50.0k tokens before finishing'
+    )
+    expect(ranOutBrief({ ...stopped, turnsUsed: 1 })).toBeNull()
   })
 
   it('reads the reason from the numbers, so older wording does not matter', () => {

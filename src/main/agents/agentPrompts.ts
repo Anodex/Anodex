@@ -136,6 +136,20 @@ export const PLAN_APPROVED_PROMPT =
   'Your plan was approved. Start executing it now, calling update_plan_step as you complete or ' +
   'start each step.'
 
+/**
+ * The approval when the person changed the plan first. The model's own
+ * write_plan call is still in its history, so it is told plainly that this list
+ * replaces it, numbered the way update_plan_step counts.
+ */
+export function planApprovedWithChangesPrompt(steps: string[]): string {
+  return (
+    'Your plan was approved with changes. Follow this plan instead of the one you wrote:\n' +
+    steps.map((title, index) => `${index + 1}. ${title}`).join('\n') +
+    '\nStart executing it now, calling update_plan_step({ stepNumber, status }) with these ' +
+    'numbers as you start or complete each step.'
+  )
+}
+
 /** One bounded retry if the planning turn didn't call write_plan the first time. */
 export const PLAN_RETRY_PROMPT =
   "You didn't call write_plan. Call it now with a short ordered list of concrete steps toward the " +

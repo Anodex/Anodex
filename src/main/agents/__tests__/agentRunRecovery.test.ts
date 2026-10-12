@@ -215,3 +215,59 @@ describe('a plan-reviewed run whose execution turn fails', () => {
     expect(notifyRemoteClients).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * The person can change a proposed plan before approving it. The model's own
+ * write_plan call is still in its history, so the change has to reach it in
+ * words, numbered the way update_plan_step counts, or it would follow the old
+ * steps under the new list.
+ */
+describe('approving a plan the person edited', () => {
+  const edited: Plan = {
+    ...plan,
+    steps: [
+      { id: 'step-1', title: 'Do the thing carefully', status: 'pending' },
+      { id: 'step-2', title: 'Say what changed', status: 'pending' }
+    ]
+  }
+
+  function approve(run: AgentRun, withPlan?: unknown): void {
+    get.mockReturnValue(run)
+    update.mockImplementation((_id: string, patch: Partial<AgentRun>) => ({ ...run, ...patch }))
+    agentRunService.approvePlan(run.id, withPlan)
+  }
+
+  it('runs the edited plan and tells the model the numbered steps', async () => {
+    runGeneration.mockRejectedValue(new Error('stop here'))
+
+    approve(makeRun(), edited)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const started = update.mock.calls.find((call) => call[1].status === 'running')?.[1]
+    expect(started?.plan?.steps.map((step) => step.title)).toEqual([
+      'Do the thing carefully',
+      'Say what changed'
+    ])
+    expect(conversation.plan?.steps).toHaveLength(2)
+    const sent = JSON.stringify(runGeneration.mock.calls[0])
+    expect(sent).toContain('approved with changes')
+    expect(sent).toContain('1. Do the thing carefully')
+    expect(sent).toContain('2. Say what changed')
+  })
+
+  it('treats an unchanged plan as a plain approval', async () => {
+    runGeneration.mockRejectedValue(new Error('stop here'))
+
+    approve(makeRun(), { ...plan, updatedAt: 99 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const sent = JSON.stringify(runGeneration.mock.calls[0])
+    expect(sent).toContain('Your plan was approved.')
+    expect(sent).not.toContain('with changes')
+  })
+
+  it('refuses a plan it cannot read, and leaves the run waiting', () => {
+    expect(() => approve(makeRun(), { steps: [{ title: '' }] })).toThrow(/could not be read/)
+    expect(update).not.toHaveBeenCalled()
+  })
+})

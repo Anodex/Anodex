@@ -149,6 +149,7 @@ import type {
   StartComputerControlRequest
 } from './computerControl.types'
 import type { BackgroundProcessInfo } from './process.types'
+import type { Plan } from './plan.types'
 
 export const IpcChannel = {
   Speech: {
@@ -1304,7 +1305,8 @@ export interface AnodexApi {
     create(request: CreateAgentRunRequest): Promise<AgentRun>
     stop(id: string): Promise<void>
     delete(id: string): Promise<void>
-    approvePlan(id: string): Promise<void>
+    /** With `plan`, the person's edited steps replace the proposal. */
+    approvePlan(id: string, plan?: Plan): Promise<void>
     rejectPlan(id: string): Promise<void>
     onRunsChanged(listener: (runs: AgentRun[]) => void): () => void
     turns(runId: string): Promise<RemoteRunTurn[]>

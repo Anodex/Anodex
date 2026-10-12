@@ -47,8 +47,13 @@ function open(seed?: AgentRunEditorSeed): void {
   render(<AgentRunEditor seed={seed} onClose={onClose} />)
 }
 
+/** Opens the provider, limits, plan review and tools, folded behind one line. */
+function showSettings(): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+}
+
 function goalField(): HTMLTextAreaElement {
-  return screen.getByPlaceholderText(/Research what CONTRIBUTING/)
+  return screen.getByPlaceholderText(/What should Anodex get done/)
 }
 
 beforeEach(() => {
@@ -122,8 +127,9 @@ describe('choosing a provider', () => {
   it('offers only the providers this install has a key for', () => {
     settings.provider.anthropic.apiKey = 'sk-ant-test'
     open()
+    showSettings()
 
-    expect(screen.getByText('Local model')).toBeDefined()
+    expect(screen.getAllByText(/Local model/).length).toBeGreaterThan(0)
     expect(screen.getByText('Claude (Anthropic)')).toBeDefined()
     // No OpenAI key, so it is not offered — picking it could only fail.
     expect(screen.queryByText('ChatGPT / Codex (OpenAI)')).toBeNull()
@@ -169,6 +175,7 @@ describe('tool access', () => {
 
   it('says the time budget measures work, not waiting', () => {
     open()
+    showSettings()
 
     expect(document.body.textContent).toContain('time spent working')
     // Round four §2 moved this budget off wall-clock; the hint said otherwise.
@@ -212,6 +219,7 @@ describe('why Start is unavailable', () => {
   // user can take — recorded here so nobody re-derives it from the code.
   it('never blocks on a budget, because the sliders cannot leave range', () => {
     open()
+    showSettings()
     fireEvent.change(goalField(), { target: { value: 'Summarize the changelog' } })
 
     for (const slider of screen.getAllByRole('slider')) {
@@ -248,5 +256,23 @@ describe('attachments', () => {
     await waitFor(() => expect(screen.getByText('ref.png')).toBeTruthy())
     expect(screen.getByText(/can.t see images/)).toBeTruthy()
     expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', true)
+  })
+})
+
+describe('the settings line', () => {
+  it('says what a run will do without opening anything', () => {
+    open()
+
+    expect(document.body.textContent).toMatch(/plan first/)
+    expect(document.body.textContent).toMatch(/\d+ turns · /)
+    expect(screen.queryByRole('slider')).toBeNull()
+  })
+
+  it('starts a goal from an example', () => {
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Write the README' }))
+
+    expect(goalField().value).toMatch(/README/)
+    expect(screen.getByText('Start run').closest('button')).toHaveProperty('disabled', false)
   })
 })

@@ -186,6 +186,24 @@ export function plainStopReason(run: BudgetFields): string | null {
   }
 }
 
+/**
+ * The run list's one line for a run that ran out: what it used up. The longer
+ * sentences ({@link plainStopReason}, {@link ranOutDetail}) carry the advice; on
+ * a row, the Continue button beside it already says what to do.
+ */
+export function ranOutBrief(run: BudgetFields): string | null {
+  switch (ranOut(run)) {
+    case 'turns':
+      return `Used all ${run.maxTurns} turns before finishing`
+    case 'tokens':
+      return `Used its ${formatCompactTokens(run.maxTokens)} tokens before finishing`
+    case 'time':
+      return `Reached its ${run.maxDurationMinutes}-minute limit before finishing`
+    default:
+      return null
+  }
+}
+
 /** "Continue for 25 more turns", naming the budget the next run gets. */
 export function continueLabel(run: BudgetFields): string {
   return ranOut(run) === 'turns' ? `Continue for ${run.maxTurns} more turns` : 'Continue'

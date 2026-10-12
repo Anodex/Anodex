@@ -39,6 +39,7 @@ import { Icon } from '../../components/Icon'
 import { RangeControl, SelectControl, ToggleControl } from '../settings/controls'
 import styles from './AgentRunEditor.module.css'
 import { startBlockedReason } from './startBlockedReason'
+import { AGENT_EXAMPLES } from './agentExamples'
 
 const KIND_ORDER: ToolKind[] = ['web', 'read', 'write', 'command', 'plan', 'mcp']
 const KIND_LABELS: Record<ToolKind, string> = {
@@ -170,6 +171,12 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
   )
   const [saving, setSaving] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
+  /**
+   * Provider, limits, plan review and tools sit behind one line. Most runs
+   * change none of them, and as a form they were most of the dialog: the goal,
+   * the only thing every run needs, sat above three sliders and a tool grid.
+   */
+  const [showSettings, setShowSettings] = useState(false)
 
   // The chat composer's intake: the same caps, the same refusals, and the same
   // drop handling for OS files and rows from the Files panel. One difference:
@@ -301,6 +308,29 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
     if (run) onClose()
   }
 
+  const toolNames = [...enabledTools].filter((name) =>
+    availableTools.some((tool) => tool.name === name)
+  )
+  const kinds = new Set(
+    toolNames.map((name) => TOOL_CATALOG.find((tool) => tool.name === name)?.kind)
+  )
+  const reach =
+    toolNames.length === 0
+      ? 'no tools'
+      : kinds.has('command')
+        ? 'can edit files and run commands'
+        : kinds.has('write')
+          ? 'can edit files'
+          : 'read only'
+  const settingsSummary = [
+    providerLabel,
+    limitsEnabled
+      ? `${maxTurns} turns · ${formatTokens(maxTokens)} tokens · ${formatDuration(maxDurationMinutes)}`
+      : 'no limits',
+    requirePlan ? 'plan first' : 'starts straight away',
+    reach
+  ].join(' · ')
+
   return (
     <Overlay
       onClose={onClose}
@@ -328,26 +358,15 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
           onDragLeave={attachments.handleDragLeave}
           onDrop={attachments.handleDrop}
         >
-          <div className={styles.goalHeader}>
-            <label className={styles.label} htmlFor="agent-run-goal">
-              What should Anodex accomplish?
-            </label>
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => void attachments.handleAttachClick()}
-              title="Attach reference images or text files"
-            >
-              <Icon name="paperclip" size={12} />
-              Attach files
-            </button>
-          </div>
+          <label className={styles.srOnly} htmlFor="agent-run-goal">
+            What should Anodex get done?
+          </label>
           <textarea
             id="agent-run-goal"
             className={styles.textarea}
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
-            placeholder="e.g. Research what CONTRIBUTING.md says and summarize it."
+            placeholder="What should Anodex get done? It works on its own with no one to ask, so say what “done” looks like."
             rows={5}
             autoFocus
           />
@@ -355,15 +374,25 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
             attachments={attachments.attachments}
             onRemove={attachments.removeAttachment}
           />
-          <p className={styles.hint}>
-            Runs unattended, checking in as it goes — no one will answer follow-up questions, so be
-            specific. Drop in reference images or text files it can use; they stay available on
-            every turn.
-          </p>
+          {!goal.trim() && !seed && (
+            <div className={styles.examples} aria-label="Examples">
+              {AGENT_EXAMPLES.map((example) => (
+                <button
+                  key={example.title}
+                  type="button"
+                  className={styles.example}
+                  title={example.description}
+                  onClick={() => setGoal(example.seed.goal ?? '')}
+                >
+                  {example.title}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        <label className={styles.field}>
-          <span className={styles.label}>Project</span>
+        <div className={styles.line}>
+          <span className={styles.lineLabel}>Where</span>
           <div className={styles.projectRow}>
             <SelectControl
               value={projectId ?? ''}
@@ -383,190 +412,220 @@ export function AgentRunEditor({ seed, onClose }: AgentRunEditorProps): JSX.Elem
             >
               <Icon name="folder-plus" size={14} />
             </button>
+            <button
+              type="button"
+              className={styles.newProjectButton}
+              onClick={() => void attachments.handleAttachClick()}
+              aria-label="Attach files"
+              title="Attach reference images or text files; they stay available on every turn"
+            >
+              <Icon name="paperclip" size={14} />
+            </button>
           </div>
-        </label>
-
-        <label className={styles.field}>
-          <span className={styles.label}>Provider</span>
-          <SelectControl
-            value={provider}
-            onChange={handleProviderChange}
-            options={providerOptions}
-          />
-          <p className={styles.hint}>
-            Independent of your global active model — picking one here never changes what
-            interactive chat uses.
-          </p>
-        </label>
-
-        {modelOptions.length > 0 && (
-          <label className={styles.field}>
-            <span className={styles.label}>Model</span>
-            <SelectControl value={model} onChange={setModel} options={modelOptions} />
-          </label>
-        )}
-
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <span className={styles.label}>Require plan review</span>
-            <ToggleControl checked={requirePlan} onChange={setRequirePlan} />
-          </div>
-          <p className={styles.hint}>
-            {requirePlan
-              ? 'Anodex proposes a plan first and pauses for your approval before doing anything ' +
-                'else. Turn off to let it start working immediately.'
-              : 'Starts working immediately, with no plan review checkpoint.'}
-          </p>
         </div>
 
-        <div className={styles.field}>
-          <div className={styles.toggleRow}>
-            <span className={styles.label}>Enforce limits</span>
-            <ToggleControl checked={limitsEnabled} onChange={setLimitsEnabled} />
-          </div>
-          <p className={styles.hint}>
-            {limitsEnabled
-              ? 'Stops on its own once one of the budgets below is reached.'
-              : 'No limits — runs until it finishes on its own or you stop it manually. It still ' +
-                'checks in periodically so you can see what it’s doing.'}
-          </p>
-          {!limitsEnabled && provider !== 'local' && (
-            <p className={styles.riskNote}>
-              This run uses {providerLabel}, a paid API, with no limits — it could run for a long
-              time and use a meaningful number of paid tokens before finishing or being stopped.
-            </p>
-          )}
+        <div className={styles.line}>
+          <span className={styles.lineLabel}>Runs</span>
+          <span className={styles.summary}>{settingsSummary}</span>
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => setShowSettings((shown) => !shown)}
+            aria-expanded={showSettings}
+          >
+            {showSettings ? 'Done' : 'Change'}
+          </button>
         </div>
-
-        {limitsEnabled && (
-          <>
-            <div className={styles.field}>
-              <span className={styles.label}>Turn budget</span>
-              <RangeControl
-                value={maxTurns}
-                min={1}
-                max={turnCeiling}
-                step={1}
-                onChange={setMaxTurns}
-                format={(value) => `${value} turns`}
-              />
-              <p className={styles.hint}>
-                Stops on its own after this many turns if it hasn&apos;t finished (max {turnCeiling}
-                ).
-              </p>
-            </div>
-
-            <div className={styles.field}>
-              <span className={styles.label}>Token budget</span>
-              <RangeControl
-                value={maxTokens}
-                min={TOKEN_STEP}
-                max={MAX_MAX_TOKENS}
-                step={TOKEN_STEP}
-                onChange={setMaxTokens}
-                format={formatTokens}
-              />
-              <p className={styles.hint}>
-                Stops on its own once this many tokens have been used across every turn (max{' '}
-                {MAX_MAX_TOKENS.toLocaleString()}).
-              </p>
-            </div>
-
-            <div className={styles.field}>
-              <span className={styles.label}>Time budget</span>
-              <RangeControl
-                value={maxDurationMinutes}
-                min={DURATION_STEP}
-                max={MAX_MAX_DURATION_MINUTES}
-                step={DURATION_STEP}
-                onChange={setMaxDurationMinutes}
-                format={formatDuration}
-              />
-              <p className={styles.hint}>
-                Stops on its own after this much time spent working (max {MAX_MAX_DURATION_MINUTES}{' '}
-                minutes). Waiting for you to approve its plan does not count against it.
-              </p>
-            </div>
-          </>
+        {!limitsEnabled && provider !== 'local' && (
+          <p className={styles.riskNote}>
+            This run uses {providerLabel}, a paid API, with no limits — it could run for a long time
+            and use a meaningful number of paid tokens before finishing or being stopped.
+          </p>
         )}
 
-        <div className={styles.field}>
-          <div className={styles.toolsHeader}>
-            <span className={styles.label}>Tools this run can use</span>
-            <div className={styles.toolsActions}>
-              <button
-                type="button"
-                className={styles.linkButton}
-                onClick={() => setEnabledTools(new Set(buildRunToolNames()))}
-              >
-                Build
-              </button>
-              <button
-                type="button"
-                className={styles.linkButton}
-                onClick={() => setEnabledTools(new Set(readOnlyRunToolNames()))}
-              >
-                Read only
-              </button>
-              <button type="button" className={styles.linkButton} onClick={selectAllTools}>
-                Select all
-              </button>
-              <button type="button" className={styles.linkButton} onClick={clearAllTools}>
-                Clear
-              </button>
+        {showSettings && (
+          <div className={styles.settings}>
+            <label className={styles.field}>
+              <span className={styles.label}>Provider</span>
+              <SelectControl
+                value={provider}
+                onChange={handleProviderChange}
+                options={providerOptions}
+              />
+              <p className={styles.hint}>
+                Independent of your global active model — picking one here never changes what
+                interactive chat uses.
+              </p>
+            </label>
+
+            {modelOptions.length > 0 && (
+              <label className={styles.field}>
+                <span className={styles.label}>Model</span>
+                <SelectControl value={model} onChange={setModel} options={modelOptions} />
+              </label>
+            )}
+
+            <div className={styles.field}>
+              <div className={styles.toggleRow}>
+                <span className={styles.label}>Require plan review</span>
+                <ToggleControl checked={requirePlan} onChange={setRequirePlan} />
+              </div>
+              <p className={styles.hint}>
+                {requirePlan
+                  ? 'Anodex proposes a plan first and pauses for your approval before doing anything ' +
+                    'else. Turn off to let it start working immediately.'
+                  : 'Starts working immediately, with no plan review checkpoint.'}
+              </p>
             </div>
-          </div>
-          <p className={styles.hint}>
-            Skill discovery (find_skill/load_skill) is always available, in addition to whatever you
-            select here.
-          </p>
-          {!hasProject && (
-            <p className={styles.hint}>Select a project above to enable file and command tools.</p>
-          )}
-          <div className={styles.toolGroups}>
-            {KIND_ORDER.map((kind) => {
-              const toolsInKind = TOOL_CATALOG.filter((tool) => tool.kind === kind)
-              if (toolsInKind.length === 0) return null
-              return (
-                <div key={kind} className={styles.toolGroup}>
-                  <span className={styles.toolGroupLabel}>{KIND_LABELS[kind]}</span>
-                  {KIND_RISK_NOTE[kind] && (
-                    <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>
-                  )}
-                  <div className={styles.toolList}>
-                    {toolsInKind.map((tool) => {
-                      // An agent run is unattended, so tools needing a live
-                      // approval are shown disabled rather than hidden —
-                      // ticking one would only ever be refused mid-run.
-                      const disabled =
-                        (Boolean(tool.requiresProject) && !hasProject) ||
-                        Boolean(tool.requiresHumanApproval)
-                      return (
-                        <label
-                          key={tool.name}
-                          className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
-                          title={
-                            tool.requiresHumanApproval
-                              ? `${tool.description} Unavailable in agent runs: it needs a person to approve each action.`
-                              : tool.description
-                          }
-                        >
-                          <input
-                            type="checkbox"
-                            checked={enabledTools.has(tool.name) && !disabled}
-                            disabled={disabled}
-                            onChange={() => toggleTool(tool.name)}
-                          />
-                          <code className={styles.toolName}>{tool.name}</code>
-                        </label>
-                      )
-                    })}
-                  </div>
+
+            <div className={styles.field}>
+              <div className={styles.toggleRow}>
+                <span className={styles.label}>Enforce limits</span>
+                <ToggleControl checked={limitsEnabled} onChange={setLimitsEnabled} />
+              </div>
+              <p className={styles.hint}>
+                {limitsEnabled
+                  ? 'Stops on its own once one of the budgets below is reached.'
+                  : 'No limits — runs until it finishes on its own or you stop it manually. It still ' +
+                    'checks in periodically so you can see what it’s doing.'}
+              </p>
+            </div>
+
+            {limitsEnabled && (
+              <>
+                <div className={styles.field}>
+                  <span className={styles.label}>Turn budget</span>
+                  <RangeControl
+                    value={maxTurns}
+                    min={1}
+                    max={turnCeiling}
+                    step={1}
+                    onChange={setMaxTurns}
+                    format={(value) => `${value} turns`}
+                  />
+                  <p className={styles.hint}>
+                    Stops on its own after this many turns if it hasn&apos;t finished (max{' '}
+                    {turnCeiling}
+                    ).
+                  </p>
                 </div>
-              )
-            })}
+
+                <div className={styles.field}>
+                  <span className={styles.label}>Token budget</span>
+                  <RangeControl
+                    value={maxTokens}
+                    min={TOKEN_STEP}
+                    max={MAX_MAX_TOKENS}
+                    step={TOKEN_STEP}
+                    onChange={setMaxTokens}
+                    format={formatTokens}
+                  />
+                  <p className={styles.hint}>
+                    Stops on its own once this many tokens have been used across every turn (max{' '}
+                    {MAX_MAX_TOKENS.toLocaleString()}).
+                  </p>
+                </div>
+
+                <div className={styles.field}>
+                  <span className={styles.label}>Time budget</span>
+                  <RangeControl
+                    value={maxDurationMinutes}
+                    min={DURATION_STEP}
+                    max={MAX_MAX_DURATION_MINUTES}
+                    step={DURATION_STEP}
+                    onChange={setMaxDurationMinutes}
+                    format={formatDuration}
+                  />
+                  <p className={styles.hint}>
+                    Stops on its own after this much time spent working (max{' '}
+                    {MAX_MAX_DURATION_MINUTES} minutes). Waiting for you to approve its plan does
+                    not count against it.
+                  </p>
+                </div>
+              </>
+            )}
+
+            <div className={styles.field}>
+              <div className={styles.toolsHeader}>
+                <span className={styles.label}>Tools this run can use</span>
+                <div className={styles.toolsActions}>
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => setEnabledTools(new Set(buildRunToolNames()))}
+                  >
+                    Build
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => setEnabledTools(new Set(readOnlyRunToolNames()))}
+                  >
+                    Read only
+                  </button>
+                  <button type="button" className={styles.linkButton} onClick={selectAllTools}>
+                    Select all
+                  </button>
+                  <button type="button" className={styles.linkButton} onClick={clearAllTools}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <p className={styles.hint}>
+                Skill discovery (find_skill/load_skill) is always available, in addition to whatever
+                you select here.
+              </p>
+              {!hasProject && (
+                <p className={styles.hint}>
+                  Select a project above to enable file and command tools.
+                </p>
+              )}
+              <div className={styles.toolGroups}>
+                {KIND_ORDER.map((kind) => {
+                  const toolsInKind = TOOL_CATALOG.filter((tool) => tool.kind === kind)
+                  if (toolsInKind.length === 0) return null
+                  return (
+                    <div key={kind} className={styles.toolGroup}>
+                      <span className={styles.toolGroupLabel}>{KIND_LABELS[kind]}</span>
+                      {KIND_RISK_NOTE[kind] && (
+                        <p className={styles.riskNote}>{KIND_RISK_NOTE[kind]}</p>
+                      )}
+                      <div className={styles.toolList}>
+                        {toolsInKind.map((tool) => {
+                          // An agent run is unattended, so tools needing a live
+                          // approval are shown disabled rather than hidden —
+                          // ticking one would only ever be refused mid-run.
+                          const disabled =
+                            (Boolean(tool.requiresProject) && !hasProject) ||
+                            Boolean(tool.requiresHumanApproval)
+                          return (
+                            <label
+                              key={tool.name}
+                              className={`${styles.toolItem} ${disabled ? styles.toolItemDisabled : ''}`}
+                              title={
+                                tool.requiresHumanApproval
+                                  ? `${tool.description} Unavailable in agent runs: it needs a person to approve each action.`
+                                  : tool.description
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                checked={enabledTools.has(tool.name) && !disabled}
+                                disabled={disabled}
+                                onChange={() => toggleTool(tool.name)}
+                              />
+                              <code className={styles.toolName}>{tool.name}</code>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className={styles.footer}>
