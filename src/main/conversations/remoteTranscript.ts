@@ -1,5 +1,6 @@
 import type { Conversation } from '@shared/conversation.types'
 import type { ChatMessage, MessagePersona } from '@shared/chat.types'
+import type { ToolCall } from '@shared/tools.types'
 
 /**
  * How much of a transcript may be sent to a phone in one reply.
@@ -52,7 +53,26 @@ export interface RemoteMessage {
    * here; the phone words it for itself.
    */
   endedEarly?: true
+  /**
+   * What the turn did, one line per tool call: enough to draw the rows a phone shows
+   * while a turn runs, and nothing heavier. No arguments, results, diffs or previews
+   * — those are most of an agent transcript's bytes — and at most
+   * {@link REMOTE_TOOLS_PER_MESSAGE} of them. Without this, reopening a chat on the
+   * phone showed the reply and no sign of the command it had run.
+   */
+  tools?: RemoteToolCall[]
 }
+
+export interface RemoteToolCall {
+  id: string
+  name: string
+  title: string
+  detail?: string
+  status: ToolCall['status']
+}
+
+/** How many tool rows one turn sends. A long agent turn is summarised, not listed. */
+export const REMOTE_TOOLS_PER_MESSAGE = 40
 
 export interface RemoteAttachment {
   name: string
@@ -84,8 +104,8 @@ export interface RemoteConversation {
  * until somebody adds another heavy field. A `ChatMessage` carries tool calls,
  * render blocks, context assemblies, generation stats, memory entries and
  * attachments; a `Conversation` carries plans, goals, context ledgers and visual
- * previews. The phone parses `id`, `role`, `content` and `persona`, and renders
- * nothing else. On an agent transcript that difference is most of the bytes.
+ * previews. The phone reads the text and a few small markers, and tool calls only
+ * as one-line rows. On an agent transcript that difference is most of the bytes.
  *
  * Then a budget on top, because text alone can still be too much: newest turns
  * first, stopping when the next one would not fit. The newest are kept because the
@@ -150,7 +170,8 @@ function trim(
         ...(message.persona ? { persona: message.persona } : {}),
         ...attachmentsOf(message),
         ...thinkingFlagOf(message),
-        ...endedEarlyOf(message)
+        ...endedEarlyOf(message),
+        ...toolsOf(message)
       },
       wasCut: false
     }
@@ -175,13 +196,32 @@ function trim(
       ...(message.persona ? { persona: message.persona } : {}),
       ...attachmentsOf(message),
       ...thinkingFlagOf(message),
-      ...endedEarlyOf(message)
+      ...endedEarlyOf(message),
+      ...toolsOf(message)
     },
     wasCut: true
   }
 }
 
 const byteLength = (text: string): number => Buffer.byteLength(text, 'utf8')
+
+/** A turn's tool calls as one-line rows, or nothing when it ran none. */
+function toolsOf(message: ChatMessage): { tools?: RemoteToolCall[] } {
+  if (message.role !== 'assistant' || !message.toolCalls?.length) return {}
+  return {
+    tools: message.toolCalls.slice(0, REMOTE_TOOLS_PER_MESSAGE).map((call) => ({
+      id: call.id,
+      name: call.name,
+      title: (call.title || call.name).slice(0, TOOL_TITLE_CHARS),
+      ...(call.detail ? { detail: call.detail.slice(0, TOOL_DETAIL_CHARS) } : {}),
+      status: call.status ?? 'success'
+    }))
+  }
+}
+
+/** A title is a command or a path; past this it is output, not a title. */
+const TOOL_TITLE_CHARS = 200
+const TOOL_DETAIL_CHARS = 80
 
 /** Whether a reply stopped partway, so a phone can offer to continue it. */
 function endedEarlyOf(message: ChatMessage): { endedEarly?: true } {

@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatRequest } from '@shared/chat.types'
 import type { Conversation } from '@shared/conversation.types'
+import type { ToolCall } from '@shared/tools.types'
 import { firstPlainLine } from '@shared/titleText'
 import type { RunGenerationResult } from '../chat/runGeneration'
 import { carriesNothing } from './backgroundTurn'
@@ -54,6 +55,13 @@ export function remoteTurnConversation(
   request: ChatRequest,
   result: Pick<RunGenerationResult, 'content' | 'stats' | 'thinking' | 'checkpoint'> & {
     stopReason?: RunGenerationResult['stopReason']
+    /**
+     * What the turn did, gathered from its activity as it ran. A result carries no
+     * record of its tool calls — the window builds them from the same events — so
+     * without this a phone's turn was saved as a question and an answer, and a
+     * command it ran on this computer left no trace on either screen.
+     */
+    toolCalls?: ToolCall[]
   },
   now: number,
   /** The project open at the computer, for a request that names none. */
@@ -66,6 +74,7 @@ export function remoteTurnConversation(
     createdAt: now,
     stats: result.stats,
     ...(result.thinking ? { thinking: result.thinking } : {}),
+    ...(result.toolCalls?.length ? { toolCalls: result.toolCalls } : {}),
     // Which files the turn changed. Without it the window drew no Review button for a
     // phone's turn and no Open in browser, though the checkpoint was saved — seen when
     // the same edit sent from the window offered both and the phone's offered neither.
