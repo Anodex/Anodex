@@ -10,7 +10,13 @@ import type { ToolCall } from './tools.types'
  */
 export function toolActionLabel(call: Pick<ToolCall, 'name' | 'title' | 'status'>): string {
   const known = TOOL_ACTIONS[call.name]
-  if (known) return call.status === 'running' ? known[1] : known[0]
+  if (known) {
+    // Never the past tense for a call that did not happen: a red row reading
+    // "Finished the goal" claimed exactly what had failed.
+    if (call.status === 'error') return `${known[1]} failed`
+    if (call.status === 'denied') return `${known[1]} was declined`
+    return call.status === 'running' ? known[1] : known[0]
+  }
   return splitToolTitle(call.title).action || call.name
 }
 
