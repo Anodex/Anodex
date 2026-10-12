@@ -11067,6 +11067,12 @@
             "$ref": "ProfileSettings"
           }
         },
+        "welcome": {
+          "optional": false,
+          "type": {
+            "$ref": "WelcomeSettings"
+          }
+        },
         "appearance": {
           "optional": false,
           "type": {
@@ -22357,6 +22363,12 @@
             ]
           }
         },
+        "avatarLook": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
         "planTier": {
           "optional": false,
           "type": {
@@ -27523,6 +27535,17 @@
           }
         },
         "verified": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      }
+    },
+    "WelcomeSettings": {
+      "kind": "object",
+      "properties": {
+        "completed": {
           "optional": false,
           "type": {
             "kind": "boolean"
