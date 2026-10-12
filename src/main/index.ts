@@ -77,6 +77,14 @@ const STARTUP_UPDATE_CHECK_DELAY_MS = 5000
 const SPEECH_WARMUP_DELAY_MS = 8000
 let appShuttingDown = false
 
+/** Set by the first `will-quit`, so the shutdown runs once however often quit is asked. */
+let shutdownStarted = false
+
+/** How long quitting waits for the models to be released before exiting anyway. */
+const ENGINE_RELEASE_LIMIT_MS = 5_000
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
 // Windows derives taskbar grouping/jump-list identity from this — without it
 // (notably in an unpackaged dev run, which has no Start Menu shortcut to
 // carry the id), Windows falls back to showing the raw process name
@@ -196,38 +204,67 @@ if (!app.requestSingleInstanceLock()) {
     void remoteService.woke()
   })
 
-  app.on('will-quit', () => {
-    appShuttingDown = true
-    void speechService.shutdown()
-    void remoteService.shutdown()
-    computerControlService.stopAll('app-quit')
-    abortAllChatGenerations()
-    schedulerService.stop()
-    agentRunService.stopAll()
-    criticalThinkingService.stopAll()
-    cancelAllDownloads()
-    // Dev servers and watchers Anodex started must not outlive it, holding
-    // ports with nothing left to show or stop them.
-    backgroundProcessService.killAllNow()
-    // After everything above that might save a conversation on its way out:
-    // writes normally land on the next tick, and there is no next tick now.
-    conversationStore.flushSync()
-    closeToast()
-    closeHtmlPreviewWindows()
-    void closeProjectPageServers()
-    void embeddingService.release()
-    // Quitting during a load is a clean exit, not a crash — drop the sentinel
-    // so the next launch doesn't offer to recover from it.
-    finishModelLoad()
-    llamaService.unload().catch((error) => {
-      log.error('Error unloading model on quit:', error)
+  app.on('will-quit', (event) => {
+    // Once is enough: the exit below does not come back through here, but a
+    // second quit request while the engines are still letting go must not run
+    // the whole shutdown twice.
+    if (shutdownStarted) return
+    shutdownStarted = true
+    // Held until the engines have actually let go. Unloading a model is native work
+    // that finishes on a later tick, and the process used to exit before it did —
+    // the worker then completed into a torn-down environment and aborted. On Linux
+    // that is a SIGABRT in the log; on macOS it is "Anodex quit unexpectedly" on
+    // every quit with a model loaded.
+    event.preventDefault()
+    let enginesLetGo: Promise<unknown> = Promise.resolve()
+    try {
+      appShuttingDown = true
+      void speechService.shutdown()
+      void remoteService.shutdown()
+      computerControlService.stopAll('app-quit')
+      abortAllChatGenerations()
+      schedulerService.stop()
+      agentRunService.stopAll()
+      criticalThinkingService.stopAll()
+      cancelAllDownloads()
+      // Dev servers and watchers Anodex started must not outlive it, holding
+      // ports with nothing left to show or stop them.
+      backgroundProcessService.killAllNow()
+      // After everything above that might save a conversation on its way out:
+      // writes normally land on the next tick, and there is no next tick now.
+      conversationStore.flushSync()
+      closeToast()
+      closeHtmlPreviewWindows()
+      void closeProjectPageServers()
+      // Quitting during a load is a clean exit, not a crash — drop the sentinel
+      // so the next launch doesn't offer to recover from it.
+      finishModelLoad()
+      enginesLetGo = Promise.allSettled([
+        llamaService.unload().catch((error) => {
+          log.error('Error unloading model on quit:', error)
+        }),
+        embeddingService.release()
+      ])
+      // Local MCP servers spawn child processes — disconnect them so none are
+      // orphaned after the app exits.
+      mcpManager.disconnectAll().catch((error) => {
+        log.error('Error disconnecting MCP servers on quit:', error)
+      })
+    } catch (error) {
+      // Held quit, so a throw here would otherwise leave the app open for good.
+      log.error('Error during shutdown:', error)
+    }
+    // A hung unload must not keep the app from quitting: past the limit it exits
+    // anyway, which is no worse than before this waited at all.
+    //
+    // `exit`, not a second `quit`. Everything quitting runs has already run above,
+    // and a second `app.quit()` after `will-quit` was prevented is not reliably
+    // honoured: under Playwright's close it was accepted and did nothing, and
+    // every journey test hung until its timeout.
+    void Promise.race([enginesLetGo, delay(ENGINE_RELEASE_LIMIT_MS)]).finally(() => {
+      // Last: flush whatever the shutdown above just logged to disk.
+      diagnosticsReporter.shutdown()
+      app.exit(0)
     })
-    // Local MCP servers spawn child processes — disconnect them so none are
-    // orphaned after the app exits.
-    mcpManager.disconnectAll().catch((error) => {
-      log.error('Error disconnecting MCP servers on quit:', error)
-    })
-    // Last: flush whatever the shutdown above just logged to disk.
-    diagnosticsReporter.shutdown()
   })
 }
