@@ -80,12 +80,17 @@ Not used yet, and each fits something Anodex already does by hand.
   not be able to set it. Offer it in Settings → AI & Models (a "Conversation
   memory: Full / Compact" row under Context size) once it is stable.
 - **Lazy loading (`lazyMode`, 3.21).** Reads the largest tensors on demand: less
-  memory for big models, at the cost of a slower first reply. Try on the 27B and
-  on machines short of RAM.
+  memory for big models, at the cost of a slower first reply. **Measured, not
+  shipped:** on Windows (Iris Xe, 32 GB) Qwen3.6-14B-A3B used the same memory
+  with it on or off (9.05 against 9.04 GB on the GPU; 2.04 GB either way
+  CPU-only) and answered as fast. Still worth trying on the 27B, on Linux, and on
+  a machine short of RAM, where it may behave differently.
 - **Native Jinja fallback and better reasoning extraction (3.20–3.21).** Qwen3.8
   ran under the plain Jinja wrapper and leaked its reasoning into replies; we strip
   it (`stripLeakedEngineText`). Check whether 3.22 parses it properly, and retire
-  the workaround if so.
+  the workaround if so. On 3.22.1 Qwen3.6-14B-A3B leaked nothing in 17 raw
+  rounds, but it resolves to `QwenChatWrapper`, not the Jinja fallback that
+  leaked, so this needs Qwen3.8 itself before the workaround can go.
 
 ## Next product work
 
