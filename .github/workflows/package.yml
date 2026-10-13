@@ -166,6 +166,18 @@ jobs:
         shell: bash
         run: ls -lh dist/
 
+      # The app inside the dmg must carry a valid signature, ad-hoc or not: an
+      # unsigned Apple-silicon bundle is the one macOS calls "damaged". Checked
+      # with Apple's own tool, so a config change that quietly stops signing
+      # fails here rather than on somebody's Mac.
+      - name: Check the macOS app is signed
+        if: matrix.name == 'macos'
+        shell: bash
+        run: |
+          app="$(ls -d dist/mac*/Anodex.app | head -n 1)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier|Format'
+
       # Signed on the runner that built it, rather than in a later job that
       # would have to download every installer back again. The key arrives as a
       # secret and lands in RUNNER_TEMP, which is ephemeral; the trap removes it

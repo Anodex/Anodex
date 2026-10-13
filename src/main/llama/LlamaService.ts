@@ -105,7 +105,7 @@ import { defaultThoughtTokenBudget, resolveLocalOutputBudget } from './localOutp
 import { LlamaVisionService } from './LlamaVisionService'
 import { createModelGate } from './modelGate'
 import { toStopDetail } from '@shared/stopDetail'
-import { appendRoundText } from '@shared/roundText'
+import { appendRoundText, joinAfterTool } from '@shared/roundText'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { createLogger } from '../utils/logger'
 import { describeLoad } from './modelLoadKey'
@@ -951,6 +951,14 @@ class LlamaService extends EventEmitter {
     // distinguished from one that worked; the per-outcome flags that used to sit
     // beside it existed only to gate the prose detectors and went with them.
     let spokeSinceLastTool = false
+    /**
+     * A tool finished since the last visible text. Text before a call and text
+     * after it arrive in one stream, and appended as they came they ran into
+     * each other: "…saving it.That request was declined". The screen splits them
+     * into blocks around the tool; the stored reply, which copying, the phone
+     * and history read, needs the paragraph break written in.
+     */
+    let toolSinceLastText = false
     let hadAnyToolAttempt = false
     // Running count of tool activity, so a single round can tell whether it
     // produced any of its own — see the thinking-promotion decision below,
@@ -1000,7 +1008,10 @@ class LlamaService extends EventEmitter {
         // it directly instead: a settled call clears the flag, and any visible
         // token after it sets it again, leaving "did the model say anything
         // after its final tool result" true at the end.
-        if (call.status !== 'running') spokeSinceLastTool = false
+        if (call.status !== 'running') {
+          spokeSinceLastTool = false
+          toolSinceLastText = true
+        }
         toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
         if (call.status !== 'running') diagnostics.recordToolCallSettled()
@@ -1370,7 +1381,8 @@ class LlamaService extends EventEmitter {
             // Visible prose after the last tool call — the model came back to
             // comment on what it got. See `GenerateOutcome.endedOnToolCall`.
             if (chunk.text.trim()) spokeSinceLastTool = true
-            roundContent += chunk.text
+            roundContent = joinAfterTool(roundContent, chunk.text, toolSinceLastText)
+            if (chunk.text.trim()) toolSinceLastText = false
             params.onToken(chunk.text)
           },
           // Surface write/edit calls the moment their params start generating

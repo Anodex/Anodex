@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ToolConfirmRequest } from '@shared/tools.types'
@@ -87,8 +87,34 @@ describe('open_item', () => {
     expect(h.external).toEqual([])
   })
 
-  it('says how to get a folder when no project is open', async () => {
+  /**
+   * "Open my Downloads folder" used to need Downloads added as a project first.
+   * Showing a folder is harmless; it opens from anywhere now.
+   */
+  it('opens a folder anywhere on the computer, with no project open', async () => {
     const { tool } = open('untethered', null)
-    expect(await tool.handler({ target: 'server' })).toContain('request_folder_access')
+    expect(await tool.handler({ target: join(workspace, 'server') })).toContain('Opened')
+    expect(await tool.handler({ target: '~' })).toContain('Opened')
+    expect(h.opened).toEqual([join(workspace, 'server'), homedir()])
+  })
+
+  it('opens a document outside the project, but not a page a browser would run', async () => {
+    writeFileSync(join(workspace, 'game.html'), '<script></script>')
+    const outside = open('untethered', null)
+    expect(await outside.tool.handler({ target: join(workspace, 'report.pdf') })).toContain(
+      'Opened'
+    )
+    expect(await outside.tool.handler({ target: join(workspace, 'game.html') })).toContain(
+      'only from the open project'
+    )
+    const inside = open('untethered')
+    expect(await inside.tool.handler({ target: 'game.html' })).toContain('Opened')
+  })
+
+  it('still never opens a program from outside the project', async () => {
+    const { tool } = open('untethered', null)
+    expect(await tool.handler({ target: join(workspace, 'setup.exe') })).toContain(
+      'never programs or scripts'
+    )
   })
 })
