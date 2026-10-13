@@ -53,7 +53,11 @@ import { CONTEXT_SIZE_LADDER } from '@shared/contextSizes'
 import { allocateContextBudget, MAX_FIXED_INPUT_FRACTION } from '@shared/contextBudget'
 import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
-import { environmentDateFromPrompt, type PromptSurface } from '@shared/prompts'
+import {
+  environmentDateFromPrompt,
+  withEnvironmentClockMasked,
+  type PromptSurface
+} from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
 import { buildTools } from '../tools/registry'
 import {
@@ -69,6 +73,7 @@ import {
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
 import { summaryContextSize } from './summaryContextSize'
+import { PREFIX_PROBE_MESSAGES, prefixSnapshotCuts } from './prefixSnapshot'
 import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
 import { installExactDetokenize, type NativeVocabulary } from './exactDetokenize'
 import {
@@ -446,6 +451,16 @@ class LlamaService extends EventEmitter {
   private activeEnvironmentDate: string | null = null
   /** Refreshed before every generation; reused session strategies read it lazily. */
   private activeToolSchemaReserveTokens = 0
+  /**
+   * True from a session rebuild until its first prompt reaches the engine.
+   *
+   * A rebuild no longer clears the context sequence (see `ensureSession`), so in
+   * that window `nextTokenIndex` still counts the *previous* conversation's
+   * tokens. node-llama-cpp only trims them back to the shared prefix when the
+   * next prompt is evaluated. Anything reading the live token count must not
+   * take that stale figure as this conversation's.
+   */
+  private sessionAwaitingFirstPrompt = false
 
   private status: EngineState['status'] = 'unloaded'
   /** What the hardware could support for the loaded model — see `EngineState`. */
@@ -541,8 +556,12 @@ class LlamaService extends EventEmitter {
       generating: this.generating || this.visionJobs > 0,
       parallelJobs: this.modelLock.capacity,
       activeReplies: this.visionJobs + (this.generating ? 1 : 0),
-      contextTokensUsed: this.contextSequence?.nextTokenIndex,
-      contextTokensConversationId: this.activeConversationId
+      contextTokensUsed: this.sessionAwaitingFirstPrompt
+        ? undefined
+        : this.contextSequence?.nextTokenIndex,
+      contextTokensConversationId: this.sessionAwaitingFirstPrompt
+        ? undefined
+        : this.activeConversationId
     }
   }
 
@@ -1065,9 +1084,15 @@ class LlamaService extends EventEmitter {
     // context shift to fail mid-generation. `params.history` — the persisted
     // turns — is the correct source of truth here since this turn's new
     // prompt hasn't been persisted yet.
-    const usageRatio = this.contextSize
-      ? (this.contextSequence?.nextTokenIndex ?? 0) / this.contextSize
-      : 0
+    //
+    // Only an ongoing session can be near the limit. A session just rebuilt
+    // was compacted to fit as it was built, and its sequence still holds the
+    // previous conversation's tokens until this turn trims them, so reading
+    // `nextTokenIndex` here would measure the wrong conversation.
+    const usageRatio =
+      this.contextSize && !this.sessionAwaitingFirstPrompt
+        ? (this.contextSequence?.nextTokenIndex ?? 0) / this.contextSize
+        : 0
     if (usageRatio > COMPACTION_TRIGGER_RATIO) {
       log.info(`Context usage at ${Math.round(usageRatio * 100)}% — compacting before this turn.`)
       session = await this.recompactSession(params, 'proactive', toolSchemaReserveTokens)
@@ -1136,6 +1161,10 @@ class LlamaService extends EventEmitter {
     }
     toolSchemaReserveTokens = contextBudget.toolSchemaTokens
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
+
+    // A new conversation on a hybrid model: leave a checkpoint at the end of
+    // what every conversation shares, so the next one can start from it.
+    if (this.sessionAwaitingFirstPrompt) await this.snapshotSharedPrefix(session, functions)
 
     // Real, measured accounting for this turn is now known — every tool call
     // from here on (they all happen later, inside the prompt/generation loop
@@ -1371,6 +1400,9 @@ class LlamaService extends EventEmitter {
           // `edit_file` without a `path` argument once it stopped seeing the schema.
           documentFunctionParams: functions != null ? true : undefined,
           onResponseChunk: (chunk: LlamaChatResponseChunk) => {
+            // The prompt has been aligned with the sequence by now, so the live
+            // token count is this conversation's again.
+            this.sessionAwaitingFirstPrompt = false
             nativeToolCheckpoint.request?.()
             if (nativeToolCheckpoint.requested) return
             recordGeneratedTokens(chunk.tokens.length)
@@ -1458,7 +1490,9 @@ class LlamaService extends EventEmitter {
         let meta: Awaited<ReturnType<typeof session.promptWithMeta>>
         try {
           meta = await session.promptWithMeta(prompt, promptOptions as never)
+          this.sessionAwaitingFirstPrompt = false
         } catch (error) {
+          this.sessionAwaitingFirstPrompt = false
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
             visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
@@ -2110,11 +2144,30 @@ class LlamaService extends EventEmitter {
     if (!this.context || !this.contextSequence) throw new Error('No model loaded.')
 
     this.disposeSession()
-    try {
-      await this.contextSequence.clearHistory()
-    } catch (error) {
-      log.warn('Failed to clear context sequence history:', error)
+    // The sequence is not cleared here. Every conversation opens with the same
+    // system prompt (and usually the same tool documentation), and node-llama-cpp
+    // keeps whatever prefix of the sequence still matches when the next prompt is
+    // evaluated, erasing the rest before anything is generated. Clearing threw
+    // that prefix away and made every new chat read ~3,000 identical tokens again:
+    // about 30 s before the first word on an integrated GPU, against 1.5–4 s for
+    // a follow-up in the same chat. A hybrid model can only go back to a
+    // checkpoint, so for those `snapshotSharedPrefix` leaves one where the
+    // prefix ends.
+    //
+    // Nothing carries over between conversations this way. Only tokens that are
+    // identical in the new rendering survive, and the model never attends to the
+    // erased ones.
+    //
+    // The one exception is recovery from a failed context shift: the sequence is
+    // then in a state nobody should build on, so it is cleared as before.
+    if (compactionReason === 'reactive') {
+      try {
+        await this.contextSequence.clearHistory()
+      } catch (error) {
+        log.warn('Failed to clear context sequence history:', error)
+      }
     }
+    this.sessionAwaitingFirstPrompt = true
 
     const compacted = await this.compactHistoryForSession(
       systemPrompt,
@@ -2511,6 +2564,74 @@ class LlamaService extends EventEmitter {
   }
 
   /**
+   * Checkpoint a hybrid or recurrent model's sequence at the end of the prompt
+   * every conversation shares — see `prefixSnapshot.ts` for why a transformer
+   * needs nothing here and a hybrid model does.
+   *
+   * The tokens up to each cut have to be read for this turn anyway, so the only
+   * cost is the checkpoint itself (tens of MB of RAM, per node-llama-cpp's own
+   * accounting; it prunes checkpoints past the shared prefix when the next
+   * conversation diverges). Best effort: a failure here costs the reuse, never
+   * the turn, because the prompt that follows aligns the sequence again.
+   */
+  private async snapshotSharedPrefix(
+    session: LlamaChatSession,
+    functions: Record<string, ToolFunction> | undefined
+  ): Promise<void> {
+    const sequence = this.contextSequence
+    const model = this.model
+    if (!sequence?.needsCheckpoints || !model) return
+    try {
+      const canonicalHistory = session.getChatHistory()
+      const initialHistory = canonicalHistory[0]?.type === 'system' ? [canonicalHistory[0]] : []
+      if (initialHistory.length === 0) return
+      const appendUser = this.getModuleSyncAppendUser()
+      const render = (
+        text: string,
+        availableFunctions?: Record<string, ToolFunction>,
+        history: ChatHistoryItem[] = initialHistory
+      ) =>
+        session.chatWrapper
+          .generateContextState({
+            chatHistory: appendModelResponse(appendUserPrompt(history, text, appendUser)),
+            availableFunctions,
+            documentFunctionParams: availableFunctions ? true : undefined
+          })
+          .contextText.tokenize(model.tokenizer)
+
+      const [probe, otherProbe] = PREFIX_PROBE_MESSAGES
+      const system = initialHistory[0]
+      const maskedSystemText =
+        system.type === 'system' && typeof system.text === 'string'
+          ? withEnvironmentClockMasked(system.text)
+          : null
+      const withTools = render(probe, functions)
+      const cuts = prefixSnapshotCuts({
+        withTools,
+        withoutTools: render(probe),
+        withToolsOtherProbe: render(otherProbe, functions),
+        withClockMasked:
+          maskedSystemText === null
+            ? undefined
+            : render(probe, functions, [{ type: 'system', text: maskedSystemText }])
+      })
+      for (const cut of cuts) {
+        const prefix = withTools.slice(0, cut)
+        const alreadyHeld = sequence.compareContextTokens(prefix).firstDifferentIndex >= cut
+        if (alreadyHeld && sequence.getRestoreToPrefixIndexEvaluationSize(cut - 1) === 0) continue
+        // Back to exactly `prefix` — restoring the nearest earlier checkpoint,
+        // or starting over when there is none — then read the rest of it.
+        await sequence.adaptStateToTokens(prefix, false)
+        const remaining = prefix.slice(sequence.nextTokenIndex)
+        if (remaining.length > 0) await sequence.evaluateWithoutGeneratingNewTokens(remaining)
+        await sequence.takeCheckpoint()
+      }
+    } catch (error) {
+      log.warn('Could not checkpoint the shared prompt prefix:', error)
+    }
+  }
+
+  /**
    * `appendUserMessageToChatHistory` is ESM-only like the rest of node-llama-
    * cpp. `measureContextBudget` is synchronous once setup has awaited
    * `getModule()`, so retain the loaded export rather than introducing an
@@ -2828,6 +2949,7 @@ class LlamaService extends EventEmitter {
     this.activeConversationId = undefined
     this.activeEnvironmentDate = null
     this.activeContextEpochId = null
+    this.sessionAwaitingFirstPrompt = false
   }
 
   /**
