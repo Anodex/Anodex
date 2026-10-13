@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { checkCommandCompatibility, describeEmptySearchResult } from '../commandGuidance'
+import {
+  checkCommandCompatibility,
+  checkPrintOnly,
+  describeEmptySearchResult
+} from '../commandGuidance'
 
 describe('checkCommandCompatibility', () => {
   /**
@@ -110,4 +114,40 @@ describe('describeEmptySearchResult', () => {
       expect(describeEmptySearchResult(command, '(no output)', false)).not.toBeNull()
     }
   )
+})
+
+describe('checkPrintOnly', () => {
+  it('refuses printing text the model already has, in every shell', () => {
+    for (const command of [
+      'echo Paris',
+      "echo 'The capital of France is Paris.'",
+      'echo',
+      "printf 'Paris\\n'",
+      "Write-Output 'Paris'",
+      'write-host Paris'
+    ]) {
+      expect(checkPrintOnly(command), command).toContain('Write the answer in your reply')
+    }
+  })
+
+  it('lets the shell work something out', () => {
+    for (const command of [
+      'echo $HOME',
+      'echo %USERPROFILE%',
+      'echo $env:USERNAME',
+      'echo ~',
+      'echo *.txt',
+      'echo {1..3}',
+      'echo $(date)',
+      'echo `whoami`',
+      "echo 'x' > notes.txt",
+      'echo hi | wc -c',
+      'echo done && ls',
+      'Write-Output (Get-Date)',
+      'echoes',
+      'ls'
+    ]) {
+      expect(checkPrintOnly(command), command).toBeNull()
+    }
+  })
 })

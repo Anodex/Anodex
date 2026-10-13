@@ -455,7 +455,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'open_item',
     kind: 'command',
     description:
-      'Open an http(s) address in the browser, or a folder or document from the open project in its usual app. Never opens programs or scripts.'
+      'Open an http(s) address in the browser, a folder in the file manager, or a document in its usual app, from the project or anywhere on this computer. Never opens programs or scripts, and web pages only from the project.'
   },
   {
     name: 'find_my_files',
@@ -467,7 +467,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'send_file_to_me',
     kind: 'web',
     description:
-      "Email a file the search found, or one from the open project, to the person's own linked address. Asks first except in Untethered mode."
+      "Send a file the search found, or one from the open project, to the person's paired phone (saved to its Downloads) or by email to their own address. The phone asks only in Ask mode; email asks except in Untethered mode."
   },
   {
     name: 'notify_me_when_done',

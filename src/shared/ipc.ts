@@ -552,7 +552,15 @@ export const IpcChannel = {
     completeUpload: 'attachments:complete-upload',
     abortUpload: 'attachments:abort-upload',
     /** Delete an accepted upload whose message was never sent. */
-    discardUpload: 'attachments:discard-upload'
+    discardUpload: 'attachments:discard-upload',
+    /**
+     * Files the computer sent to the phone, waiting for it to collect them: the
+     * list, a file a chunk at a time (as email attachments come), and taking one
+     * off the shelf once saved. Phone-only; see `phoneShares.ts`.
+     */
+    listShared: 'attachments:list-shared',
+    sharedChunk: 'attachments:shared-chunk',
+    removeShared: 'attachments:remove-shared'
   },
   Toast: {
     /** Show a themed desktop toast in its own always-on-top window. */

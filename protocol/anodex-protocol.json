@@ -473,6 +473,54 @@
       }
     },
     {
+      "channel": "attachments:list-shared",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "array",
+                  "of": {
+                    "$ref": "PhoneShare"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "channel": "attachments:pick-files",
       "kind": "invoke",
       "api": "attachments.pickFiles",
@@ -643,6 +691,142 @@
                       }
                     }
                   ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:remove-shared",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "id": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "kind": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "channel": "attachments:shared-chunk",
+      "kind": "invoke",
+      "servedBy": "ipcMain.handle",
+      "args": [
+        {
+          "name": "input",
+          "optional": false,
+          "type": {
+            "kind": "object",
+            "properties": {
+              "id": {
+                "optional": false,
+                "type": {
+                  "kind": "string"
+                }
+              },
+              "offset": {
+                "optional": true,
+                "type": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "undefined"
+                    },
+                    {
+                      "kind": "number"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "kind": "union",
+        "of": [
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "error": {
+                "optional": false,
+                "type": {
+                  "$ref": "AnodexError"
+                }
+              }
+            }
+          },
+          {
+            "kind": "object",
+            "properties": {
+              "ok": {
+                "optional": false,
+                "type": {
+                  "kind": "boolean"
+                }
+              },
+              "value": {
+                "optional": false,
+                "type": {
+                  "$ref": "AttachmentChunk"
                 }
               }
             }
@@ -11285,6 +11469,47 @@
                 "kind": "string"
               }
             ]
+          }
+        }
+      }
+    },
+    "AttachmentChunk": {
+      "kind": "object",
+      "properties": {
+        "filename": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "mimeType": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "size": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "offset": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "base64": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "done": {
+          "optional": false,
+          "type": {
+            "kind": "boolean"
           }
         }
       }
@@ -22446,6 +22671,41 @@
       "kind": "object",
       "properties": {}
     },
+    "PhoneShare": {
+      "kind": "object",
+      "properties": {
+        "id": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "name": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "size": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        },
+        "mimeType": {
+          "optional": false,
+          "type": {
+            "kind": "string"
+          }
+        },
+        "sentAt": {
+          "optional": false,
+          "type": {
+            "kind": "number"
+          }
+        }
+      }
+    },
     "Plan": {
       "kind": "object",
       "properties": {
@@ -23786,6 +24046,10 @@
               {
                 "kind": "literal",
                 "value": "reply-ready"
+              },
+              {
+                "kind": "literal",
+                "value": "file-shared"
               }
             ]
           }
@@ -23803,6 +24067,20 @@
           }
         },
         "conversationId": {
+          "optional": true,
+          "type": {
+            "kind": "union",
+            "of": [
+              {
+                "kind": "undefined"
+              },
+              {
+                "kind": "string"
+              }
+            ]
+          }
+        },
+        "fileId": {
           "optional": true,
           "type": {
             "kind": "union",
