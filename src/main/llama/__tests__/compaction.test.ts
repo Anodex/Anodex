@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { allocateContextBudget } from '@shared/contextBudget'
 import { describe, expect, it } from 'vitest'
@@ -327,6 +327,20 @@ describe('renderTurnsForSummary', () => {
   })
 })
 
+/** Every compiled source file of node-llama-cpp's chat evaluator. */
+function chatEvaluatorSources(): string[] {
+  const root = join(process.cwd(), 'node_modules/node-llama-cpp/dist/evaluator/LlamaChat')
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? walk(join(dir, entry.name))
+        : entry.name.endsWith('.js')
+          ? [readFileSync(join(dir, entry.name), 'utf-8')]
+          : []
+    )
+  return walk(root)
+}
+
 describe('NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT', () => {
   it('still matches the actual installed node-llama-cpp crash message', () => {
     // LlamaService.ts detects node-llama-cpp's context-shift crash by
@@ -337,11 +351,17 @@ describe('NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT', () => {
     // update`/version bump that rewords the message fails this test
     // immediately, instead of the reactive compaction safety net silently
     // going dark in production.
-    const source = readFileSync(
-      join(process.cwd(), 'node_modules/node-llama-cpp/dist/evaluator/LlamaChat/LlamaChat.js'),
-      'utf-8'
+    //
+    // Searched across the chat evaluator rather than one file: 3.20 moved the
+    // throw out of LlamaChat.js into utils/compressHistoryToFitContextSize.js
+    // with the wording unchanged. A move is not a rewording, and only a
+    // rewording would stop the match in LlamaService.
+    const thrown = chatEvaluatorSources().some((source) =>
+      new RegExp(
+        `throw new Error\\(\\s*["'\`][^"'\`]*${NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT}`
+      ).test(source)
     )
-    expect(source).toContain(NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT)
+    expect(thrown).toBe(true)
   })
 })
 

@@ -751,7 +751,10 @@ class LlamaService extends EventEmitter {
         )
         try {
           try {
-            this.contextSequence?.dispose()
+            // Awaited since 3.20, when a sequence's dispose began waiting for
+            // work still in flight on it (a checkpoint being written, say).
+            // Fired and forgotten, the context below could be freed under it.
+            await this.contextSequence?.dispose()
             await this.context?.dispose()
           } catch {
             log.warn('Failed to dispose old context during resize')
@@ -1975,7 +1978,7 @@ class LlamaService extends EventEmitter {
   private async ensureSummarySequence(minContextSize: number): Promise<LlamaContextSequence> {
     if (!this.model) throw new Error('No model loaded.')
     if (this.summaryContext && this.summaryContext.contextSize < minContextSize) {
-      this.summarySequence?.dispose()
+      await this.summarySequence?.dispose()
       await this.summaryContext.dispose()
       this.summaryContext = undefined
       this.summarySequence = undefined
