@@ -31,21 +31,11 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
 
 ### Needs fixing
 
-- **Finish the model-engine upgrade (#376).** node-llama-cpp 3.22.1 is tested on
-  the 8B; it still has to be run on Qwen3.8-27B before merging, since that hybrid
-  model is the one whose crash (#369) the upgrade's dispose fix is about. Run a
-  tool reply, the title and suggestion calls after it, stops mid-reply, and a
-  reload.
-- **One context size for every model.** The first launch sizes `model.contextSize`
-  from the hardware for the _recommended_ model, then every model inherits it. A
-  machine recommended a 7B and later given a larger model keeps the small window
-  (on the RX 7900 XTX it is 32,768, so this bites smaller machines). See the
-  engine's own automatic sizing below.
-- **Loading at launch did not hold back beside another GPU job.** A test copy
-  reloaded the 27B (about 18 GB) at launch while voice training held about 10 GB
-  of a 24 GB card. Check that the memory check reads what is free _now_, and that
-  restoring the last model at launch backs off rather than crowding something
-  else on the GPU.
+- **Run the engine upgrade on Qwen3.8-27B itself.** node-llama-cpp 3.22.1 shipped
+  in #376 after the crash pattern behind #369 was run on the hybrid
+  Qwen3.6-14B-A3B (Windows, Iris Xe) without a crash. The 27B is still untested:
+  run a tool reply, the title and suggestion calls, stops and a reload once its
+  GPU is free.
 - **Small models reach for the shell: check the fix on the 8B.** The 8B answered
   "What is the capital of France?" with `echo Paris`, invented a file path to
   `grep`, and, asked to send a file to the phone, proposed
@@ -72,11 +62,15 @@ Not used yet, and each fits something Anodex already does by hand.
   3.21).** Replace our estimates in the fit check (`describeInsufficientMemory`),
   the Settings readout and the context recommendation with what is actually used.
 - **Automatic context sizing in the engine** (`contextSize: { min, max }`). Sizes
-  the window to the memory that is free, up to what the model was trained for. The
-  clean basis for per-model sizing (above).
-- **Quantized KV cache** (`defaultContextKvCacheKeyType` / `ValueType`, e.g.
+  the window to the memory that is free, up to what the model was trained for. A
+  model without a size of its own is now sized from its file on first load
+  (`shouldSizeForModel`); the engine's own sizing could refine that further.
+- **Quantized KV cache** (`experimentalKvCacheKeyType` / `ValueType`, e.g.
   `q8_0`). Roughly halves the conversation cache, so about twice the context on
-  the same card, for a small quality cost. Offer it in Settings → AI & Models.
+  the same card. **Held:** in 3.22.1 the option is still marked experimental and
+  "highly unstable", may crash the process, and node-llama-cpp asks that end users
+  not be able to set it. Offer it in Settings → AI & Models (a "Conversation
+  memory: Full / Compact" row under Context size) once it is stable.
 - **Lazy loading (`lazyMode`, 3.21).** Reads the largest tensors on demand: less
   memory for big models, at the cost of a slower first reply. Try on the 27B and
   on machines short of RAM.

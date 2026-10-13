@@ -77,6 +77,8 @@ interface ModelState {
 interface ModelLoadOverrides {
   contextSize?: number
   gpuLayers?: number | 'auto'
+  /** The launch restore: backs off a busy GPU — see `ModelLoadOptions.restoring`. */
+  restoring?: boolean
 }
 
 /** Local model catalogue plus the live engine state. */
@@ -159,7 +161,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
         path: model.path,
         visionProjectorPath: model.visionProjectorPath,
         contextSize,
-        gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers
+        gpuLayers: overrides?.gpuLayers ?? settings?.model.gpuLayers,
+        ...(overrides?.restoring ? { restoring: true } : {})
       })
 
       if (result.ok) {

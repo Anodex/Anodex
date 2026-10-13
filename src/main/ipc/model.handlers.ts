@@ -19,6 +19,7 @@ import { recallTopModels, rememberTopModels } from '../models/topModelsCache'
 import { modelReliabilityStore } from '../models/ModelReliabilityStore'
 import { settingsStore } from '../settings/SettingsStore'
 import { forgetModelSettings } from './modelSettingsCleanup'
+import { shouldSizeForModel } from './modelContextAutoSize'
 import { sendToWindow } from '../broadcast'
 import { getHardware } from './system.handlers'
 import { computerControlService } from '../computerControl/ComputerControlService'
@@ -117,10 +118,27 @@ export function registerModelHandlers(): void {
       // the desk, rather than silently falling back to the model's own defaults
       // and quietly ignoring a context size chosen for this machine.
       const settings = settingsStore.get()
-      const contextSize =
+      let contextSize =
         options.contextSize ?? resolveModelContextSize(settings, options.path, undefined)
       const gpuLayers = options.gpuLayers ?? settings.model.gpuLayers
       const parallelJobs = options.parallelJobs ?? settings.model.parallelJobs
+
+      // A model that never had a size of its own is sized to the memory free
+      // now rather than inheriting the first launch's number — see
+      // `shouldSizeForModel` and `largestFittingContextSize`.
+      const sizedForModel =
+        shouldSizeForModel({
+          settings,
+          modelPath: options.path,
+          requestedContextSize: options.contextSize,
+          hasVisionProjector: Boolean(info.visionProjectorPath)
+        }) && (await llamaService.contextSizeForLoad(info))
+      if (sizedForModel) {
+        log.info(`Sizing ${info.name} to the memory free now: ${sizedForModel} tokens`, {
+          wouldHaveBeen: contextSize
+        })
+        contextSize = sizedForModel
+      }
 
       const state = await llamaService.loadModel(
         {

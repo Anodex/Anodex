@@ -461,7 +461,9 @@ async function restoreLastModel(): Promise<void> {
     return
   }
 
-  await useModelStore.getState().loadModel(model)
+  // Marked as a restore: if another program holds the GPU memory this model
+  // needs right now, it waits for the person rather than crowding that program.
+  await useModelStore.getState().loadModel(model, { restoring: true })
 }
 
 async function autoConfigureFromHardware(): Promise<void> {
