@@ -727,14 +727,14 @@ removed: <https://github.com/Anodex/Anodex/issues>, or the private channel in
 
 ## npm packages
 
-319 packages ship inside the application. The list is every package
+320 packages ship inside the application. The list is every package
 reachable from Anodex’s production dependencies, plus the dev dependencies whose code
 Vite bundles into the renderer (they are dev dependencies only in the sense that nothing
 resolves them at runtime — their code is in the product).
 
 | Licence | Packages |
 | ------- | -------- |
-| MIT | 262 |
+| MIT | 263 |
 | ISC | 27 |
 | BSD-3-Clause | 8 |
 | BlueOak-1.0.0 | 6 |
@@ -2442,7 +2442,7 @@ SOFTWARE.
 
 Applies to:
 
-- `@huggingface/jinja@0.5.9`
+- `@huggingface/jinja@0.5.10`
 
 ```text
 MIT License
@@ -2621,11 +2621,11 @@ THE SOFTWARE.
 
 Applies to:
 
-- `@node-llama-cpp/win-arm64@3.19.0`
-- `@node-llama-cpp/win-x64-cuda-ext@3.19.0`
-- `@node-llama-cpp/win-x64-cuda@3.19.0`
-- `@node-llama-cpp/win-x64-vulkan@3.19.0`
-- `@node-llama-cpp/win-x64@3.19.0`
+- `@node-llama-cpp/win-arm64@3.22.1`
+- `@node-llama-cpp/win-x64-cuda-ext@3.22.1`
+- `@node-llama-cpp/win-x64-cuda@3.22.1`
+- `@node-llama-cpp/win-x64-vulkan@3.22.1`
+- `@node-llama-cpp/win-x64@3.22.1`
 
 ```text
 MIT License
@@ -4433,6 +4433,7 @@ OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHE
 Applies to:
 
 - `fs-extra@11.3.6`
+- `fs-extra@11.4.1`
 
 ```text
 (The MIT License)
@@ -5246,8 +5247,8 @@ THE SOFTWARE.
 Applies to:
 
 - `lifecycle-utils@2.1.0`
-- `lifecycle-utils@3.1.1`
-- `node-llama-cpp@3.19.0`
+- `lifecycle-utils@4.5.2`
+- `node-llama-cpp@3.22.1`
 
 ```text
 MIT License
@@ -5712,7 +5713,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to:
 
-- `node-addon-api@8.9.0`
+- `node-addon-api@8.9.2`
 
 ```text
 The MIT License (MIT)

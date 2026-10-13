@@ -63,7 +63,7 @@
     "imapflow": "^2.1.2",
     "immer": "^10.1.1",
     "mailparser": "^3.9.32",
-    "node-llama-cpp": "^3.4.0",
+    "node-llama-cpp": "^3.22.1",
     "nodemailer": "^10.0.13",
     "openai": "^6.46.0",
     "pdfjs-dist": "^4.10.38",
