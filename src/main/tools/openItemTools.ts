@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { homedir } from 'node:os'
+import { extname, isAbsolute, relative as relativePath, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { ToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
@@ -45,6 +46,46 @@ export const OPENABLE_EXTENSIONS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Documents a browser would run as a page. Opened from the project they are the
+ * person's own work (a game, a report); from anywhere else on the computer they
+ * could be anything that was downloaded, so they stay inside the project.
+ */
+const RUNS_IN_A_BROWSER: ReadonlySet<string> = new Set(['.html', '.htm', '.svg'])
+
+/**
+ * Where a target points, and whether that is inside the open project.
+ *
+ * "Open my Downloads folder" used to need Downloads added as a project first,
+ * which is ceremony for showing a folder. A full path or a `~` path now opens
+ * from anywhere on this computer, and so does a plain name when no project is
+ * open, counted from the home folder. A relative path with a project open still
+ * means the project, and may not climb out of it.
+ */
+export function resolveOpenTarget(
+  target: string,
+  workspaceRoot: string | null
+): { path: string; inProject: boolean } {
+  const expanded = target.replace(/^~(?=$|[\\/])/, homedir())
+  if (isAbsolute(expanded)) {
+    const path = resolve(expanded)
+    const inside =
+      workspaceRoot !== null &&
+      (path === resolve(workspaceRoot) || path.startsWith(resolve(workspaceRoot) + sep))
+    return { path, inProject: inside }
+  }
+  if (workspaceRoot) return { path: resolveInWorkspace(workspaceRoot, expanded), inProject: true }
+  return { path: resolve(homedir(), expanded), inProject: false }
+}
+
+/** A path as a person reads it: inside the home folder, from `~`. */
+function readablePath(path: string): string {
+  const fromHome = relativePath(homedir(), path)
+  return fromHome && !fromHome.startsWith('..') && !isAbsolute(fromHome)
+    ? `~${sep}${fromHome}`
+    : path
+}
+
+/**
  * open_item — open a web address in the browser, a folder in the file
  * manager, or a document from the project in its usual app.
  *
@@ -57,13 +98,14 @@ export const OPENABLE_EXTENSIONS: ReadonlySet<string> = new Set([
 export const openItemTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Open something for the person: an http(s) address in their browser (such as a local dev server), a folder from the open project in their file manager, or a document from the project (PDF, image, text, office file) in its usual app. Never opens programs or scripts.',
+      'Open something for the person: an http(s) address in their browser (such as a local dev server), a folder in their file manager, or a document (PDF, image, text, office file) in its usual app. Folders and documents can be anywhere on this computer: a project-relative path, a full path, or a ~ path such as ~/Downloads. Never opens programs or scripts.',
     params: {
       type: 'object',
       properties: {
         target: {
           type: 'string',
-          description: 'An http(s) address, or a project-relative path to a folder or document.'
+          description:
+            'An http(s) address, or a path to a folder or document: project-relative, full, or starting with ~.'
         }
       },
       required: ['target']
@@ -102,23 +144,27 @@ export const openItemTool: ToolFactory = (define, ctx) =>
         })
       }
 
-      if (!ctx.workspaceRoot) {
-        return refuse(
-          'Files and folders can only be opened from an open project. Ask for the folder with request_folder_access first.'
-        )
-      }
       let path: string
+      let inProject: boolean
       try {
-        path = resolveInWorkspace(ctx.workspaceRoot, target)
+        ;({ path, inProject } = resolveOpenTarget(target, ctx.workspaceRoot))
       } catch (error) {
         return refuse(error instanceof Error ? error.message : String(error))
       }
-      const relative = toWorkspaceRelative(ctx.workspaceRoot, path)
+      const relative =
+        inProject && ctx.workspaceRoot
+          ? toWorkspaceRelative(ctx.workspaceRoot, path)
+          : readablePath(path)
       let isFolder: boolean
       try {
         isFolder = (await stat(path)).isDirectory()
       } catch {
         return refuse(`${relative} does not exist.`)
+      }
+      if (!isFolder && !inProject && RUNS_IN_A_BROWSER.has(extname(path).toLowerCase())) {
+        return refuse(
+          `Anodex opens web pages and SVGs only from the open project, since a browser runs them. ${relative} is outside it.`
+        )
       }
       if (!isFolder && !OPENABLE_EXTENSIONS.has(extname(path).toLowerCase())) {
         return refuse(
