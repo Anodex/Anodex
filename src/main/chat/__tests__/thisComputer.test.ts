@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { composeSystemPrompt, NO_PROJECT_SHELL_NOTE, NO_WORKSPACE_NOTE } from '@shared/prompts'
-import { describeComputer, type ComputerFacts } from '../thisComputer'
+import {
+  composeCacheablePrompt,
+  composeSystemPrompt,
+  NO_PROJECT_SHELL_NOTE,
+  NO_WORKSPACE_NOTE
+} from '@shared/prompts'
+import { describeComputer, mayConcernThisComputer, type ComputerFacts } from '../thisComputer'
 
 const folders = {
   home: '/home/sam',
@@ -192,5 +197,91 @@ describe('the This computer prompt section', () => {
     expect(prompt).toContain('# This computer')
     expect(prompt).not.toContain('run_command runs')
     expect(prompt).toContain(NO_WORKSPACE_NOTE)
+  })
+})
+
+/**
+ * Measured on Windows with Llama 3.1 8B: with the example commands in every
+ * chat turn, each plain question became one of them. "Name one fruit." searched
+ * the home folder for '*apple*', and "And the capital of Germany?" ran the
+ * install check word for word.
+ */
+describe('example commands go only with a message about the computer', () => {
+  const windows = describeComputer(
+    facts({ platform: 'win32', release: '10.0.26200' }),
+    shell('powershell')
+  )
+  const chat = {
+    hasWorkspaceTools: false,
+    hasProject: false,
+    surface: 'chat' as const,
+    computer: windows,
+    timeZone: 'UTC',
+    now: new Date('2026-10-13T18:00:00Z')
+  }
+  const findLine = "Get-ChildItem $HOME -Recurse -Filter '*<part of the name>*'"
+
+  it('finds nothing to do on the computer in a plain question', () => {
+    for (const question of [
+      'Name one fruit.',
+      'Name a planet.',
+      'How many legs does a spider have?',
+      'What is the capital of France?',
+      'And the capital of Germany?',
+      'What is 12 times 7?',
+      'Give me a word that means happy.',
+      'Write a haiku about autumn.'
+    ]) {
+      expect(mayConcernThisComputer([question]), question).toBe(false)
+    }
+  })
+
+  it('finds the everyday requests the examples are for', () => {
+    for (const request of [
+      'Is Python installed?',
+      'Open my Downloads folder.',
+      'Copy the word banana to my clipboard.',
+      'How much free space is left on my drive?',
+      "What's using all my memory?",
+      'Zip up the holiday photos.',
+      'Rename report.docx to final.docx',
+      'Find the budget spreadsheet on my laptop.',
+      'Is there anything in C:\\Temp?',
+      'Make this picture smaller.'
+    ]) {
+      expect(mayConcernThisComputer([request]), request).toBe(true)
+    }
+  })
+
+  it('counts the message before, so a go-ahead keeps them', () => {
+    expect(mayConcernThisComputer(['Yes, do that.', 'Zip up my Pictures folder.'])).toBe(true)
+  })
+
+  it('sends them with a message about the computer, not in the system prompt', () => {
+    const { system, turnContext } = composeCacheablePrompt({ ...chat, commandExamples: true })
+    expect(system).toContain('run_command runs Windows PowerShell')
+    expect(system).not.toContain(findLine)
+    expect(turnContext).toContain('# Commands for Windows PowerShell')
+    expect(turnContext).toContain(findLine)
+  })
+
+  it('leaves them out of a plain question entirely, keeping the shell and its rules', () => {
+    const { system, turnContext } = composeCacheablePrompt({ ...chat, commandExamples: false })
+    expect(`${system}\n${turnContext}`).not.toContain(findLine)
+    expect(`${system}\n${turnContext}`).not.toContain('Get-Command python')
+    expect(system).toContain('run_command runs Windows PowerShell')
+    expect(system).toContain('never printed with echo')
+  })
+
+  it('keeps the system prompt the same whichever way the message goes', () => {
+    expect(composeCacheablePrompt({ ...chat, commandExamples: true }).system).toBe(
+      composeCacheablePrompt({ ...chat, commandExamples: false }).system
+    )
+  })
+
+  it('leaves a turn that does not route them exactly as before', () => {
+    expect(composeCacheablePrompt(chat).system).toContain(findLine)
+    expect(composeSystemPrompt(chat)).toContain(findLine)
+    expect(composeSystemPrompt({ ...chat, commandExamples: false })).not.toContain(findLine)
   })
 })

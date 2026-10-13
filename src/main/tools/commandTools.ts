@@ -47,8 +47,14 @@ interface ShellResult {
 /** run_command — execute a shell command in the workspace (requires approval). */
 export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
   define({
+    // Says what it is for and nothing about what it is not for. It used to end
+    // "Not for … a fact, a sum or some writing: answer that directly", and an
+    // 8B asked the capital of France ran a search anyway, titled "Find the
+    // capital of France, which is a fact, not something on this computer:
+    // answer that directly" — the exclusion read as one more use. The chat
+    // prompt carries where the line is.
     description:
-      'Run a shell command on this computer and return its output. It starts in the open project, or in the home folder in a plain chat, and is not confined to either. Write it for the system and shell named in "This computer". Use it for builds, tests and git, and for everyday tasks: finding files, opening things, disk space, installing programs, the clipboard. Not for answering a question that needs nothing from this computer, such as a fact, a sum or some writing: answer that directly.',
+      'Run a shell command on this computer and return its output. It starts in the open project, or in the home folder in a plain chat, and is not confined to either. Write it for the system and shell named in "This computer". For builds, tests and git, and for everyday tasks the person asks for on this computer: finding files, opening things, disk space, installing programs, the clipboard.',
     params: {
       type: 'object',
       properties: {

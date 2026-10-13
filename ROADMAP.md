@@ -44,6 +44,14 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   the purpose-built tools ahead of the shell and says never to guess a path, and
   the Trash hint says it is only for removing something. Unit-tested; still to
   re-run those three asks on the 8B once the GPU is free.
+  Plain questions re-run on Windows (Iris Xe laptop, 16K, chat autorun): seven
+  questions such as "Name one fruit." went from seven `run_command` calls to
+  none in both complete runs (a third was closed after two clean turns). The tool descriptions no longer name what a plain answer is ("Not
+  for … a fact", "Check facts about this computer" each drew the questions),
+  and the example commands come only with a message that may be about the
+  computer. Still fragile: one wording change elsewhere in the prompt brought
+  back four `echo` answers, which #382's guard catches. The invented path and
+  the send-to-phone ask are still to re-run.
 
 ### Phone and platforms
 
