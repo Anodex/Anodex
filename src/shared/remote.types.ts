@@ -26,6 +26,11 @@ export type RemoteNotificationKind =
    * announced `reply-ready.1`; see `replyReady.ts`.
    */
   | 'reply-ready'
+  /**
+   * A file was sent to the phone and is waiting for it (`fileId`). Only sent to a
+   * phone that announced `files.1`; see `phoneShares.ts`.
+   */
+  | 'file-shared'
 
 export interface RemoteNotification {
   kind: RemoteNotificationKind
@@ -34,6 +39,8 @@ export interface RemoteNotification {
   body: string
   /** Tapping the notification opens this conversation. */
   conversationId?: string
+  /** For `file-shared`: the file to collect, by its id on the computer's shelf. */
+  fileId?: string
   atEpochMs: number
 }
 

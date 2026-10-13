@@ -467,7 +467,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'send_file_to_me',
     kind: 'web',
     description:
-      "Email a file the search found, or one from the open project, to the person's own linked address. Asks first except in Untethered mode."
+      "Send a file the search found, or one from the open project, to the person's paired phone (saved to its Downloads) or by email to their own address. The phone asks only in Ask mode; email asks except in Untethered mode."
   },
   {
     name: 'notify_me_when_done',

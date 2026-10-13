@@ -8,6 +8,7 @@ import {
   type OpenDialogOptions
 } from 'electron'
 import { IpcChannel } from '@shared/ipc'
+import { phoneShares } from '../files/phoneShares'
 import {
   abortUpload,
   acceptChunk,
@@ -237,6 +238,26 @@ function registerUploadHandlers(): void {
 
   ipcMain.handle(IpcChannel.Attachments.discardUpload, async (_event, path: string) => {
     await discardUpload(String(path ?? ''))
+    return ok(null)
+  })
+
+  // Files sent to the phone, collected by it: see `phoneShares.ts`.
+  ipcMain.handle(IpcChannel.Attachments.listShared, async () => ok((await phoneShares()).list()))
+
+  ipcMain.handle(
+    IpcChannel.Attachments.sharedChunk,
+    async (_event, input: { id: string; offset?: number }) => {
+      const chunk = await (
+        await phoneShares()
+      ).chunk(String(input?.id ?? ''), Number(input?.offset ?? 0))
+      return chunk
+        ? ok(chunk)
+        : err('attachments.share-gone', 'That file is no longer waiting on the computer.')
+    }
+  )
+
+  ipcMain.handle(IpcChannel.Attachments.removeShared, async (_event, input: { id: string }) => {
+    ;(await phoneShares()).remove(String(input?.id ?? ''))
     return ok(null)
   })
 }

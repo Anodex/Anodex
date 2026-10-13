@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, extname, join } from 'node:path'
+import { basename, join } from 'node:path'
 import { app } from 'electron'
 import { formatBytes } from '@shared/format'
 import type { ToolFactory } from './types'
@@ -10,6 +10,8 @@ import { resolveInWorkspace } from './workspace'
 import { searchPersonalFiles } from '../files/personalFiles'
 import { settingsStore } from '../settings/SettingsStore'
 import { emailService } from '../email/EmailService'
+import { MAX_SHARE_BYTES, mimeTypeFor, phoneShares } from '../files/phoneShares'
+import { notifyFileShared } from '../remote/fileShared'
 
 /** Bigger than this does not go by email: most providers refuse around 25MB. */
 const MAX_EMAIL_BYTES = 20 * 1024 * 1024
@@ -120,32 +122,21 @@ export const findMyFilesTool: ToolFactory = (define, ctx) =>
       })
   })
 
-const MIME_TYPES: Record<string, string> = {
-  '.pdf': 'application/pdf',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.txt': 'text/plain',
-  '.md': 'text/markdown',
-  '.csv': 'text/csv',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg'
-}
-
 /**
- * send_file_to_me — email a file to the person's own address.
+ * send_file_to_me — get a file to the person away from their computer.
  *
- * The way to get a document to someone away from their computer: it lands in
- * their inbox, which the phone's email screen can open and save. Only to the
- * person's own linked address, from that same account, and only a file
- * find_my_files found in this chat or one inside the open project. Asks in Ask
- * and Edits mode, goes ahead in Untethered.
+ * To their paired phone when there is one: the file waits on this computer's
+ * shelf (`phoneShares.ts`) and the phone is told, then saves it to its
+ * Downloads. Otherwise by email to their own linked address. Email used to be
+ * the only way, and it is not set up by default, so for most people "send it to
+ * my phone" did nothing. Only a file find_my_files found in this chat or one
+ * inside the open project. The phone is the person's own device, so that way
+ * asks only in Ask mode; email asks in Ask and Edits mode.
  */
 export const sendFileToMeTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      "Email a file to the person's own address, so they can open it away from the computer (the phone's email screen can download it). Only files found with find_my_files in this chat, or files in the open project.",
+      "Send a file to the person so they can open it away from the computer: to their paired phone (it saves to the phone's Downloads) or by email to their own address. Defaults to the phone when one is paired. Only files found with find_my_files in this chat, or files in the open project.",
     params: {
       type: 'object',
       properties: {
@@ -153,11 +144,16 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
           type: 'string',
           description: 'The file, exactly as find_my_files listed it, or a project path.'
         },
-        note: { type: 'string', description: 'Optional one line to put in the email.' }
+        note: { type: 'string', description: 'Optional one line to put in the email.' },
+        to: {
+          type: 'string',
+          enum: ['phone', 'email'],
+          description: 'Where to send it. Leave out to use the phone when one is paired.'
+        }
       },
       required: ['path']
     } as const,
-    handler: async (args: { path: string; note?: string }) => {
+    handler: async (args: { path: string; note?: string; to?: 'phone' | 'email' }) => {
       const refuse = (reason: string): Promise<string> =>
         runReadTool(ctx, {
           name: 'send_file_to_me',
@@ -184,9 +180,20 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
       }
       const { accounts, primaryAccountId } = settingsStore.get().email
       const account = accounts.find((a) => a.id === primaryAccountId) ?? accounts[0]
-      if (!account) {
+      // Read when needed: the remote service is built around Electron's app paths.
+      const { remoteService } = await import('../remote/RemoteService')
+      const phonePaired = remoteService.status().pairedDevices.length > 0
+      const toPhone = args.to === 'phone' || (args.to !== 'email' && (phonePaired || !account))
+      if (toPhone && !phonePaired) {
         return refuse(
-          'No email account is linked, so the file cannot be emailed. Link one in Settings → Email.'
+          account
+            ? 'No phone is paired. Send it by email instead (to: "email"), or pair the phone in Settings → Remote.'
+            : 'No phone is paired and no email account is linked. Pair the phone in Settings → Remote, or link an email account in Settings → Email.'
+        )
+      }
+      if (!toPhone && !account) {
+        return refuse(
+          'No email account is linked, so the file cannot be emailed. Send it to the phone instead, or link an account in Settings → Email.'
         )
       }
       let size: number
@@ -197,12 +204,39 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
       } catch {
         return refuse(`${shortPath(path)} no longer exists.`)
       }
+      const name = basename(path)
+      if (toPhone) {
+        if (size > MAX_SHARE_BYTES) {
+          return refuse(
+            `${name} is ${formatBytes(size)}, too big to send to the phone (the limit is ${formatBytes(MAX_SHARE_BYTES)}).`
+          )
+        }
+        return runGuardedTool(ctx, {
+          name: 'send_file_to_me',
+          kind: 'command',
+          title: `Send ${name} to your phone`,
+          args,
+          confirmDetail: `Send ${name} (${formatBytes(size)}) to your paired phone`,
+          risk: 'safe',
+          async run() {
+            const share = await (await phoneShares()).add(path)
+            const told = notifyFileShared(share)
+            return {
+              modelResult:
+                told > 0
+                  ? `Sent ${name} (${formatBytes(size)}) to their phone. It shows as a notification, and saves to the phone's Downloads from there or from the Anodex app.`
+                  : `${name} is waiting for their phone, which is not connected right now. It appears in the Anodex app the next time the phone connects (phone app 0.90 or later), for up to a week.`,
+              detail: told > 0 ? 'sent to your phone' : 'waiting for your phone'
+            }
+          }
+        })
+      }
+      if (!account) return refuse('No email account is linked.')
       if (size > MAX_EMAIL_BYTES) {
         return refuse(
           `${basename(path)} is ${formatBytes(size)}, too big to email (the limit is ${formatBytes(MAX_EMAIL_BYTES)}).`
         )
       }
-      const name = basename(path)
       return runGuardedTool(ctx, {
         name: 'send_file_to_me',
         kind: 'web',
@@ -220,7 +254,7 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
             attachments: [
               {
                 filename: name,
-                mimeType: MIME_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream',
+                mimeType: mimeTypeFor(name),
                 contentBase64: data.toString('base64')
               }
             ]
