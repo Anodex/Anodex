@@ -30,6 +30,11 @@ const MIN_PHRASE_LENGTH = 4
 const MIN_SCORE = 2
 
 export interface SearchTranscriptsOptions {
+  /**
+   * Leave out replies that said they could not do something. For recall into a
+   * new chat, not for search: see {@link saidItCouldNot}.
+   */
+  skipCouldNotReplies?: boolean
   /** Excluded from results — never recall the conversation currently being generated. */
   excludeConversationId?: string
   maxResults?: number
@@ -62,6 +67,7 @@ export function searchTranscripts(
 
     const scoredMessages = conversation.messages
       .filter(isIndexable)
+      .filter((message) => !options.skipCouldNotReplies || !saidItCouldNot(message))
       .map((message) => ({
         message,
         score: scoreText(message.content, queryWords, queryPhrase)
@@ -245,6 +251,25 @@ function contentWords(words: Set<string>): Set<string> {
   }
   return kept
 }
+
+/**
+ * A reply whose answer was that it could not: "I can't set that up directly",
+ * "I don't have a tool for that", "I'm unable to…".
+ *
+ * Recalled into a new chat, these teach the model its own old limitation. One
+ * chat on an 8K window said it had no tool to set up web search; at 32K, with
+ * the tool in view, the next two chats recalled that answer and repeated it word
+ * for word. What a model could not do last week is the least reliable thing a
+ * past chat holds, since tools, models and windows all change. Only the opening
+ * is read, where a reply says what it is going to do.
+ */
+export function saidItCouldNot(message: Pick<ChatMessage, 'role' | 'content'>): boolean {
+  if (message.role !== 'assistant') return false
+  return COULD_NOT.test(message.content.slice(0, 400))
+}
+
+const COULD_NOT =
+  /\bI(?:['’]m (?:unable|not able) to|\s+(?:can['’]?t|cannot|can not|am unable to|am not able to|don['’]?t have (?:a|any|the) (?:tool|way|ability|access)|have no (?:tool|way)))\b/i
 
 /** User/assistant prose only — excludes system messages, tool payloads (a separate field), and attachments. */
 function isIndexable(message: ChatMessage): boolean {
