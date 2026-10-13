@@ -94,6 +94,10 @@ const PHONE_ONLY = new Set([
   'Attachments.completeUpload',
   'Attachments.abortUpload',
   'Attachments.discardUpload',
+  // The other direction: files the computer sent to the phone, collected by it.
+  'Attachments.listShared',
+  'Attachments.sharedChunk',
+  'Attachments.removeShared',
   // The renderer imports `parseWhen` directly; it has no reason to ask the main
   // process to run a pure function it already has. This exists because the phone
   // is Kotlin and cannot, and a second parser over there would drift from this one

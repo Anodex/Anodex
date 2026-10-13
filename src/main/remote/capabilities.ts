@@ -1,3 +1,4 @@
+import { FILES_CAPABILITY } from '../files/phoneShares'
 /**
  * What each end of the bridge can do, beyond what the protocol version guarantees.
  *
@@ -54,7 +55,8 @@ const MAX_CAPABILITY_LENGTH = 64
  * that connects, not to the next phone that connects after a restart.
  */
 export function desktopCapabilities(): readonly string[] {
-  const announced: string[] = []
+  // Files sent to the phone wait on this computer's shelf for it to collect.
+  const announced: string[] = [FILES_CAPABILITY]
   return announced
 }
 
