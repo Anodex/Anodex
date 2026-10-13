@@ -111,7 +111,7 @@ describe('everyday hints', () => {
     describeComputer(facts({ installed }), shell('/bin/bash')).shell?.howTo.join('\n') ?? ''
 
   it('keep ~ outside quotes, and search by part of a name', () => {
-    expect(linux(() => true)).toContain("find ~ -iname '*budget*'")
+    expect(linux(() => true)).toContain("find ~ -iname '*<part of the name>*'")
     expect(linux(() => true)).not.toMatch(/'~/)
   })
 
