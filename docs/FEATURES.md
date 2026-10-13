@@ -90,8 +90,9 @@ Why it is good:
   Llama 3.1 8B, and from about 36 s to 18 s on the hybrid Qwen3.6-14B-A3B, which
   can only resume from a saved snapshot.
 - Stop works while a local model is still reading a new chat's prompt, and quitting
-  then exits cleanly. The prompt is read in short pieces with a check for Stop
-  between them: on that laptop Stop now lands in 2–3 s instead of 30–40 s.
+  then exits cleanly, including right after a reply while its title and follow-up
+  suggestion are being written. Prompts are read in short pieces with a check for
+  Stop between them: on that laptop Stop now lands in 2–3 s instead of 30–40 s.
 - Reasoning or "thought" output from compatible local models is displayed separately
   from the final assistant response.
 - Mixed visible-text, reasoning, and tool events keep their provider arrival order.
@@ -129,6 +130,13 @@ Key capabilities:
 - View installed models and load, unload, or refresh them.
 - Detect local hardware and recommend safer settings.
 - Apply recommended context, GPU, and token settings.
+- Size each model for itself: a model you haven't chosen a size for loads at the
+  largest context that fits the memory free at that moment, up to 32,768 tokens,
+  instead of whatever size another model was given. A size you choose for a model
+  is always kept.
+- At launch, wait rather than crowd: if another program is using the graphics
+  memory the last model needs, Anodex doesn't reload it and says so in AI & Models,
+  where it loads with one click when the card is free.
 - Track per-model reliability from structured tool success and error outcomes.
 - Show compatibility and performance-oriented model panels in settings.
 

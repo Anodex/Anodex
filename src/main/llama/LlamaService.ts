@@ -179,7 +179,7 @@ const MAX_FALLBACK_ROUNDS = 8
 const NATIVE_TOOL_CHECKPOINT_RATIO = 0.72
 
 /**
- * Room an opening prompt must leave for `readOpeningPrompt` to read it ahead.
+ * Room a prompt must leave for `readPromptAhead` to read it ahead.
  * node-llama-cpp keeps a first prompt as rendered only while it fits with a
  * token to spare, and compresses it otherwise, so reading a prompt this close
  * to the limit could read text the round will not use.
@@ -475,6 +475,12 @@ class LlamaService extends EventEmitter {
    * take that stale figure as this conversation's.
    */
   private sessionAwaitingFirstPrompt = false
+  /**
+   * Aborted by `unload` before it waits for the model, so a title, suggestion,
+   * toast or compaction summary in progress lets go promptly — see
+   * `readPromptAhead`. Replaced with a fresh one each time.
+   */
+  private sideWork = new AbortController()
 
   private status: EngineState['status'] = 'unloaded'
   /** What the hardware could support for the loaded model — see `EngineState`. */
@@ -684,7 +690,17 @@ class LlamaService extends EventEmitter {
       this.currentModel && this.status === 'ready'
         ? this.currentModel.sizeBytes + (this.currentModel.visionProjectorSizeBytes ?? 0)
         : 0
-    const memoryIssue = await describeInsufficientMemory(info, requestedSize, nlc, reclaimableBytes)
+    const memoryIssue =
+      (await describeInsufficientMemory(info, requestedSize, nlc, reclaimableBytes)) ??
+      (options.restoring
+        ? await describeBusyGpu(
+            info,
+            requestedSize,
+            options.gpuLayers,
+            nlc,
+            await (await this.getLlamaBackend()).getVramState().catch(() => null)
+          )
+        : null)
     if (memoryIssue) {
       log.warn('Refusing to load model:', memoryIssue)
       // Recorded WITHOUT touching status/model/error. This runs before
@@ -837,11 +853,22 @@ class LlamaService extends EventEmitter {
    * context a running decode may still be using.
    */
   async unload(): Promise<EngineState> {
-    const release = await this.modelLock.acquireExclusive()
+    // A side prompt holding the model gives it up now; nothing it was writing
+    // is worth keeping a model that is going away, or holding up a quit. The
+    // signal stays aborted until the unload is done, so a title or suggestion
+    // queued for the model ahead of it gives up the moment it gets its turn
+    // instead of running first: replaced straight away, a queued title ran
+    // for 4 s and a second one took the model after it, past the quit's wait.
+    this.sideWork.abort()
     try {
-      return await this.unloadInternal()
+      const release = await this.modelLock.acquireExclusive()
+      try {
+        return await this.unloadInternal()
+      } finally {
+        release()
+      }
     } finally {
-      release()
+      this.sideWork = new AbortController()
     }
   }
 
@@ -1325,7 +1352,14 @@ class LlamaService extends EventEmitter {
       // in pieces it can be stopped between, rather than inside the first
       // round where nothing can stop it.
       if (this.sessionAwaitingFirstPrompt) {
-        await this.readOpeningPrompt(session, prompt, functions, genController.signal)
+        await this.readPromptAhead({
+          session,
+          sequence: this.contextSequence,
+          prompt,
+          functions,
+          signal: genController.signal,
+          snapshots: true
+        })
       }
       const grammar =
         params.options?.jsonSchema && functions == null && this.llama
@@ -2085,10 +2119,25 @@ class LlamaService extends EventEmitter {
         chatWrapper: new nlc.QwenChatWrapper({ thoughts: 'discourage' })
       })
     }
+    // Unloading (and so quitting) aborts this, so a side prompt lets go of the
+    // model within one piece of reading rather than holding the unload past the
+    // shutdown's wait.
+    const signal = this.sideWork.signal
     try {
+      signal.throwIfAborted()
+      await this.readPromptAhead({
+        session,
+        sequence,
+        prompt,
+        functions: undefined,
+        signal,
+        snapshots: false
+      })
+      signal.throwIfAborted()
       let responseText = ''
       let segmentText = ''
       const meta = await session.promptWithMeta(prompt, {
+        signal,
         maxTokens: options.maxTokens,
         temperature: options.temperature,
         // Closes a thought segment the instant it opens, so the token
@@ -2580,8 +2629,10 @@ class LlamaService extends EventEmitter {
   }
 
   /**
-   * Read a new conversation's opening prompt into the sequence before its first
-   * round, a piece at a time, so Stop (and quitting) can land in between.
+   * Read a prompt into `sequence` before the round that answers it, a piece at
+   * a time, so Stop (and quitting) can land in between. Used for a new
+   * conversation's opening prompt and for every side prompt (title, follow-up
+   * suggestion, toast, compaction summary).
    *
    * node-llama-cpp checks the abort signal only once it starts generating, so a
    * prompt it reads itself cannot be interrupted. On an integrated GPU a cold
@@ -2590,25 +2641,40 @@ class LlamaService extends EventEmitter {
    * crashed (`0xc0000409` on Windows, SIGABRT elsewhere). Read here in
    * `READ_PIECE_TOKENS` pieces instead, a stop lands within one piece.
    *
+   * The side prompts needed this as much as the reply did. They run right after
+   * every reply, reading 1,000–4,000 tokens, so quitting just after a reply
+   * still outlasted the shutdown's wait and crashed: measured twice on Windows
+   * with Llama 3.1 8B and Qwen3.6-14B-A3B, 5 s after the reply settled.
+   *
    * The prompt is rendered exactly as node-llama-cpp renders a session's first
    * prompt, so the round that follows finds it already read and evaluates only
-   * the final token, which it always decodes itself. On a hybrid or recurrent
-   * model each piece boundary at a `prefixSnapshot.ts` cut leaves a checkpoint
-   * there, so the next conversation can start from the shared part.
+   * the final token, which it always decodes itself. With `snapshots`, on a
+   * hybrid or recurrent model each piece boundary at a `prefixSnapshot.ts` cut
+   * leaves a checkpoint there, so the next conversation can start from the
+   * shared part.
    *
    * Best effort. A prompt too long to fit is left to node-llama-cpp's own
    * compression, and any failure costs only the head start: the round aligns
    * the sequence with its own rendering either way.
    */
-  private async readOpeningPrompt(
-    session: LlamaChatSession,
-    prompt: string,
-    functions: Record<string, ToolFunction> | undefined,
+  private async readPromptAhead({
+    session,
+    sequence,
+    prompt,
+    functions,
+    signal,
+    snapshots
+  }: {
+    session: LlamaChatSession
+    sequence: LlamaContextSequence | undefined
+    prompt: string
+    functions: Record<string, ToolFunction> | undefined
     signal: AbortSignal
-  ): Promise<void> {
-    const sequence = this.contextSequence
+    snapshots: boolean
+  }): Promise<void> {
     const model = this.model
-    if (!sequence || !model || !this.contextSize) return
+    if (!sequence || !model) return
+    const contextSize = sequence.context.contextSize
     try {
       const appendUser = this.getModuleSyncAppendUser()
       const render = (
@@ -2629,13 +2695,14 @@ class LlamaService extends EventEmitter {
       )
       // node-llama-cpp compresses a history that leaves no room; that rendering
       // would not be this one, and reading this one would be wasted.
-      if (opening.length + OPENING_PROMPT_HEADROOM_TOKENS >= this.contextSize) return
+      if (opening.length + OPENING_PROMPT_HEADROOM_TOKENS >= contextSize) return
       const target = opening.slice(0, -1)
-      const cuts = sequence.needsCheckpoints
-        ? this.sharedPrefixCuts(session, functions, render, appendUser).filter(
-            (cut) => sharedPrefixLength(opening, cut.tokens) >= cut.at
-          )
-        : []
+      const cuts =
+        snapshots && sequence.needsCheckpoints
+          ? this.sharedPrefixCuts(session, functions, render, appendUser).filter(
+              (cut) => sharedPrefixLength(opening, cut.tokens) >= cut.at
+            )
+          : []
 
       // Back to the longest part of `target` the sequence already holds:
       // trimming on a transformer, the nearest checkpoint on a hybrid model.
@@ -2916,6 +2983,20 @@ class LlamaService extends EventEmitter {
       log.warn('Hardware probe failed:', error)
       return { gpuNames: [], vramBytes: null, unified: false }
     }
+  }
+
+  /**
+   * The context a model without a size of its own should load at now — see
+   * `largestFittingContextSize`. Counts the loaded model's memory as free, since
+   * it is unloaded before the new one loads (the same rule as the preflight).
+   */
+  async contextSizeForLoad(info: ModelInfo): Promise<number | null> {
+    const nlc = await this.getModule()
+    const reclaimableBytes =
+      this.currentModel && this.status === 'ready'
+        ? this.currentModel.sizeBytes + (this.currentModel.visionProjectorSizeBytes ?? 0)
+        : 0
+    return largestFittingContextSize(info, CONTEXT_SIZE_LADDER, nlc, freemem() + reclaimableBytes)
   }
 
   /**
@@ -3434,6 +3515,104 @@ export async function describeInsufficientMemory(
       `${info.name} is ${modelGb} GB, but only ${freeGb} GB of RAM is free right now. ` +
       'Close other applications, or choose a smaller model, then try again.'
     )
+  }
+}
+
+/**
+ * The largest context a model without a size of its own is loaded at
+ * automatically. Bigger windows are there to choose, but nobody should get a
+ * 131,072-token window, and the memory and speed it costs, without asking: the
+ * model files' own maximums reach that far.
+ */
+export const AUTO_CONTEXT_CAP = 32768
+/** Below this a model is not worth sizing down for; the load keeps its size and the preflight decides. */
+export const AUTO_CONTEXT_FLOOR = 8192
+
+/**
+ * The largest context in `ladder` (between the floor and the cap, and no more
+ * than the model was trained for) that the RAM preflight would accept right
+ * now, or `null` when none would.
+ *
+ * Uses the same estimate and margin as `describeInsufficientMemory`, so a size
+ * picked here is never one the preflight then refuses. That is the point of it:
+ * sized from the machine's total memory instead, a model was sized at its full
+ * trained window (262,144 tokens for Qwen3.6-14B-A3B) and refused on the spot.
+ */
+export async function largestFittingContextSize(
+  info: ModelInfo,
+  ladder: readonly number[],
+  nlc: Pick<LlamaModule, 'readGgufFileInfo' | 'GgufInsights'>,
+  freeBytes: number
+): Promise<number | null> {
+  try {
+    const insights = await nlc.GgufInsights.from(await nlc.readGgufFileInfo(info.path))
+    const ceiling = Math.min(AUTO_CONTEXT_CAP, insights.trainContextSize ?? AUTO_CONTEXT_CAP)
+    const candidates = [...ladder]
+      .filter((size) => size >= AUTO_CONTEXT_FLOOR && size <= ceiling)
+      .sort((a, b) => b - a)
+    const modelReq = await insights.estimateModelResourceRequirementsV2({ gpuLayers: 0 })
+    const projectorBytes = info.visionProjectorSizeBytes ?? 0
+    for (const contextSize of candidates) {
+      const contextReq = await insights.estimateContextResourceRequirementsV2({
+        contextSize,
+        modelGpuLayers: 0
+      })
+      const required =
+        (modelReq.cpuRam + contextReq.cpuRam + projectorBytes) * MIN_FREE_RAM_MULTIPLIER
+      if (required <= freeBytes) return contextSize
+    }
+    return null
+  } catch (error) {
+    log.warn('Could not size the model for the memory free now:', error)
+    return null
+  }
+}
+
+/**
+ * At launch, whether another program is holding the GPU memory this model
+ * needs right now: a message saying so, or `null` to go ahead.
+ *
+ * Restoring the last model used to load it whatever else was running. A test
+ * copy reloaded a 27B (about 18 GB) at launch while voice training held about
+ * 10 GB of a 24 GB card, crowding a job the person had started on purpose. The
+ * restore was not asked for at that moment, so it backs off instead, and the
+ * person loads it when the card is free; a load they start themselves is never
+ * held back by this.
+ *
+ * Only a busy card stops it. A model that would not fit even on an idle card is
+ * left to the engine's own partial offload, as before, and a CPU-only load or a
+ * failed reading never blocks anything.
+ */
+export async function describeBusyGpu(
+  info: ModelInfo,
+  contextSize: number,
+  gpuLayers: number | 'auto' | undefined,
+  nlc: Pick<LlamaModule, 'readGgufFileInfo' | 'GgufInsights'>,
+  vram: { total: number; used: number; free: number } | null
+): Promise<string | null> {
+  if (gpuLayers === 0 || !vram || vram.total <= 0) return null
+  try {
+    const insights = await nlc.GgufInsights.from(await nlc.readGgufFileInfo(info.path))
+    const layers =
+      typeof gpuLayers === 'number'
+        ? Math.min(gpuLayers, insights.totalLayers)
+        : insights.totalLayers
+    const modelReq = await insights.estimateModelResourceRequirementsV2({ gpuLayers: layers })
+    const contextReq = await insights.estimateContextResourceRequirementsV2({
+      contextSize,
+      modelGpuLayers: layers
+    })
+    const needed = modelReq.gpuVram + contextReq.gpuVram
+    if (vram.free >= needed || vram.total < needed) return null
+    const gb = (bytes: number): string => (bytes / 1024 ** 3).toFixed(1)
+    return (
+      `Another program is using ${gb(vram.used)} GB of the graphics card, so ${info.name} ` +
+      `wasn't loaded at launch. It needs about ${gb(needed)} GB there and ${gb(vram.free)} GB ` +
+      'is free. Load it when the card is free.'
+    )
+  } catch (error) {
+    log.warn('Could not check GPU memory before restoring the model:', error)
+    return null
   }
 }
 

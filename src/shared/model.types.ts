@@ -43,11 +43,19 @@ export interface ModelLoadOptions {
    * parallel jobs; only the multimodal runtime honours more than 1 today.
    */
   parallelJobs?: number
+  /**
+   * Set by the launch restore of the last model. Such a load backs off when
+   * another program holds the GPU memory it needs (`describeBusyGpu`), since
+   * nobody asked for it at that moment; a load a person starts is never held
+   * back by this.
+   */
+  restoring?: boolean
 }
 
 /**
- * A load Anodex declined *before* touching the native engine — today only the
- * free-RAM preflight in `LlamaService.loadModelInternal`.
+ * A load Anodex declined *before* touching the native engine: the free-RAM
+ * preflight in `LlamaService.loadModelInternal`, or a launch restore backing
+ * off a busy GPU.
  *
  * Deliberately separate from `EngineState.status`/`error`, because a refusal
  * changes nothing: whatever was loaded before is still loaded and still able

@@ -4,6 +4,7 @@ import type { ModelSettingsRecommendation } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { ModelSettings } from '@shared/settings.types'
 import { CONTEXT_SIZE_LADDER, formatContextSizeLabel } from '@shared/contextSizes'
+import { resolveModelContextSize } from '@shared/modelContextSize'
 import { describeWorkingRoom } from '@shared/workingRoom'
 import { contextSizeUpdate } from './contextSizeUpdate'
 import { useModelStore } from '../../../../stores/modelStore'
@@ -270,16 +271,21 @@ export function AiModelsSettings(): JSX.Element {
     )
   }
 
+  // The size the loaded model was configured for: its own entry when it has
+  // one (chosen here, or sized for it when it first loaded), else the global
+  // default. Comparing the running size with the global alone called a model
+  // sized for itself "smaller than the setting".
+  const activeLocalPath = engine.model?.source === 'local' ? engine.model.path : null
+  const configuredContextSize =
+    resolveModelContextSize(settings, activeLocalPath) ?? settings.model.contextSize
   const contextWasDownsized =
-    engine.status === 'ready' &&
-    !!engine.contextSize &&
-    engine.contextSize < settings.model.contextSize
-  const contextMemoryWarning = !!hardware && ctxSizeWarning(hardware, settings.model.contextSize)
+    engine.status === 'ready' && !!engine.contextSize && engine.contextSize < configuredContextSize
+  const contextMemoryWarning = !!hardware && ctxSizeWarning(hardware, configuredContextSize)
   // A context size is not working room: the reply reserve, project context and
   // tool schemas come off the top first. At 8,192 that leaves about 4,750
   // tokens, which decided whether a small model could work at all - see
   // `describeWorkingRoom`. Shown, never enforced.
-  const workingRoom = describeWorkingRoom(settings.model.contextSize)
+  const workingRoom = describeWorkingRoom(configuredContextSize)
   const gpuMode =
     settings.model.gpuLayers === 'auto' ? 'auto' : settings.model.gpuLayers === 0 ? 'cpu' : 'custom'
   const gpuLayersMax = engine.gpuLayersTotal ?? FALLBACK_MAX_GPU_LAYERS
@@ -346,7 +352,7 @@ export function AiModelsSettings(): JSX.Element {
           <EnginePanel
             engine={engine}
             modelCount={models.length}
-            contextSize={settings.model.contextSize}
+            contextSize={configuredContextSize}
             gpuLayers={settings.model.gpuLayers}
             fileRecommendation={fileRecommendation}
             recommendingFile={recommendingFile}
@@ -425,7 +431,7 @@ export function AiModelsSettings(): JSX.Element {
                 description="How much conversation and project context the model can consider at once."
                 control={
                   <SelectControl
-                    value={String(settings.model.contextSize)}
+                    value={String(configuredContextSize)}
                     options={CONTEXT_OPTIONS}
                     onChange={(value) => saveContextSize({ contextSize: Number(value) })}
                   />
@@ -448,15 +454,13 @@ export function AiModelsSettings(): JSX.Element {
                   This context size may exceed available memory. Lower it if model loading fails.
                 </div>
               )}
-              {!contextWasDownsized &&
-                !contextMemoryWarning &&
-                settings.model.contextSize >= 32768 && (
-                  <div className={styles.hintLine}>
-                    <span className={styles.hintDot} />
-                    Large sizes only help if the model itself was trained for a context this long —
-                    check the model card.
-                  </div>
-                )}
+              {!contextWasDownsized && !contextMemoryWarning && configuredContextSize >= 32768 && (
+                <div className={styles.hintLine}>
+                  <span className={styles.hintDot} />
+                  Large sizes only help if the model itself was trained for a context this long —
+                  check the model card.
+                </div>
+              )}
               <SettingRow
                 label="GPU acceleration"
                 description="Offload model layers to the GPU when Anodex detects a supported device."
