@@ -1,10 +1,42 @@
 import { describe, expect, it } from 'vitest'
-import { prefixSnapshotCuts, sharedPrefixLength } from '../prefixSnapshot'
+import { prefixSnapshotCuts, readSteps, sharedPrefixLength } from '../prefixSnapshot'
 
 /** `count` distinct tokens starting at `from`, standing in for a rendered prompt. */
 function tokens(from: number, count: number): number[] {
   return Array.from({ length: count }, (_, index) => from + index)
 }
+
+describe('readSteps', () => {
+  it('reads in pieces no longer than the piece size', () => {
+    expect(readSteps(0, 600, [], 256)).toEqual([
+      { end: 256, checkpoint: false },
+      { end: 512, checkpoint: false },
+      { end: 600, checkpoint: false }
+    ])
+  })
+
+  it('ends a piece on every snapshot cut and checkpoints there', () => {
+    expect(readSteps(0, 600, [300], 256)).toEqual([
+      { end: 256, checkpoint: false },
+      { end: 300, checkpoint: true },
+      { end: 556, checkpoint: false },
+      { end: 600, checkpoint: false }
+    ])
+  })
+
+  it('skips cuts already read past, and starts where the sequence is', () => {
+    // A new chat restored from the clock checkpoint: earlier cuts are behind it.
+    expect(readSteps(1_581, 1_900, [1_581, 1_850], 256)).toEqual([
+      { end: 1_837, checkpoint: false },
+      { end: 1_850, checkpoint: true },
+      { end: 1_900, checkpoint: false }
+    ])
+  })
+
+  it('reads nothing when the sequence already holds the prompt', () => {
+    expect(readSteps(900, 900, [500])).toEqual([])
+  })
+})
 
 describe('sharedPrefixLength', () => {
   it('counts the leading tokens two renderings agree on', () => {

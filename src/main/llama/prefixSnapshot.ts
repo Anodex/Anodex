@@ -43,6 +43,46 @@ const MIN_SNAPSHOT_TOKENS = 256
 /** Two cuts closer than this would cost a second snapshot for almost nothing. */
 const MIN_CUT_SPACING_TOKENS = 128
 
+/**
+ * How much of an opening prompt is read between two checks for Stop.
+ *
+ * node-llama-cpp does not look at the abort signal while it reads a prompt, so a
+ * reply could not be stopped, and the app could not quit cleanly, until the
+ * whole prompt had been read: 35–40 s on an integrated GPU. Read in pieces this
+ * size, a stop lands within one piece (about 3 s at the ~90 tokens/s an Iris Xe
+ * reads at). Smaller pieces gave no faster stop worth the lost batching.
+ */
+export const READ_PIECE_TOKENS = 256
+
+/** One piece of reading: up to `end` (exclusive), then a checkpoint if `checkpoint`. */
+export interface ReadStep {
+  end: number
+  checkpoint: boolean
+}
+
+/**
+ * The pieces that read tokens `from` up to `to`, none longer than `piece`, each
+ * snapshot cut in between ending a piece of its own so the checkpoint lands
+ * exactly on it.
+ */
+export function readSteps(
+  from: number,
+  to: number,
+  cuts: readonly number[],
+  piece: number = READ_PIECE_TOKENS
+): ReadStep[] {
+  const steps: ReadStep[] = []
+  const stops = [...new Set(cuts.filter((cut) => cut > from && cut < to))].sort((a, b) => a - b)
+  let position = from
+  for (const boundary of [...stops, to]) {
+    while (position < boundary) {
+      position = Math.min(position + piece, boundary)
+      steps.push({ end: position, checkpoint: position === boundary && boundary !== to })
+    }
+  }
+  return steps
+}
+
 /** How many leading tokens `a` and `b` have in common. */
 export function sharedPrefixLength(a: readonly number[], b: readonly number[]): number {
   const limit = Math.min(a.length, b.length)
