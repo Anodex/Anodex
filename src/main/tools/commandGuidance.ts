@@ -196,3 +196,33 @@ export function checkLongRunningServer(command: string, canStartProcess = false)
     'directly and need no server.'
   )
 }
+
+/** A command that only prints: `echo`, `printf`, PowerShell's `Write-Output` and `Write-Host`. */
+const PRINT_COMMAND_RE = /^(?:echo|printf|write-output|write-host)(?:\s|$)/i
+
+/**
+ * Anything that makes the shell work something out before printing: pipes,
+ * chains and redirects, variables (`$`, cmd's `%NAME%`), substitution, and
+ * the expansions that read the disk or the home folder (`*`, `?`, `[`, `{`, `~`).
+ * With any of these the output is not text the model already had.
+ */
+const SHELL_WORK_RE = /[|;&<>`$*?[{~(]|%[A-Za-z_]\w*%/
+
+/**
+ * Refuse a command that only prints text the model wrote itself, or `null`.
+ *
+ * Measured on an 8B in a plain chat: asked "What is the capital of France?",
+ * it ran `echo Paris` and answered from the output. The prompt already says a
+ * fact is answered without a command; a small model reads a resident shell as
+ * the way to say anything at all. Nothing is learned from such a command, and
+ * in ask mode the person is asked to approve it. Refused before approval, with
+ * the one instruction that ends the loop: write it in the reply.
+ */
+export function checkPrintOnly(command: string): string | null {
+  const trimmed = command.trim()
+  if (!PRINT_COMMAND_RE.test(trimmed) || SHELL_WORK_RE.test(trimmed)) return null
+  return (
+    'Not run: that command only prints text you wrote yourself, so it tells nobody anything. ' +
+    'Write the answer in your reply instead, in plain words.'
+  )
+}
