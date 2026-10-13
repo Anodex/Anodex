@@ -40,6 +40,76 @@ short record so it does not reappear as a future task.
   - Linux AppImages need no signing at all, which is why Linux remains the
     cheapest platform to actually ship.
 
+## Tracked fixes and improvements
+
+Found while testing 0.17 on real hardware (RX 7900 XTX, Qwen3.8-27B and Llama 3.1
+8B, two Galaxy S7 phones). Each item says where it was seen, so it can be picked
+up cold. Strike an item through, or move it to "Recently shipped", when it lands.
+
+### Needs fixing
+
+- **Finish the model-engine upgrade (#376).** node-llama-cpp 3.22.1 is tested on
+  the 8B; it still has to be run on Qwen3.8-27B before merging, since that hybrid
+  model is the one whose crash (#369) the upgrade's dispose fix is about. Run a
+  tool reply, the title and suggestion calls after it, stops mid-reply, and a
+  reload.
+- **Opening a folder makes it a project first.** "Open my Downloads folder"
+  routes `open_item` through `request_folder_access`, which adds Downloads as a
+  project. Opening something in the file manager should not need that.
+- **Saved replies lose the space between rounds.** A reply that ran in two
+  rounds is stored as "…before saving it.That request was declined…". The
+  screen is right (blocks); the stored `content`, which copy, the phone and
+  history read, is not.
+- **One context size for every model.** The first launch sizes `model.contextSize`
+  from the hardware for the _recommended_ model, then every model inherits it. A
+  machine recommended a 7B and later given a larger model keeps the small window
+  (on the RX 7900 XTX it is 32,768, so this bites smaller machines). See the
+  engine's own automatic sizing below.
+- **Loading at launch did not hold back beside another GPU job.** A test copy
+  reloaded the 27B (about 18 GB) at launch while voice training held about 10 GB
+  of a 24 GB card. Check that the memory check reads what is free _now_, and that
+  restoring the last model at launch backs off rather than crowding something
+  else on the GPU.
+- **Small models reach for the shell for plain answers.** The 8B answered "What
+  is the capital of France?" with `echo Paris`, and once invented a file path to
+  `grep`. Worth tuning the shell guidance for small models.
+
+### Phone and platforms
+
+- **Phone Agents list to match the desktop**: Needs you / Working / Finished,
+  with the one button a waiting run needs on its row.
+- **Send a file straight into the phone app.** "Send it to my phone" only works
+  by email today, and email is not set up by default.
+- **macOS ad-hoc signing** (`mac.identity: '-'`), so a download is not called
+  "damaged". Free; untested without a Mac.
+- **Android 13+ test.** Only Android 8 has run 0.89; 13 and later ask before
+  showing notifications.
+
+### From the model engine (node-llama-cpp 3.20–3.22)
+
+Not used yet, and each fits something Anodex already does by hand.
+
+- **Structured decisions (`LlamaDecisionContext`, 3.22).** Fast, constrained
+  choices from a fixed set. Critical Thinking's "is the evidence sufficient?" and
+  query selection, and tool choice on small models, are made today by generating
+  JSON under a grammar. Likely the largest quality gain for small local models.
+- **The engine's own memory figures (`model.memoryUsage`, `context.memoryUsage`,
+  3.21).** Replace our estimates in the fit check (`describeInsufficientMemory`),
+  the Settings readout and the context recommendation with what is actually used.
+- **Automatic context sizing in the engine** (`contextSize: { min, max }`). Sizes
+  the window to the memory that is free, up to what the model was trained for. The
+  clean basis for per-model sizing (above).
+- **Quantized KV cache** (`defaultContextKvCacheKeyType` / `ValueType`, e.g.
+  `q8_0`). Roughly halves the conversation cache, so about twice the context on
+  the same card, for a small quality cost. Offer it in Settings → AI & Models.
+- **Lazy loading (`lazyMode`, 3.21).** Reads the largest tensors on demand: less
+  memory for big models, at the cost of a slower first reply. Try on the 27B and
+  on machines short of RAM.
+- **Native Jinja fallback and better reasoning extraction (3.20–3.21).** Qwen3.8
+  ran under the plain Jinja wrapper and leaked its reasoning into replies; we strip
+  it (`stripLeakedEngineText`). Check whether 3.22 parses it properly, and retire
+  the workaround if so.
+
 ## Next product work
 
 - **Project health** — bring git state, recent checks, active plans, changed files,
