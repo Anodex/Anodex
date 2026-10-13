@@ -4,48 +4,99 @@ This document tracks work that is still ahead of us. Current capabilities belong
 the [feature overview](docs/FEATURES.md); completed work is kept here only as a
 short record so it does not reappear as a future task.
 
-## Current focus: release readiness
+## Current focus: confidence on every platform
 
-- **Windows release validation** — finish the quality, packaging, and installer
-  checks needed for a dependable first public Windows release.
-- **Release delivery and updates** — publish installer assets through GitHub
-  Releases and choose a safe update-distribution path that does not embed private
-  repository credentials in a distributed application.
-- **Public launch path** — complete first-run guidance, release notes, support
-  information, and the visual product materials that make a new install feel
-  intentional from the first minute.
-- **Platform validation** — Windows is the currently released platform. macOS and
-  Linux are being brought up to the same bar and are now real targets, not
-  someday ones. CI runs unit tests and builds on all three, so regressions on
-  the two unreleased platforms surface immediately instead of at packaging time.
-  `npm run dist` packages per host platform, and the Package workflow builds
-  each target on its own runner — Anodex cannot be cross-compiled, because
-  `prepare:vision` fetches the _host_ platform's llama.cpp runtime. A Linux
-  AppImage is verified building end to end (623 MB, with `latest-linux.yml`
-  for auto-update).
+Windows, macOS (Apple silicon) and Linux all ship from one tag. Each installer is
+built on its own runner, signed with the Anodex release key (Ed25519, checked by
+the in-app updater against the key compiled into the app), and published only
+once all three have built and signed. Release notes are written by hand and the
+publish job refuses placeholders. 0.17.0 is the current release.
 
-  Still outstanding before macOS or Linux can ship:
-  - **Linux: run the AppImage.** It builds; nobody has launched it. Worth one
-    pass over the same things the Windows packaged build needs checked — a
-    code block, the Terminal panel, a diff, a PDF attachment — plus whether a
-    local model actually loads through the bundled runtime.
-  - **macOS: signing, and it is the gate.** The `.dmg` builds, but current
-    macOS makes an unsigned, un-notarized app genuinely hard for an ordinary
-    user to open, so this is not a distributable artifact yet. Needs an Apple
-    Developer Program membership plus notarization. Start the paperwork early;
-    it is calendar time rather than work time.
-  - **Windows signing** is the same class of problem: OV certificates have
-    required a hardware token or cloud HSM since June 2023, so a plain `.pfx`
-    in CI is no longer an option.
-  - Linux AppImages need no signing at all, which is why Linux remains the
-    cheapest platform to actually ship.
+- **Windows release validation.** Run each release on the Windows machine before
+  calling it done: install over the previous version, the welcome, a local model
+  load through the bundled runtime, and the updater.
+- **Linux: run the AppImage.** It builds and publishes; check a code block, the
+  Terminal panel, a diff, a PDF attachment and a local model load from the
+  packaged build.
+- **Installer certificates.** The installers carry Anodex's own signature but no
+  Microsoft or Apple certificate, so each system warns on first launch (the notes
+  say how to get past it). Paid certificates are out of scope; the free macOS
+  ad-hoc signature is tracked below. Linux AppImages need none.
+
+## Tracked fixes and improvements
+
+Found while testing 0.17 on real hardware (RX 7900 XTX, Qwen3.8-27B and Llama 3.1
+8B, two Galaxy S7 phones). Each item says where it was seen, so it can be picked
+up cold. Strike an item through, or move it to "Recently shipped", when it lands.
+
+### Needs fixing
+
+- **Finish the model-engine upgrade (#376).** node-llama-cpp 3.22.1 is tested on
+  the 8B; it still has to be run on Qwen3.8-27B before merging, since that hybrid
+  model is the one whose crash (#369) the upgrade's dispose fix is about. Run a
+  tool reply, the title and suggestion calls after it, stops mid-reply, and a
+  reload.
+- **Opening a folder makes it a project first.** "Open my Downloads folder"
+  routes `open_item` through `request_folder_access`, which adds Downloads as a
+  project. Opening something in the file manager should not need that.
+- **Saved replies lose the space between rounds.** A reply that ran in two
+  rounds is stored as "…before saving it.That request was declined…". The
+  screen is right (blocks); the stored `content`, which copy, the phone and
+  history read, is not.
+- **One context size for every model.** The first launch sizes `model.contextSize`
+  from the hardware for the _recommended_ model, then every model inherits it. A
+  machine recommended a 7B and later given a larger model keeps the small window
+  (on the RX 7900 XTX it is 32,768, so this bites smaller machines). See the
+  engine's own automatic sizing below.
+- **Loading at launch did not hold back beside another GPU job.** A test copy
+  reloaded the 27B (about 18 GB) at launch while voice training held about 10 GB
+  of a 24 GB card. Check that the memory check reads what is free _now_, and that
+  restoring the last model at launch backs off rather than crowding something
+  else on the GPU.
+- **Small models reach for the shell for plain answers.** The 8B answered "What
+  is the capital of France?" with `echo Paris`, and once invented a file path to
+  `grep`. Worth tuning the shell guidance for small models.
+
+### Phone and platforms
+
+- **Phone Agents list to match the desktop**: Needs you / Working / Finished,
+  with the one button a waiting run needs on its row.
+- **Send a file straight into the phone app.** "Send it to my phone" only works
+  by email today, and email is not set up by default.
+- **macOS ad-hoc signing** (`mac.identity: '-'`), so a download is not called
+  "damaged". Free; untested without a Mac.
+- **Android 13+ test.** Only Android 8 has run 0.89; 13 and later ask before
+  showing notifications.
+
+### From the model engine (node-llama-cpp 3.20–3.22)
+
+Not used yet, and each fits something Anodex already does by hand.
+
+- **Structured decisions (`LlamaDecisionContext`, 3.22).** Fast, constrained
+  choices from a fixed set. Critical Thinking's "is the evidence sufficient?" and
+  query selection, and tool choice on small models, are made today by generating
+  JSON under a grammar. Likely the largest quality gain for small local models.
+- **The engine's own memory figures (`model.memoryUsage`, `context.memoryUsage`,
+  3.21).** Replace our estimates in the fit check (`describeInsufficientMemory`),
+  the Settings readout and the context recommendation with what is actually used.
+- **Automatic context sizing in the engine** (`contextSize: { min, max }`). Sizes
+  the window to the memory that is free, up to what the model was trained for. The
+  clean basis for per-model sizing (above).
+- **Quantized KV cache** (`defaultContextKvCacheKeyType` / `ValueType`, e.g.
+  `q8_0`). Roughly halves the conversation cache, so about twice the context on
+  the same card, for a small quality cost. Offer it in Settings → AI & Models.
+- **Lazy loading (`lazyMode`, 3.21).** Reads the largest tensors on demand: less
+  memory for big models, at the cost of a slower first reply. Try on the 27B and
+  on machines short of RAM.
+- **Native Jinja fallback and better reasoning extraction (3.20–3.21).** Qwen3.8
+  ran under the plain Jinja wrapper and leaked its reasoning into replies; we strip
+  it (`stripLeakedEngineText`). Check whether 3.22 parses it properly, and retire
+  the workaround if so.
 
 ## Next product work
 
 - **Project health** — bring git state, recent checks, active plans, changed files,
   and scheduled or agent activity together in the Workspace Dock.
-- **Support bundle** — produce a redacted local diagnostic bundle with app version,
-  hardware, model, logs, and recent failures for hands-on support.
 
 ## Product improvements to explore
 
@@ -57,13 +108,16 @@ short record so it does not reappear as a future task.
   - Preserve a separate unsent draft and its staged attachments for each chat across chat switches and restarts.
   - Let people edit and reorder messages queued behind an active response.
   - Finish the slash picker's assistive-technology wiring: expose whether it is open, connect it to the composer input, and announce the active option.
-- **Anodex Voice.** Give completed assistant replies a speaker action and a chat-level **Read replies automatically** toggle for hands-free use. It remains off by default and never reads hidden thoughts, tool calls, approvals, or streaming partials. Include pause, resume, stop, speed, **Read selection**, and stop playback as soon as the user begins a new request.
-
-  A development-only Pocket adapter is being tried alongside Qwen. It uses the separate Anodex Voice checkout and is not included in packaged builds. See `docs/VOICE_ENGINE_TRIAL.md` for the local listening pass and remaining release gates.
-
-  The first local read-aloud implementation uses the Qwen3-TTS Base model's default voice so it works without a recording. A user may optionally supply their own local reference recording, which stays in user data and is never included in releases, sync, diagnostics, or source control. Before Anodex positions this as its own branded voice for public distribution, replace the model default with an original, purpose-designed voice trained from Anodex-owned recordings or performed by a voice actor with written, explicit rights covering AI training, commercial use, redistribution, derivative voices, termination, geography, and language scope. Do not use operating-system voices or browser speech synthesis.
-
-  Build a provider-neutral `SpeechService` boundary so the model can improve without changing chat or playback. Anodex owns reply filtering, text normalization, sentence chunking, streaming playback, pause/resume/stop, caching, voice settings, automatic-read policy, and health/error handling. The neural runtime remains replaceable behind that boundary, but every shipped voice and runtime must have verified commercial redistribution terms, required notices, and a provenance record for weights, datasets, recordings, prompts, and generated assets. Validate the complete rights chain with counsel before public distribution.
+- **An original Anodex voice.** Read-aloud has shipped (local Qwen3-TTS, a default
+  voice, nine built-in speakers, and an optional recording of the user's own voice;
+  see the feature overview). What remains is a voice of Anodex's own, trained from
+  Anodex-owned recordings or a voice actor with written rights covering AI
+  training, commercial use, redistribution, derivative voices, termination,
+  geography and language, before it is positioned as Anodex's voice in public.
+  Training is under way in the separate Anodex Voice checkout (see
+  `docs/VOICE_ENGINE_TRIAL.md`). Every shipped voice and runtime needs verified
+  redistribution terms, required notices, and a provenance record for weights,
+  datasets, recordings, prompts and generated assets, checked with counsel.
 
 - **Batch file-change review** — let people review multiple proposed changes in one
   clear surface rather than approving a sequence of individual modals.
@@ -112,5 +166,16 @@ These are complete capabilities, not action items:
   execution state, never prompt-keyword guards.
 - In-app model discovery/downloads, hardware recommendations, reliability scoring,
   token activity, and the Workspace Dock.
+- Signed releases on all three platforms through GitHub, with the in-app updater
+  and hand-written notes (0.15–0.17).
+- Everyday help in any chat (0.17): folder access on request, reminders delivered
+  to the desktop, phone or email, downloads, disk cleanup to the Trash, opening
+  files and pages, finding and emailing a file, taking a service key, "tell me
+  when it's done", and a shell that knows its computer.
+- A first-run welcome (name, look, model, phone pairing with a QR download), the
+  Scheduler month view on desktop and phone, and the redrawn Agents and Critical
+  Thinking pages, with editable agent plans (0.17).
+- Read-aloud with local voices, the support bundle in Diagnostics, and the paired
+  Anodex Mobile app.
 
 For implementation conventions and architecture, see [AGENTS.md](AGENTS.md).
