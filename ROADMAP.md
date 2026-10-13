@@ -36,13 +36,6 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   model is the one whose crash (#369) the upgrade's dispose fix is about. Run a
   tool reply, the title and suggestion calls after it, stops mid-reply, and a
   reload.
-- **Opening a folder makes it a project first.** "Open my Downloads folder"
-  routes `open_item` through `request_folder_access`, which adds Downloads as a
-  project. Opening something in the file manager should not need that.
-- **Saved replies lose the space between rounds.** A reply that ran in two
-  rounds is stored as "…before saving it.That request was declined…". The
-  screen is right (blocks); the stored `content`, which copy, the phone and
-  history read, is not.
 - **One context size for every model.** The first launch sizes `model.contextSize`
   from the hardware for the _recommended_ model, then every model inherits it. A
   machine recommended a 7B and later given a larger model keeps the small window
@@ -53,18 +46,15 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   of a 24 GB card. Check that the memory check reads what is free _now_, and that
   restoring the last model at launch backs off rather than crowding something
   else on the GPU.
-- **Small models reach for the shell for plain answers.** The 8B answered "What
-  is the capital of France?" with `echo Paris`, and once invented a file path to
-  `grep`. Worth tuning the shell guidance for small models.
+- **Small models reach for the shell for plain answers, and for risky ones.** The
+  8B answered "What is the capital of France?" with `echo Paris`, invented a file
+  path to `grep`, and, asked to send a file to the phone, proposed
+  `gio trash ~/Downloads/gpl-3.0.txt && xdg-open …`, which would have moved the
+  file to the Trash (declined at the prompt). Worth tuning the shell guidance for
+  small models, and pointing them at the purpose-built tools first.
 
 ### Phone and platforms
 
-- **Phone Agents list to match the desktop**: Needs you / Working / Finished,
-  with the one button a waiting run needs on its row.
-- **Send a file straight into the phone app.** "Send it to my phone" only works
-  by email today, and email is not set up by default.
-- **macOS ad-hoc signing** (`mac.identity: '-'`), so a download is not called
-  "damaged". Free; untested without a Mac.
 - **Android 13+ test.** Only Android 8 has run 0.89; 13 and later ask before
   showing notifications.
 
@@ -177,5 +167,10 @@ These are complete capabilities, not action items:
   Thinking pages, with editable agent plans (0.17).
 - Read-aloud with local voices, the support bundle in Diagnostics, and the paired
   Anodex Mobile app.
+- Since 0.17: opening a folder or document from anywhere on the computer; saved
+  replies keep the break where a tool ran; the macOS app is ad-hoc signed
+  (checked with `codesign --verify` in the Package workflow); "send it to my
+  phone" goes straight to the paired phone (phone 0.90); the phone's Agents list
+  matches the desktop's sections.
 
 For implementation conventions and architecture, see [AGENTS.md](AGENTS.md).
