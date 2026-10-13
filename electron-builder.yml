@@ -137,6 +137,16 @@ mac:
   target: dmg
   category: public.app-category.developer-tools
   icon: build/icon.icns
+  # Ad-hoc signed: a signature with no certificate behind it, which costs
+  # nothing. An Apple-silicon app whose bundle is not signed at all is the one
+  # macOS calls "damaged" and offers only to move to the Bin; ad-hoc signed, it
+  # gets the ordinary "cannot verify the developer" warning, which System
+  # Settings → Privacy & Security can open past. Hardened runtime stays off: it
+  # is for notarized apps, and on an ad-hoc signature it makes macOS refuse the
+  # app's own unsigned libraries at launch. Checked by `codesign --verify` in
+  # the Package workflow.
+  identity: '-'
+  hardenedRuntime: false
 # A single self-contained executable the user marks executable and runs. No
 # install step, so there is nothing for the branded installer shell to wrap —
 # and no signing or notarization required, which makes Linux by a wide margin
