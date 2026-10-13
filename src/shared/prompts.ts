@@ -375,6 +375,26 @@ export function environmentDateFromPrompt(prompt: string | null | undefined): st
 }
 
 /**
+ * The same prompt with the Environment section's clock line swapped for a
+ * placeholder, or `null` when it has no such section.
+ *
+ * For the local engine's prefix snapshots (`prefixSnapshot.ts`). The clock is
+ * stated to the minute, so it is the first place two conversations' system
+ * prompts disagree, and a hybrid model can only start a new conversation from a
+ * checkpoint taken before it. Rendering the prompt both ways through the model's
+ * own chat template finds that point in tokens, whatever the template.
+ */
+export function withEnvironmentClockMasked(prompt: string | null | undefined): string | null {
+  if (!prompt) return null
+  const start = prompt.indexOf(ENVIRONMENT_HEADING)
+  if (start < 0) return null
+  const lineStart = start + ENVIRONMENT_HEADING.length + 1
+  const blank = prompt.indexOf('\n\n', lineStart)
+  const lineEnd = blank < 0 ? prompt.length : blank
+  return `${prompt.slice(0, lineStart)}~${prompt.slice(lineEnd)}`
+}
+
+/**
  * Where this turn is actually running, stated rather than assumed.
  *
  * Every core prompt used to open "You are Anodex, a local AI assistant running

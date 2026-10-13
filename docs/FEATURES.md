@@ -84,6 +84,14 @@ Why it is good:
   from oversized models or settings.
 - The local engine streams output, supports tool use, reuses chat sessions where
   possible, and rebuilds context when conversations change.
+- A new chat starts from the instructions every chat shares instead of reading
+  them again, so the first word arrives sooner. On a laptop with integrated
+  graphics that took a new chat from about 40 s to 4–10 s before the first word on
+  Llama 3.1 8B, and from about 36 s to 18 s on the hybrid Qwen3.6-14B-A3B, which
+  can only resume from a saved snapshot.
+- Stop works while a local model is still reading a new chat's prompt, and quitting
+  then exits cleanly. The prompt is read in short pieces with a check for Stop
+  between them: on that laptop Stop now lands in 2–3 s instead of 30–40 s.
 - Reasoning or "thought" output from compatible local models is displayed separately
   from the final assistant response.
 - Mixed visible-text, reasoning, and tool events keep their provider arrival order.

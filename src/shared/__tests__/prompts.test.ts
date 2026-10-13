@@ -8,7 +8,8 @@ import {
   environmentDateFromPrompt,
   NO_WORKSPACE_NOTE,
   READ_ONLY_WORKSPACE_NOTE,
-  WORKSPACE_REFERENCE_NOTE
+  WORKSPACE_REFERENCE_NOTE,
+  withEnvironmentClockMasked
 } from '../prompts'
 
 describe('composeSystemPrompt: isolated writing phases', () => {
@@ -331,6 +332,38 @@ describe('environmentDateFromPrompt', () => {
     expect(environmentDateFromPrompt('You are a helpful assistant.')).toBeNull()
     expect(environmentDateFromPrompt(undefined)).toBeNull()
     expect(environmentDateFromPrompt(null)).toBeNull()
+  })
+})
+
+describe('withEnvironmentClockMasked', () => {
+  const at = (iso: string): string =>
+    composeSystemPrompt({
+      hasWorkspaceTools: true,
+      hasProject: true,
+      now: new Date(iso),
+      timeZone: 'America/Denver'
+    })
+
+  it('makes prompts built a minute apart identical', () => {
+    // The local engine snapshots a hybrid model just before the first place
+    // two conversations differ; the clock is that place.
+    const first = at('2026-10-13T12:00:00-06:00')
+    const second = at('2026-10-13T12:01:00-06:00')
+    expect(first).not.toBe(second)
+    expect(withEnvironmentClockMasked(first)).toBe(withEnvironmentClockMasked(second))
+  })
+
+  it('changes nothing outside the clock line', () => {
+    const prompt = at('2026-10-13T12:00:00-06:00')
+    const masked = withEnvironmentClockMasked(prompt) ?? ''
+    const [before, after] = prompt.split(/# Environment\n[^\n]*/)
+    expect(masked.startsWith(`${before}# Environment\n`)).toBe(true)
+    expect(masked.endsWith(after)).toBe(true)
+  })
+
+  it('returns null for a prompt with no Environment section', () => {
+    expect(withEnvironmentClockMasked('You are a helpful assistant.')).toBeNull()
+    expect(withEnvironmentClockMasked(undefined)).toBeNull()
   })
 })
 
