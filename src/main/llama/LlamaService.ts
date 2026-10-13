@@ -16,7 +16,8 @@ import type {
   ChatModelFunctionCall,
   GbnfJsonSchema,
   LlamaChatResponseChunk,
-  LlamaChatResponseFunctionCallParamsChunk
+  LlamaChatResponseFunctionCallParamsChunk,
+  Token
 } from 'node-llama-cpp'
 import { estimateTier } from '../models/huggingFaceCatalog'
 import { listGpuDevices, resolveGpuMemory } from './gpuDevices'
@@ -73,7 +74,12 @@ import {
 import { createBoundedContextShiftStrategy } from './contextShiftStrategy'
 import { gbnfSafeSchema } from './gbnfSafeSchema'
 import { summaryContextSize } from './summaryContextSize'
-import { PREFIX_PROBE_MESSAGES, prefixSnapshotCuts } from './prefixSnapshot'
+import {
+  PREFIX_PROBE_MESSAGES,
+  prefixSnapshotCuts,
+  readSteps,
+  sharedPrefixLength
+} from './prefixSnapshot'
 import { resolveToolCallingWrapper, fabricatedResultStopTriggers } from './toolCallDialects'
 import { installExactDetokenize, type NativeVocabulary } from './exactDetokenize'
 import {
@@ -171,6 +177,14 @@ const MAX_FALLBACK_ROUNDS = 8
  * history.
  */
 const NATIVE_TOOL_CHECKPOINT_RATIO = 0.72
+
+/**
+ * Room an opening prompt must leave for `readOpeningPrompt` to read it ahead.
+ * node-llama-cpp keeps a first prompt as rendered only while it fits with a
+ * token to spare, and compresses it otherwise, so reading a prompt this close
+ * to the limit could read text the round will not use.
+ */
+const OPENING_PROMPT_HEADROOM_TOKENS = 64
 
 /** The dynamically-imported `node-llama-cpp` module (ESM-only). */
 type LlamaModule = typeof import('node-llama-cpp')
@@ -1162,10 +1176,6 @@ class LlamaService extends EventEmitter {
     toolSchemaReserveTokens = contextBudget.toolSchemaTokens
     this.activeToolSchemaReserveTokens = toolSchemaReserveTokens
 
-    // A new conversation on a hybrid model: leave a checkpoint at the end of
-    // what every conversation shares, so the next one can start from it.
-    if (this.sessionAwaitingFirstPrompt) await this.snapshotSharedPrefix(session, functions)
-
     // Real, measured accounting for this turn is now known — every tool call
     // from here on (they all happen later, inside the prompt/generation loop
     // below) sees a budget sized to what's actually left, not a disk-safety
@@ -1311,6 +1321,12 @@ class LlamaService extends EventEmitter {
       params.onContextShift?.()
     }
     try {
+      // A new or switched-to conversation reads its whole opening prompt here,
+      // in pieces it can be stopped between, rather than inside the first
+      // round where nothing can stop it.
+      if (this.sessionAwaitingFirstPrompt) {
+        await this.readOpeningPrompt(session, prompt, functions, genController.signal)
+      }
       const grammar =
         params.options?.jsonSchema && functions == null && this.llama
           ? await this.llama.createGrammarForJsonSchema<GbnfJsonSchema>(
@@ -2564,71 +2580,118 @@ class LlamaService extends EventEmitter {
   }
 
   /**
-   * Checkpoint a hybrid or recurrent model's sequence at the end of the prompt
-   * every conversation shares — see `prefixSnapshot.ts` for why a transformer
-   * needs nothing here and a hybrid model does.
+   * Read a new conversation's opening prompt into the sequence before its first
+   * round, a piece at a time, so Stop (and quitting) can land in between.
    *
-   * The tokens up to each cut have to be read for this turn anyway, so the only
-   * cost is the checkpoint itself (tens of MB of RAM, per node-llama-cpp's own
-   * accounting; it prunes checkpoints past the shared prefix when the next
-   * conversation diverges). Best effort: a failure here costs the reuse, never
-   * the turn, because the prompt that follows aligns the sequence again.
+   * node-llama-cpp checks the abort signal only once it starts generating, so a
+   * prompt it reads itself cannot be interrupted. On an integrated GPU a cold
+   * prompt is 30–40 s of that: Stop pressed in it landed only when reading
+   * ended, and quitting outlasted the shutdown's wait for the engine and
+   * crashed (`0xc0000409` on Windows, SIGABRT elsewhere). Read here in
+   * `READ_PIECE_TOKENS` pieces instead, a stop lands within one piece.
+   *
+   * The prompt is rendered exactly as node-llama-cpp renders a session's first
+   * prompt, so the round that follows finds it already read and evaluates only
+   * the final token, which it always decodes itself. On a hybrid or recurrent
+   * model each piece boundary at a `prefixSnapshot.ts` cut leaves a checkpoint
+   * there, so the next conversation can start from the shared part.
+   *
+   * Best effort. A prompt too long to fit is left to node-llama-cpp's own
+   * compression, and any failure costs only the head start: the round aligns
+   * the sequence with its own rendering either way.
    */
-  private async snapshotSharedPrefix(
+  private async readOpeningPrompt(
     session: LlamaChatSession,
-    functions: Record<string, ToolFunction> | undefined
+    prompt: string,
+    functions: Record<string, ToolFunction> | undefined,
+    signal: AbortSignal
   ): Promise<void> {
     const sequence = this.contextSequence
     const model = this.model
-    if (!sequence?.needsCheckpoints || !model) return
+    if (!sequence || !model || !this.contextSize) return
     try {
-      const canonicalHistory = session.getChatHistory()
-      const initialHistory = canonicalHistory[0]?.type === 'system' ? [canonicalHistory[0]] : []
-      if (initialHistory.length === 0) return
       const appendUser = this.getModuleSyncAppendUser()
       const render = (
-        text: string,
-        availableFunctions?: Record<string, ToolFunction>,
-        history: ChatHistoryItem[] = initialHistory
+        history: ChatHistoryItem[],
+        availableFunctions: Record<string, ToolFunction> | undefined
       ) =>
         session.chatWrapper
           .generateContextState({
-            chatHistory: appendModelResponse(appendUserPrompt(history, text, appendUser)),
+            chatHistory: history,
             availableFunctions,
             documentFunctionParams: availableFunctions ? true : undefined
           })
           .contextText.tokenize(model.tokenizer)
 
-      const [probe, otherProbe] = PREFIX_PROBE_MESSAGES
-      const system = initialHistory[0]
-      const maskedSystemText =
-        system.type === 'system' && typeof system.text === 'string'
-          ? withEnvironmentClockMasked(system.text)
-          : null
-      const withTools = render(probe, functions)
-      const cuts = prefixSnapshotCuts({
-        withTools,
-        withoutTools: render(probe),
-        withToolsOtherProbe: render(otherProbe, functions),
-        withClockMasked:
-          maskedSystemText === null
-            ? undefined
-            : render(probe, functions, [{ type: 'system', text: maskedSystemText }])
-      })
-      for (const cut of cuts) {
-        const prefix = withTools.slice(0, cut)
-        const alreadyHeld = sequence.compareContextTokens(prefix).firstDifferentIndex >= cut
-        if (alreadyHeld && sequence.getRestoreToPrefixIndexEvaluationSize(cut - 1) === 0) continue
-        // Back to exactly `prefix` — restoring the nearest earlier checkpoint,
-        // or starting over when there is none — then read the rest of it.
-        await sequence.adaptStateToTokens(prefix, false)
-        const remaining = prefix.slice(sequence.nextTokenIndex)
-        if (remaining.length > 0) await sequence.evaluateWithoutGeneratingNewTokens(remaining)
-        await sequence.takeCheckpoint()
+      const opening = render(
+        appendModelResponse(appendUserPrompt(session.getChatHistory(), prompt, appendUser)),
+        functions
+      )
+      // node-llama-cpp compresses a history that leaves no room; that rendering
+      // would not be this one, and reading this one would be wasted.
+      if (opening.length + OPENING_PROMPT_HEADROOM_TOKENS >= this.contextSize) return
+      const target = opening.slice(0, -1)
+      const cuts = sequence.needsCheckpoints
+        ? this.sharedPrefixCuts(session, functions, render, appendUser).filter(
+            (cut) => sharedPrefixLength(opening, cut.tokens) >= cut.at
+          )
+        : []
+
+      // Back to the longest part of `target` the sequence already holds:
+      // trimming on a transformer, the nearest checkpoint on a hybrid model.
+      await sequence.adaptStateToTokens(target, false)
+      const steps = readSteps(
+        sequence.nextTokenIndex,
+        target.length,
+        cuts.map((cut) => cut.at)
+      )
+      for (const step of steps) {
+        if (signal.aborted) return
+        await sequence.evaluateWithoutGeneratingNewTokens(
+          target.slice(sequence.nextTokenIndex, step.end)
+        )
+        if (step.checkpoint) await sequence.takeCheckpoint()
       }
     } catch (error) {
-      log.warn('Could not checkpoint the shared prompt prefix:', error)
+      log.warn('Could not read the opening prompt ahead of the reply:', error)
     }
+  }
+
+  /**
+   * Where a hybrid model should hold checkpoints in an opening prompt: each
+   * place two conversations' prompts can part (see `prefixSnapshotCuts`), with
+   * the probe rendering each cut was measured on, so the caller can confirm the
+   * real prompt agrees with it up to there.
+   */
+  private sharedPrefixCuts(
+    session: LlamaChatSession,
+    functions: Record<string, ToolFunction> | undefined,
+    render: (
+      history: ChatHistoryItem[],
+      availableFunctions: Record<string, ToolFunction> | undefined
+    ) => Token[],
+    appendUser: LlamaModule['appendUserMessageToChatHistory']
+  ): { at: number; tokens: Token[] }[] {
+    const canonicalHistory = session.getChatHistory()
+    const system = canonicalHistory[0]
+    if (system?.type !== 'system') return []
+    const withProbe = (text: string, history: ChatHistoryItem[] = [system]) =>
+      appendModelResponse(appendUserPrompt(history, text, appendUser))
+
+    const [probe, otherProbe] = PREFIX_PROBE_MESSAGES
+    const maskedSystemText =
+      typeof system.text === 'string' ? withEnvironmentClockMasked(system.text) : null
+    const withTools = render(withProbe(probe), functions)
+    const cuts = prefixSnapshotCuts({
+      withTools,
+      withoutTools: render(withProbe(probe), undefined),
+      withToolsOtherProbe: render(withProbe(otherProbe), functions),
+      withClockMasked:
+        maskedSystemText === null
+          ? undefined
+          : render(withProbe(probe, [{ type: 'system', text: maskedSystemText }]), functions)
+    })
+    return cuts.map((at) => ({ at, tokens: withTools }))
   }
 
   /**
