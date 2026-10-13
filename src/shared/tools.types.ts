@@ -455,7 +455,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     name: 'open_item',
     kind: 'command',
     description:
-      'Open an http(s) address in the browser, or a folder or document from the open project in its usual app. Never opens programs or scripts.'
+      'Open an http(s) address in the browser, a folder in the file manager, or a document in its usual app, from the project or anywhere on this computer. Never opens programs or scripts, and web pages only from the project.'
   },
   {
     name: 'find_my_files',
