@@ -104,7 +104,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
       'Open a file, folder or web address: Start-Process "$HOME\\Downloads"',
       "Copy text to the clipboard: Set-Clipboard -Value 'some text'",
-      "Move to the Recycle Bin: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(\"$HOME\\Downloads\\<file>\", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)",
+      `Move to the Recycle Bin, ${ONLY_TO_REMOVE}: Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile("$HOME\\Downloads\\<file>", 'OnlyErrorDialogs', 'SendToRecycleBin') (DeleteDirectory for a folder)`,
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: winget install --id <Id> -e --accept-source-agreements --accept-package-agreements (find the id with winget search <name>)`
     ]
@@ -131,7 +131,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       ...zipFolder(facts),
       'Open a file, folder or web address: open ~/Downloads',
       "Copy text to the clipboard: printf '%s' 'some text' | pbcopy",
-      `Move to the Trash: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<you>/Downloads/<file>"'`,
+      `Move to the Trash, ${ONLY_TO_REMOVE}: osascript -e 'tell application "Finder" to delete POSIX file "/Users/<you>/Downloads/<file>"'`,
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: brew install <name> (brew install --cask <name> for an app), if Homebrew is installed`
     ]
@@ -143,7 +143,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       ...zipFolder(facts),
       'Open a file, folder or web address: xdg-open ~/Downloads',
       linuxClipboard(facts),
-      'Move to the Trash: gio trash ~/Downloads/<file>',
+      `Move to the Trash, ${ONLY_TO_REMOVE}: gio trash ~/Downloads/<file>`,
       ...photoResize(facts),
       `${ONLY_WHEN_ASKED}: ${linuxPackageInstall(facts.osRelease)}, which asks the person for their password in a window, or flatpak install --user -y flathub <app-id> if flatpak is installed`
     ]
@@ -209,6 +209,15 @@ function linuxClipboard(facts: ComputerFacts): string {
  * first in the list for the same reason.
  */
 const ONLY_WHEN_ASKED = 'Install a program, only when the person asks you to install one'
+
+/**
+ * The Trash is for a request to remove something, and nothing else. Measured
+ * with an 8B asked to send a file to the phone: it wrote `gio trash <the file>
+ * && xdg-open …`, reading a bare "Move to the Trash" line as one step of
+ * sending. The person declined it at the prompt; the line no longer reads as
+ * a general-purpose step.
+ */
+const ONLY_TO_REMOVE = 'only when the person asks to remove something'
 
 function linuxPackageInstall(osRelease: string | null): string {
   // ID names the distribution and ID_LIKE what it derives from (Mint: ubuntu debian).

@@ -46,12 +46,14 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   of a 24 GB card. Check that the memory check reads what is free _now_, and that
   restoring the last model at launch backs off rather than crowding something
   else on the GPU.
-- **Small models reach for the shell for plain answers, and for risky ones.** The
-  8B answered "What is the capital of France?" with `echo Paris`, invented a file
-  path to `grep`, and, asked to send a file to the phone, proposed
-  `gio trash ~/Downloads/gpl-3.0.txt && xdg-open …`, which would have moved the
-  file to the Trash (declined at the prompt). Worth tuning the shell guidance for
-  small models, and pointing them at the purpose-built tools first.
+- **Small models reach for the shell: check the fix on the 8B.** The 8B answered
+  "What is the capital of France?" with `echo Paris`, invented a file path to
+  `grep`, and, asked to send a file to the phone, proposed
+  `gio trash ~/Downloads/gpl-3.0.txt && xdg-open …`. Now a command that only
+  prints text is answered without running (and without asking), the prompt puts
+  the purpose-built tools ahead of the shell and says never to guess a path, and
+  the Trash hint says it is only for removing something. Unit-tested; still to
+  re-run those three asks on the 8B once the GPU is free.
 
 ### Phone and platforms
 

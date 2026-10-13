@@ -42,7 +42,7 @@ describe('run_command', () => {
       handler: (args: { command: string }) => Promise<string>
     }
 
-    const result = await tool.handler({ command: 'echo hello' })
+    const result = await tool.handler({ command: `node -e "console.log('hello')"` })
 
     expect(result).toContain('Exit code 0')
     expect(result).toContain('hello')
@@ -244,6 +244,30 @@ describe('run_command', () => {
     expect(requests[0]?.detail.startsWith('See what fills Downloads\n\ndu -sh ~/Downloads/*')).toBe(
       true
     )
+  })
+
+  it('answers a command that only prints text without running it or asking', async () => {
+    const { calls, emit } = captureCalls()
+    const asked: ToolConfirmRequest[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      permissionMode: 'ask' as const,
+      emit,
+      confirm: (request: ToolConfirmRequest) => {
+        asked.push(request)
+        return Promise.resolve({ approved: true })
+      }
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    const result = await tool.handler({ command: 'echo Paris' })
+
+    expect(result).toContain('Write the answer in your reply')
+    expect(result).not.toContain('Exit code')
+    expect(asked).toEqual([])
+    expect(calls.at(-1)).toMatchObject({ status: 'success', detail: 'not run: only prints text' })
   })
 
   it('asks for confirmation before running, and honours a denial', async () => {

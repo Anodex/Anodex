@@ -148,6 +148,21 @@ describe('installing', () => {
   })
 })
 
+describe('the Trash', () => {
+  // An 8B asked to send a file to the phone wrote `gio trash <the file> &&
+  // xdg-open …`, reading a bare "Move to the Trash" line as a step of sending.
+  it('is offered only for removing something, on every system', () => {
+    for (const computer of [
+      describeComputer(facts({ platform: 'win32', release: '10.0.22631' }), shell('powershell')),
+      describeComputer(facts({ platform: 'darwin', release: '24.1.0' }), shell('/bin/zsh')),
+      describeComputer(facts({}), shell('/bin/bash'))
+    ]) {
+      const line = (computer.shell?.howTo ?? []).find((hint) => /Trash|Recycle Bin/.test(hint))
+      expect(line).toMatch(/^Move to the (Trash|Recycle Bin), only when the person asks to remove/)
+    }
+  })
+})
+
 describe('the This computer prompt section', () => {
   const base = { hasWorkspaceTools: false, hasProject: false, surface: 'chat' as const }
 
@@ -160,6 +175,16 @@ describe('the This computer prompt section', () => {
     expect(prompt).toContain('named gort, signed in as sam')
     expect(prompt).toContain(NO_PROJECT_SHELL_NOTE)
     expect(prompt).not.toContain(NO_WORKSPACE_NOTE)
+  })
+
+  it('puts the purpose-built tools ahead of the shell, and plain answers in the reply', () => {
+    const prompt = composeSystemPrompt({
+      ...base,
+      computer: describeComputer(facts({}), shell('/bin/bash'))
+    })
+    expect(prompt).toContain('when a listed tool does the job')
+    expect(prompt).toContain('never printed with echo')
+    expect(prompt).toContain("Never guess a file's path")
   })
 
   it('names only the system when there is no shell this turn', () => {

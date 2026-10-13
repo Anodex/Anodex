@@ -1,11 +1,12 @@
 import { exec } from 'node:child_process'
 import type { ToolCall } from '@shared/tools.types'
 import type { WorkspaceToolFactory } from './types'
-import { runGuardedTool } from './helpers'
+import { runGuardedTool, runReadTool } from './helpers'
 import { classifyCommandRisk } from './permissions'
 import {
   checkCommandCompatibility,
   checkLongRunningServer,
+  checkPrintOnly,
   describeEmptySearchResult
 } from './commandGuidance'
 import { isKnownMutatingCommand, isObservationalCommand } from './commandEffect'
@@ -64,8 +65,26 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
       },
       required: ['command']
     } as const,
-    handler: (args: { command: string; description?: string; timeoutMs?: number }) =>
-      runGuardedTool(ctx, {
+    handler: (args: { command: string; description?: string; timeoutMs?: number }) => {
+      // Before approval, unlike the checks in `run()`: there is nothing to
+      // approve, and asking the person to approve `echo Paris` is the worst
+      // way to show them the model went wrong.
+      const printOnly = checkPrintOnly(args.command)
+      if (printOnly) {
+        return runReadTool(ctx, {
+          name: 'run_command',
+          kind: 'command',
+          title: commandTitle(args.command),
+          args,
+          run: () =>
+            Promise.resolve({
+              modelResult: printOnly,
+              detail: 'not run: only prints text',
+              madeProgress: false
+            })
+        })
+      }
+      return runGuardedTool(ctx, {
         name: 'run_command',
         kind: 'command',
         // The approval detail retains the whole command, but the transcript
@@ -156,6 +175,7 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
           }
         }
       })
+    }
   })
 
 /**
