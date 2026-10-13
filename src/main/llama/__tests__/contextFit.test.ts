@@ -33,14 +33,21 @@ const model: ModelInfo = {
 }
 
 describe('largestFittingContextSize', () => {
-  it('stops at 32,768 however much is free, not at the model’s trained maximum', async () => {
-    // Sized from total memory this model was asked for 262,144 tokens and refused.
-    await expect(largestFittingContextSize(model, LADDER, gguf(), 64 * GB)).resolves.toBe(32768)
+  it('stops at 16,384 however much is free, not at the model’s trained maximum', async () => {
+    // Sized from total memory this model was asked for 262,144 tokens and refused;
+    // and from 24,000 up a local chat switches to the full, twice-as-long prompt.
+    await expect(largestFittingContextSize(model, LADDER, gguf(), 64 * GB)).resolves.toBe(16384)
+  })
+
+  it('stays below the window where the full system prompt takes over', async () => {
+    const { AUTO_CONTEXT_CAP } = await import('../LlamaService')
+    const { COMPACT_PROMPT_MAX_CONTEXT_TOKENS } = await import('@shared/prompts')
+    expect(AUTO_CONTEXT_CAP).toBeLessThan(COMPACT_PROMPT_MAX_CONTEXT_TOKENS)
   })
 
   it('picks the largest size the preflight would accept now', async () => {
-    // 8 GB + 2 GB at 16,384 is 11.5 GB with the margin; 32,768 would need 13.8 GB.
-    await expect(largestFittingContextSize(model, LADDER, gguf(), 12 * GB)).resolves.toBe(16384)
+    // 8 GB + 1 GB at 8,192 is 10.4 GB with the margin; 16,384 would need 11.5 GB.
+    await expect(largestFittingContextSize(model, LADDER, gguf(), 11 * GB)).resolves.toBe(8192)
   })
 
   it('never goes past what the model was trained for', async () => {

@@ -131,9 +131,10 @@ Key capabilities:
 - Detect local hardware and recommend safer settings.
 - Apply recommended context, GPU, and token settings.
 - Size each model for itself: a model you haven't chosen a size for loads at the
-  largest context that fits the memory free at that moment, up to 32,768 tokens,
-  instead of whatever size another model was given. A size you choose for a model
-  is always kept.
+  largest context that fits the memory free at that moment, up to 16,384 tokens,
+  instead of whatever size another model was given. Larger windows are yours to
+  choose (they also bring the fuller, slower-to-read instructions), and a size you
+  choose for a model is always kept.
 - At launch, wait rather than crowd: if another program is using the graphics
   memory the last model needs, Anodex doesn't reload it and says so in AI & Models,
   where it loads with one click when the card is free.

@@ -3520,11 +3520,18 @@ export async function describeInsufficientMemory(
 
 /**
  * The largest context a model without a size of its own is loaded at
- * automatically. Bigger windows are there to choose, but nobody should get a
- * 131,072-token window, and the memory and speed it costs, without asking: the
- * model files' own maximums reach that far.
+ * automatically. Bigger windows are there to choose, but nobody should get one,
+ * and what it costs, without asking: the model files' own maximums reach
+ * 131,072 tokens and more.
+ *
+ * Held below `COMPACT_PROMPT_MAX_CONTEXT_TOKENS` (24,000) on purpose. From there
+ * up a local chat gets the full system prompt instead of the compact one: 6,378
+ * tokens against about 3,000, measured with Llama 3.1 8B. On an integrated GPU
+ * that doubled the reading before every new chat's first word (about 35 s more).
+ * Sized at 32,768 automatically, every unsized model paid it without anyone
+ * having chosen the larger window.
  */
-export const AUTO_CONTEXT_CAP = 32768
+export const AUTO_CONTEXT_CAP = 16384
 /** Below this a model is not worth sizing down for; the load keeps its size and the preflight decides. */
 export const AUTO_CONTEXT_FLOOR = 8192
 
