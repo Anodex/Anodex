@@ -143,6 +143,16 @@ describe('prompt surface selection', () => {
       expect(COMPACT_CHAT_PROMPT).toContain('No status footers')
     })
 
+    // Measured on Windows: Llama 3.1 8B asked how long a 42 ft tiller at
+    // 5.5 mph takes over 470 acres answered "85.45 hours" with no working.
+    // Done in one unit, step by step, it is 28 acres an hour: about 17 hours.
+    it('asks for working, with units, on a question with numbers', () => {
+      for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
+        expect(prompt).toMatch(/same units/)
+        expect(prompt).toMatch(/each step with its units/)
+      }
+    })
+
     it('carries no coding workflow', () => {
       for (const prompt of [CHAT_PROMPT, COMPACT_CHAT_PROMPT]) {
         expect(prompt).not.toContain('write_plan')

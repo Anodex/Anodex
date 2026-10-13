@@ -95,7 +95,10 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
-      "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*budget*'",
+      // A placeholder, not a realistic name: measured on Windows, an 8B told
+      // "an acre is 43560 square feet" ran this line exactly as written,
+      // searching the whole home folder for '*budget*'.
+      "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*<part of the name>*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
       'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version',
@@ -113,7 +116,7 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   // example: measured, an example written as find '<folder>' taught an 8B to
   // write find '~/Downloads', where the quotes stop ~ from meaning home.
   const posix = [
-    "Find files by part of the name: find ~ -iname '*budget*'",
+    "Find files by part of the name: find ~ -iname '*<part of the name>*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
     "Free space on the drive the person's files are on: df -h ~",
     'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version',

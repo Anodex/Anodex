@@ -36,6 +36,22 @@ export function hasInflightGeneration(): boolean {
   return inflight.size > 0
 }
 
+/**
+ * Why the active project cannot change to `requested` right now, or `null`.
+ *
+ * A "switch" to the project already active changes nothing, so it is never
+ * refused. The sidebar asks for one on every chat it opens, and the person who
+ * opened another chat while a reply ran was told "Could not switch project"
+ * when no project was involved at all: no project to no project.
+ */
+export function projectSwitchRefusal(
+  current: string | null,
+  requested: string | null
+): string | null {
+  if (current === requested || !hasInflightGeneration()) return null
+  return 'Anodex is working on something right now. Wait for it to finish before switching project.'
+}
+
 /** Abort every in-flight generation — called on app quit. */
 export function abortAllGenerations(): void {
   for (const controller of inflight.values()) controller.abort()

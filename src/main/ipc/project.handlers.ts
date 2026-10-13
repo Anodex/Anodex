@@ -2,7 +2,7 @@ import { ipcMain, shell } from 'electron'
 import { IpcChannel } from '@shared/ipc'
 import { broadcastToOtherClients } from '../broadcast'
 import { resolveClientChannel } from '../clients/clientRegistry'
-import { hasInflightGeneration } from '../chat/inflightGenerations'
+import { projectSwitchRefusal } from '../chat/inflightGenerations'
 import type { CreateProjectRequest, UpdateProjectRequest } from '@shared/project.types'
 import { projectStore } from '../projects/ProjectStore'
 import { projectPageUrl } from '../projects/projectPagePreview'
@@ -71,11 +71,8 @@ export function registerProjectHandlers(): void {
     // from under a live turn, which is breakage rather than a surprise — and it
     // matters most when the switch came from a phone, because nobody is watching
     // the machine it happens on (§10.1).
-    if (hasInflightGeneration()) {
-      throw new Error(
-        'Anodex is working on something right now. Wait for it to finish before switching project.'
-      )
-    }
+    const refusal = projectSwitchRefusal(projectStore.getState().activeProjectId, id)
+    if (refusal) throw new Error(refusal)
 
     try {
       const state = projectStore.setActive(id)

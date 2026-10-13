@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   abortAllGenerations,
   hasInflightGeneration,
+  projectSwitchRefusal,
   registerGeneration,
   releaseGeneration
 } from '../../chat/inflightGenerations'
@@ -66,5 +67,19 @@ describe('in-flight generation guard', () => {
     releaseGeneration('same-conversation', first)
 
     expect(hasInflightGeneration()).toBe(true)
+  })
+
+  it('refuses a real switch mid-reply, but never a switch to where it already is', () => {
+    registerGeneration('conversation-1', new AbortController())
+
+    expect(projectSwitchRefusal(null, 'project-a')).toContain('working on something')
+    expect(projectSwitchRefusal('project-a', null)).toContain('working on something')
+    // Opening another general chat while a reply runs: no project to no project.
+    expect(projectSwitchRefusal(null, null)).toBeNull()
+    expect(projectSwitchRefusal('project-a', 'project-a')).toBeNull()
+  })
+
+  it('allows any switch when nothing is running', () => {
+    expect(projectSwitchRefusal(null, 'project-a')).toBeNull()
   })
 })
