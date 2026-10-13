@@ -18,3 +18,17 @@ export function appendRoundText(existing: string, next: string): string {
   if (!trimmed) return existing
   return existing ? `${existing}\n\n${trimmed}` : trimmed
 }
+
+/**
+ * Appends one streamed chunk of visible text, putting a paragraph break where a
+ * tool ran in between.
+ *
+ * The local engine runs its own tool loop inside one generation, so text from
+ * before a call and after it arrive as one stream with no round boundary for
+ * {@link appendRoundText} to see. Whitespace-only chunks pass through, so the
+ * break lands before the first words after the tool rather than before a space.
+ */
+export function joinAfterTool(existing: string, chunk: string, toolBetween: boolean): string {
+  if (!toolBetween || !existing.trim() || !chunk.trim()) return existing + chunk
+  return `${existing.trimEnd()}\n\n${chunk.trimStart()}`
+}
