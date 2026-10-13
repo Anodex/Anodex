@@ -26,8 +26,11 @@ type Check = 'program' | 'port' | 'disk' | 'system'
  */
 export const checkComputerTool: ToolFactory = (define, ctx) =>
   define({
+    // Not "facts about this computer": the chat prompt says a fact gets a plain
+    // answer, and measured with Llama 3.1 8B, once run_command stopped drawing
+    // "What is the capital of France?" this tool drew it instead, on the word.
     description:
-      'Check facts about this computer without running shell commands: "program" (is it installed, which version; give name), "port" (is it free; give port), "disk" (free space; optional path), or "system" (OS, CPU, memory).',
+      'Look up this computer itself, without running shell commands: "program" (is it installed, which version; give name), "port" (is it free; give port), "disk" (free space; optional path), or "system" (OS, CPU, memory).',
     params: {
       type: 'object',
       properties: {

@@ -2,7 +2,7 @@ import type { PromptReadingProgress } from '@shared/chat.types'
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
-import { describeComputer, liveComputerFacts } from './thisComputer'
+import { describeComputer, liveComputerFacts, mayConcernThisComputer } from './thisComputer'
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
@@ -737,6 +737,19 @@ export async function runGeneration(
           }
         : null
     ),
+    // A plain chat sends the shell's example commands only with a message that
+    // may be about the computer — see `mayConcernThisComputer`. The person's
+    // previous message counts too, so "yes, do that" after "zip my photos"
+    // keeps them. Agent and project turns are left as they were.
+    commandExamples:
+      resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
+        ? mayConcernThisComputer(
+            [
+              request.prompt,
+              request.history.filter((turn) => turn.role === 'user').at(-1)?.content
+            ].filter((text): text is string => typeof text === 'string')
+          )
+        : undefined,
     runtime:
       effectiveProviderId === 'local'
         ? ({ kind: 'local' } as const)

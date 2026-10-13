@@ -50,6 +50,116 @@ export function describeComputer(
   return computer
 }
 
+/**
+ * Whether a chat message might be asking for something on this computer, so
+ * the turn should carry the shell's example commands.
+ *
+ * The examples are the strongest thing in the prompt for a small model, and it
+ * copies them. Measured on Windows with Llama 3.1 8B, every plain question in a
+ * chat became a command: "Name one fruit." searched the home folder for
+ * '*apple*', "How many legs does a spider have?" for '*spider*', and "And the
+ * capital of Germany?" ran the install check, `Get-Command python, python3,
+ * py`, word for word. The rules beside the examples said to answer a fact in
+ * words; the example list outweighed them.
+ *
+ * Generous on purpose. A message that matches gets exactly what every message
+ * got before, so a false match costs nothing; only a message with no sign of
+ * the computer in it — a fact, a sum, some writing — goes without the list.
+ * run_command and the rules for it stay either way.
+ */
+export function mayConcernThisComputer(messages: string[]): boolean {
+  return messages.some((message) => COMPUTER_WORDS.test(message) || PATH_LIKE.test(message))
+}
+
+const COMPUTER_WORDS = new RegExp(
+  '\\b(?:' +
+    [
+      'computer',
+      'laptop',
+      'pc',
+      'machine',
+      'desktop',
+      'downloads?',
+      'documents?',
+      'folders?',
+      'director(?:y|ies)',
+      'files?',
+      'paths?',
+      'drives?',
+      'disks?',
+      'storage',
+      'space',
+      'usb',
+      '(?:un)?install(?:ed|ing|s)?',
+      'programs?',
+      'apps?',
+      'applications?',
+      'software',
+      'versions?',
+      'updates?',
+      'open',
+      'launch',
+      'start',
+      'run(?:ning)?',
+      'clipboard',
+      'copy',
+      'paste',
+      'zip',
+      'unzip',
+      'compress',
+      'extract',
+      'rename',
+      'move',
+      'delete',
+      'remove',
+      'trash',
+      'recycle',
+      'tidy',
+      'clean',
+      'memory',
+      'ram',
+      'cpu',
+      'gpu',
+      'process(?:es)?',
+      'battery',
+      'wi-?fi',
+      'network',
+      'internet',
+      'ip',
+      'bluetooth',
+      'printer',
+      'screen(?:shot)?s?',
+      'photos?',
+      'pictures?',
+      'images?',
+      'videos?',
+      'music',
+      'pdfs?',
+      'resize',
+      'backups?',
+      'shell',
+      'terminal',
+      'command',
+      'powershell',
+      'bash',
+      'scripts?',
+      'python3?',
+      'node',
+      'java',
+      'git',
+      'npm',
+      'pip',
+      'winget',
+      'brew',
+      'apt'
+    ].join('|') +
+    ')\\b',
+  'i'
+)
+
+/** C:\, ~/, /home/ or /Users/, or a file name with an extension such as report.docx. */
+const PATH_LIKE = /[a-z]:\\|~[\\/]|\/(?:home|users)\/|\b[\w-]+\.[a-z][a-z0-9]{1,4}\b/i
+
 function osName(facts: ComputerFacts): string {
   if (facts.platform === 'win32') {
     // Windows 11 still reports itself as 10.0; the build number is what differs.

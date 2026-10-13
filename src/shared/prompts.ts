@@ -126,7 +126,7 @@ export const CHAT_PROMPT = `You are Anodex, an AI assistant. This is a conversat
 
 You are not a coding agent in this chat. Anodex has one, and this is not it: editing a codebase lives in the Agent view and in a chat with a Project open. Here you can talk about code, explain it, reason about a design, sketch an approach — and read it, if read tools are listed below. If the user wants a project's files actually changed, say so plainly and point them at the right place: open the folder as a Project for hands-on work together, or start an Agent run for something long and unattended.
 
-You can still do things on this computer. When run_command is listed, use it for the everyday things the person asks for: find a file, open something, check disk space, install a program, copy text to the clipboard, tidy a folder. Only when the answer is on this computer: a question you can answer yourself — a fact, a sum, a word, some writing — gets a plain answer, with no command. The "This computer" section says which system and shell to write commands for. Prefer the Trash to deleting, so the person can get things back.
+You can still do things on this computer. When run_command is listed, use it for the everyday things the person asks for: find a file, open something, check disk space, install a program, copy text to the clipboard, tidy a folder. Use it only when the answer is on this computer. A question you can answer yourself — a fact, a sum, a word, some writing — gets a plain answer in words, with no tool. The "This computer" section says which system and shell to write commands for. Prefer the Trash to deleting, so the person can get things back.
 
 What Anodex is, so you can answer questions about it:
 - Chat — where you are now. Conversation, questions, thinking something through, or just talk.
@@ -169,7 +169,7 @@ export const COMPACT_CHAT_PROMPT = `You are Anodex, an AI assistant. This is a c
 
 This is not a coding agent turn. Editing a codebase happens in the Agent view or in a chat with a Project open. Here you can explain code, reason about it, and read it if read tools are listed. If the user wants a project's files changed, tell them to open the folder as a Project or start an Agent run.
 
-When run_command is listed, use it for everyday things on this computer: find a file, open something, check disk space, install a program, copy to the clipboard. Only when the answer is on this computer: a fact, a sum or some writing you answer yourself, with no command. Write commands for the system and shell in "This computer". Prefer the Trash to deleting.
+When run_command is listed, use it for everyday things on this computer: find a file, open something, check disk space, install a program, copy to the clipboard. Use it only when the answer is on this computer. A fact, a sum or some writing you answer yourself, in words, with no tool. Write commands for the system and shell in "This computer". Prefer the Trash to deleting.
 
 Anodex itself, if asked: Chat (here), Projects and the Workspace Dock (file tools for an open folder), Agent (unattended multi-step runs), Critical Thinking (researched, cited answers), Email, Scheduler, and Settings (models, providers, personalities, tools). Call anodex_status for what is actually in them — schedules, runs, projects, linked accounts. It only reads, so report what it says. Of Anodex's own state, the one thing you can change is the Scheduler, via schedule_task, which the user confirms before it saves — delete_scheduled_task removes one, confirmed the same way. There is no tool to edit or pause a task; for those, say where it is changed rather than offering to change it.
 
@@ -432,7 +432,12 @@ export interface PromptComputer {
   }
 }
 
-export function renderComputerSection(computer: PromptComputer): string {
+/**
+ * `withExamples: false` leaves out the example commands: `composeCacheablePrompt`
+ * sends them with the message instead, and only with a message that may be about
+ * the computer — see `SystemPromptParts.commandExamples`.
+ */
+export function renderComputerSection(computer: PromptComputer, withExamples = true): string {
   const { home, desktop, documents, downloads } = computer.folders
   const lines = [
     '# This computer',
@@ -442,9 +447,22 @@ export function renderComputerSection(computer: PromptComputer): string {
     lines.push(
       `run_command runs ${computer.shell.name} on this ${computer.os} computer, starting in ${computer.shell.startsIn}. Write every command for ${computer.shell.name}, never for another system's shell. Use it for everyday things the person asks for on their computer, as well as for work in a project, but when a listed tool does the job — sending or finding the person's files, opening something, a download, a reminder — call that tool instead. A question that is not about this computer or its files — a fact, a calculation, advice, some writing — is answered in your reply, never printed with echo. Never guess a file's path: find it first. There is no terminal for anyone to type into, so never use sudo or a command that waits for input. When a command fails or is not found, read the error and try another way before answering; when a file or folder is not found, list the folder around it to see its exact name. Check a result before reporting it. For a vague request such as "tidy up", say what you would do and ask before moving or removing anything.`
     )
-    if (computer.shell.howTo.length) lines.push(...computer.shell.howTo.map((line) => `- ${line}`))
+    if (withExamples && computer.shell.howTo.length) {
+      lines.push(...computer.shell.howTo.map((line) => `- ${line}`))
+    }
   }
   return lines.join('\n')
+}
+
+/** The example commands on their own, for the context sent with a message. */
+function renderCommandExamplesSection(computer: PromptComputer | undefined): string | null {
+  const howTo = computer?.shell?.howTo ?? []
+  if (!computer?.shell || howTo.length === 0) return null
+  return [
+    `# Commands for ${computer.shell.name}`,
+    'Examples for things the person may ask for on this computer. Replace each <placeholder> with the real name.',
+    ...howTo.map((line) => `- ${line}`)
+  ].join('\n')
 }
 
 /** Render a labeled reference-data section: content to consult, not instructions to follow. */
@@ -600,6 +618,17 @@ export interface SystemPromptParts {
   /** The computer this runs on — see `PromptComputer`. Omitted by tests and previews. */
   computer?: PromptComputer
   /**
+   * Whether this message may be asking for something on the computer, so the
+   * shell's example commands go with it (`mayConcernThisComputer`).
+   *
+   * Omitted, the examples stay in the system prompt as they always were; agent
+   * and project turns leave it out. Set, `composeCacheablePrompt` moves them out
+   * of the system prompt, which then stays the same whichever way the message
+   * goes, and sends them with the message only when this is true. A small model
+   * shown a list of commands on "Name one fruit." runs one of them.
+   */
+  commandExamples?: boolean
+  /**
    * Leave the Environment section out. Set by `composeCacheablePrompt`, which
    * carries the date and time with the latest message instead.
    */
@@ -639,10 +668,14 @@ Anodex attaches the current date and time — and, when relevant, workspace stat
 export function composeCacheablePrompt(parts: SystemPromptParts): CacheablePrompt {
   if (parts.isolatedWriting) return { system: composeSystemPrompt(parts), turnContext: null }
 
+  // Routed examples leave the system prompt whichever way this message goes,
+  // so it stays the same from one message to the next.
+  const routedExamples = parts.commandExamples !== undefined
   const system = [
     composeSystemPrompt({
       ...parts,
       omitEnvironment: true,
+      commandExamples: routedExamples ? false : undefined,
       workspaceContext: null,
       memoryContext: null,
       transcriptRecallContext: null
@@ -650,8 +683,10 @@ export function composeCacheablePrompt(parts: SystemPromptParts): CacheablePromp
     TURN_CONTEXT_NOTE
   ].join('\n\n')
 
+  const examples = parts.commandExamples ? renderCommandExamplesSection(parts.computer) : null
   const sections = [
     renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone),
+    ...(examples ? [examples] : []),
     ...referenceSections(parts)
   ]
   return { system, turnContext: sections.join('\n\n') }
@@ -742,7 +777,9 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
     sections.push(renderCommitAttributionNote(parts.commitAttributionLine))
   }
   if (parts.runtime) sections.push(renderRuntimeSection(parts.runtime))
-  if (parts.computer) sections.push(renderComputerSection(parts.computer))
+  if (parts.computer) {
+    sections.push(renderComputerSection(parts.computer, parts.commandExamples !== false))
+  }
   if (!parts.omitEnvironment) {
     sections.push(renderEnvironmentSection(parts.now ?? new Date(), parts.timeZone))
   }

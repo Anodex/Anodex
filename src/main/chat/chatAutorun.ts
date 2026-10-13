@@ -80,6 +80,18 @@ interface ChatAutorunScript {
    * has explicitly nominated.
    */
   approveHumanGatedCalls?: string[]
+  /**
+   * Tool names this run refuses at the approval prompt, the way a person
+   * clicking Deny would. Setting it also puts the run in Ask mode, so every
+   * call to one of them reaches that prompt instead of auto-running.
+   *
+   * For measuring which tool a model reaches for without letting it act: a
+   * run asking "Name one fruit." to see whether the model answers or calls
+   * run_command should not then search the home folder for '*apple*'.
+   * `headlessConfirm` alone approves any command it does not judge
+   * destructive.
+   */
+  denyCalls?: string[]
 }
 
 const POLL_MS = 2000
@@ -99,10 +111,16 @@ async function driveChat(scriptPath: string): Promise<void> {
     if (approvable.size > 0) {
       log.warn('Human-approval gate stubbed for:', [...approvable].join(', '))
     }
-    const confirm: typeof headlessConfirm = (request) =>
-      request.requiresHumanApproval && approvable.has(request.toolName)
+    const denied = new Set(script.denyCalls ?? [])
+    if (denied.size > 0) log.info('Refusing at approval:', [...denied].join(', '))
+    const confirm: typeof headlessConfirm = (request) => {
+      if (denied.has(request.toolName)) {
+        return Promise.resolve({ approved: false, reason: 'The person declined this.' })
+      }
+      return request.requiresHumanApproval && approvable.has(request.toolName)
         ? Promise.resolve({ approved: true })
         : headlessConfirm(request)
+    }
 
     const settings = settingsStore.get()
     if (settings.provider.active === 'local') {
@@ -191,6 +209,9 @@ async function driveChat(scriptPath: string): Promise<void> {
         // naming `enabledTools` opts into a narrower set on purpose, which is
         // how the compaction script denies itself memory tools.
         enabledTools: script.enabledTools ? new Set(script.enabledTools) : undefined,
+        // A refusal only works if the call asks: in Full mode a read-only
+        // command runs without reaching `confirm` at all.
+        permissionModeOverride: denied.size > 0 ? 'ask' : undefined,
         confirm,
         onActivity: (call) => {
           calls.push(call.name)
