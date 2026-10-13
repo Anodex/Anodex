@@ -48,7 +48,9 @@ export function buildTranscriptRecallContext(
 
   const candidates = gatherCandidates(options.projectId, options.settings, options.query)
   const results = searchTranscripts(candidates, options.query, {
-    excludeConversationId: options.conversationId
+    excludeConversationId: options.conversationId,
+    // A past "I can't" is recalled as a reason to say it again.
+    skipCouldNotReplies: true
   })
   if (results.length === 0) return null
 

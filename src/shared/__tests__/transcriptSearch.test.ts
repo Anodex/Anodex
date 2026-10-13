@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../conversation.types'
 import type { ChatMessage } from '../chat.types'
-import { searchTranscripts } from '../transcriptSearch'
+import { saidItCouldNot, searchTranscripts } from '../transcriptSearch'
 
 function message(
   overrides: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'role' | 'content'>
@@ -284,5 +284,50 @@ describe('searchTranscripts', () => {
     const results = searchTranscripts(conversations, 'login redirect issue')
 
     expect(results[0].conversationId).toBe('newer')
+  })
+})
+
+/**
+ * A chat on a small window answered "I can't set that up directly"; the next
+ * two chats recalled that answer and repeated it, though the tool was by then
+ * in view. Recall leaves such replies out; search still finds them.
+ */
+describe('replies that said they could not', () => {
+  const past = conversation({
+    id: 'tavily',
+    title: 'Configure Tavily web search',
+    messages: [
+      message({ id: 'u', role: 'user', content: 'Set up Tavily web search for me' }),
+      message({
+        id: 'a',
+        role: 'assistant',
+        content:
+          "I can't set that up directly — I don't have a tool to configure Tavily web search."
+      })
+    ]
+  })
+
+  it('are recognised by how the reply opens', () => {
+    expect(saidItCouldNot({ role: 'assistant', content: "I can't set that up directly." })).toBe(
+      true
+    )
+    expect(saidItCouldNot({ role: 'assistant', content: 'I don’t have a tool for that.' })).toBe(
+      true
+    )
+    expect(saidItCouldNot({ role: 'assistant', content: "I'm unable to open it." })).toBe(true)
+    expect(saidItCouldNot({ role: 'assistant', content: 'Done. I set up Tavily.' })).toBe(false)
+    expect(saidItCouldNot({ role: 'user', content: "I can't find the setting" })).toBe(false)
+  })
+
+  it('are left out of recall, while the question is still recalled', () => {
+    const [result] = searchTranscripts([past], 'Set up Tavily web search', {
+      skipCouldNotReplies: true
+    })
+    expect(result.excerpts.map((excerpt) => excerpt.role)).toEqual(['user'])
+  })
+
+  it('are still found by search', () => {
+    const [result] = searchTranscripts([past], 'Tavily web search')
+    expect(result.excerpts.map((excerpt) => excerpt.role)).toContain('assistant')
   })
 })
