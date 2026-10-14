@@ -231,9 +231,10 @@ export interface GenerateParams {
   surface?: PromptSurface
   /**
    * Tools this turn offers only through the gateway (`find_available_tool`),
-   * whatever room there is — see `boundToolSurface`'s `alwaysDefer`. Set by
-   * `runGeneration` for a plain chat message that is not about the computer or
-   * the web; absent everywhere else.
+   * whatever room there is — see `boundToolSurface`'s `alwaysDefer`. `'all'`
+   * defers every tool. Set by `localChatToolsOnRequest` for a local model's
+   * plain chat message, from whether it is about the computer, the web or
+   * Anodex itself; absent everywhere else.
    */
   toolsOnRequest?: string[] | 'all'
   /**

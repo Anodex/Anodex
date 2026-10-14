@@ -1,5 +1,6 @@
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { expandHomeShorthand } from './homeShorthand'
 
 /** Folders a request may name by their everyday name instead of a path. */
 export type KnownFolders = Partial<
@@ -28,7 +29,8 @@ function normalize(value: string, platform: NodeJS.Platform): string {
 /**
  * Turn what the model asked for into one absolute folder, or say why not.
  *
- * Accepts an absolute path, `~/…`, or a path that starts with an everyday
+ * Accepts an absolute path, a home shorthand (`~/…`, `$HOME/…` — see
+ * `expandHomeShorthand`), or a path that starts with an everyday
  * folder name (`Desktop/minecraft`), resolved through the OS's own idea of
  * where that folder is, since a Desktop is not always `~/Desktop` (OneDrive
  * moves it on Windows; other languages rename it on Linux).
@@ -49,8 +51,9 @@ export function resolveRequestedFolder(
 
   const home = known.home ?? homedir()
   let target: string
-  if (raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\')) {
-    target = p.join(home, raw.slice(1))
+  const fromHome = expandHomeShorthand(raw, home, platform)
+  if (fromHome) {
+    target = fromHome
   } else if (p.isAbsolute(raw)) {
     target = raw
   } else {

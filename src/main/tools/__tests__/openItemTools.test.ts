@@ -95,7 +95,9 @@ describe('open_item', () => {
     const { tool } = open('untethered', null)
     expect(await tool.handler({ target: join(workspace, 'server') })).toContain('Opened')
     expect(await tool.handler({ target: '~' })).toContain('Opened')
-    expect(h.opened).toEqual([join(workspace, 'server'), homedir()])
+    // The shell's way of saying the same, which models write from habit.
+    expect(await tool.handler({ target: '$HOME' })).toContain('Opened')
+    expect(h.opened).toEqual([join(workspace, 'server'), homedir(), homedir()])
   })
 
   it('opens a document outside the project, but not a page a browser would run', async () => {

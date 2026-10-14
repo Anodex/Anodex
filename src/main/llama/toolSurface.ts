@@ -68,7 +68,8 @@ const MAX_SCHEMA_CHUNK_CHARS = 4_000
  * or Anodex itself. A small model reaches for whatever is in full view: with
  * the shell and web deferred, Llama 3.1 8B called `check_computer` for "What is
  * the capital of Australia?" and `anodex_status` for "Name a planet." on five
- * turns of seven. With only the gateway in view it answers in words, and the
+ * turns of seven. With only the gateway in view, described by what its tools
+ * are for (`ON_REQUEST_FIND_DESCRIPTION`), it answers in words, and the
  * catalog is still one `find_available_tool` away.
  */
 export type ToolDeferral = ReadonlySet<string> | 'all'

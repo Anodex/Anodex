@@ -1,9 +1,9 @@
 import { mkdir } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { app } from 'electron'
 import type { ToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
-import { resolveRequestedFolder, sameFolder, type KnownFolders } from './folderAccess'
+import { resolveRequestedFolder, sameFolder } from './folderAccess'
+import { readKnownFolders } from './knownFolders'
 import { projectStore } from '../projects/ProjectStore'
 
 /**
@@ -41,7 +41,7 @@ export const requestFolderAccessTool: ToolFactory = (define, ctx) =>
       required: ['path']
     } as const,
     handler: (args: { path: string; purpose?: string }) => {
-      const resolved = resolveRequestedFolder(args.path, knownFolders())
+      const resolved = resolveRequestedFolder(args.path, readKnownFolders())
       if (!resolved.ok) {
         return runReadTool(ctx, {
           name: 'request_folder_access',
@@ -90,20 +90,4 @@ function findProject(folder: string): { id: string; name: string } | undefined {
   return projectStore
     .getState()
     .projects.find((project) => !project.archived && sameFolder(project.folderPath, folder))
-}
-
-function knownFolders(): KnownFolders {
-  const read = (name: 'desktop' | 'documents' | 'downloads' | 'home'): string | undefined => {
-    try {
-      return app.getPath(name)
-    } catch {
-      return undefined
-    }
-  }
-  return {
-    home: read('home'),
-    desktop: read('desktop'),
-    documents: read('documents'),
-    downloads: read('downloads')
-  }
 }
