@@ -2,10 +2,11 @@ import { execFile } from 'node:child_process'
 import { accessSync, constants, statfsSync, statSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import os from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { formatBytes } from '@shared/format'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
+import { expandHomeShorthand } from './homeShorthand'
 
 /** A program name, not a path or a command line: nothing here runs what the model typed. */
 const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/
@@ -57,9 +58,7 @@ export const checkComputerTool: ToolFactory = (define, ctx) =>
             case 'port':
               return { modelResult: await checkPort(args.port) }
             case 'disk':
-              return {
-                modelResult: checkDisk(args.path?.trim() || ctx.workspaceRoot || os.homedir())
-              }
+              return checkDisk(diskPath(args.path, ctx.workspaceRoot))
             case 'system':
               return { modelResult: describeSystem() }
             default:
@@ -156,14 +155,38 @@ async function checkPort(port: number | undefined): Promise<string> {
     : `Port ${port} is not available (it is in use, or needs administrator rights to open).`
 }
 
-function checkDisk(path: string): string {
+/**
+ * The folder whose disk to measure. A home shorthand (`~`, `$HOME`...) means
+ * the home folder, and a relative path is read from the project, or from home
+ * when there is none — never from the app's own working directory, which is
+ * where `statfs` would otherwise resolve it and which means nothing to the
+ * person asking. Not confined to the workspace: this reads a disk's free space,
+ * nothing inside the folder.
+ */
+export function diskPath(
+  requested: string | undefined,
+  workspaceRoot: string | undefined,
+  home: string = os.homedir()
+): string {
+  const raw = requested?.trim().replace(/^["']|["']$/g, '') ?? ''
+  const base = workspaceRoot || home
+  if (!raw) return base
+  return resolve(base, expandHomeShorthand(raw, home) ?? raw)
+}
+
+function checkDisk(path: string): { modelResult: string; madeProgress?: false } {
   try {
     const stats = statfsSync(path)
     const free = Number(stats.bavail) * Number(stats.bsize)
     const total = Number(stats.blocks) * Number(stats.bsize)
-    return `${formatBytes(free)} free of ${formatBytes(total)} on the disk holding ${path}.`
+    return {
+      modelResult: `${formatBytes(free)} free of ${formatBytes(total)} on the disk holding ${path}.`
+    }
   } catch (error) {
-    return `Could not measure ${path}: ${error instanceof Error ? error.message : String(error)}`
+    return {
+      modelResult: `Could not measure ${path}: ${error instanceof Error ? error.message : String(error)}. Leave out "path" to measure the disk holding the home folder.`,
+      madeProgress: false
+    }
   }
 }
 

@@ -1,7 +1,8 @@
 import { createServer, type Server } from 'node:net'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkComputerTool, findOnPath } from '../computerCheckTools'
+import { checkComputerTool, diskPath, findOnPath } from '../computerCheckTools'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 type Args = {
@@ -66,5 +67,36 @@ describe('check_computer', () => {
 describe('findOnPath', () => {
   it('returns nothing for a program that is nowhere on PATH', () => {
     expect(findOnPath('definitely-not-here', { PATH: tmpdir() }, 'linux')).toBeNull()
+  })
+})
+
+describe('diskPath', () => {
+  const home = path.resolve('/home/sam')
+  const project = path.resolve('/work/site')
+
+  it('measures home for a home shorthand, as a shell would', () => {
+    // Gemma 4 E4B asked for "$HOME" and got a folder of that name inside the
+    // app's own directory.
+    expect(diskPath('$HOME', project, home)).toBe(home)
+    expect(diskPath('~', undefined, home)).toBe(home)
+    expect(diskPath('"%USERPROFILE%"', undefined, home)).toBe(home)
+  })
+
+  it('reads a relative path from the project, or from home without one', () => {
+    expect(diskPath('data', project, home)).toBe(path.join(project, 'data'))
+    expect(diskPath('Downloads', undefined, home)).toBe(path.join(home, 'Downloads'))
+  })
+
+  it('measures the project, or home, when no path is given', () => {
+    expect(diskPath(undefined, project, home)).toBe(project)
+    expect(diskPath('  ', undefined, home)).toBe(home)
+  })
+
+  it('keeps an absolute path as it is', () => {
+    expect(diskPath(tmpdir(), project, home)).toBe(tmpdir())
+  })
+
+  it('reports the real home folder for "$HOME" through the tool', async () => {
+    expect(await check({ check: 'disk', path: '$HOME' })).toContain(homedir())
   })
 })

@@ -16,6 +16,17 @@ const windows = {
 const winEnv = { SystemDrive: 'C:', SystemRoot: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }
 
 describe('resolveRequestedFolder', () => {
+  it('reads a shell-style home folder the way it reads ~', () => {
+    expect(resolveRequestedFolder('$HOME/projects/site', linux, 'linux')).toEqual({
+      ok: true,
+      path: '/home/sam/projects/site'
+    })
+    expect(resolveRequestedFolder('$env:USERPROFILE\\Projects', windows, 'win32', winEnv)).toEqual({
+      ok: true,
+      path: 'C:\\Users\\Sam\\Projects'
+    })
+  })
+
   it('names a folder from home, an everyday folder, or a full path', () => {
     expect(resolveRequestedFolder('~/projects/site', linux, 'linux')).toEqual({
       ok: true,
