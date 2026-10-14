@@ -31,6 +31,8 @@ export function describeComputer(
     startsIn: string
     /** Whether `check_computer` is switched on this turn: see `everydayCommands`. */
     checkComputer?: boolean
+    /** Whether `find_my_files` is switched on this turn: see `everydayCommands`. */
+    findMyFiles?: boolean
   } | null
 ): PromptComputer {
   const platform =
@@ -49,7 +51,10 @@ export function describeComputer(
     computer.shell = {
       name,
       startsIn: shell.startsIn,
-      howTo: everydayCommands(facts, name, shell.checkComputer === true)
+      howTo: everydayCommands(facts, name, {
+        checkComputer: shell.checkComputer === true,
+        findMyFiles: shell.findMyFiles === true
+      })
     }
   }
   return computer
@@ -347,11 +352,27 @@ function isPowerShell(name: string): boolean {
  * 8K window pays for each line. Only what differs by system and is asked for
  * in ordinary chat — opening, the clipboard, the Trash, installing.
  */
+/** Said ahead of the find-files example when find_my_files is on. */
+const FIND_MY_FILES_FIRST =
+  "A file of the person's, by its name or words in it, in Documents, Desktop, Downloads or OneDrive: find_my_files, which never needs approval. The command below is for anywhere else."
+
 /** Said instead of the free-space and installed-program examples when check_computer is on. */
 const CHECK_COMPUTER_FIRST =
   'Free space, whether a program is installed and which version, whether a port is free, and what this computer is: check_computer, not a command. It never needs the person to approve it.'
 
-function everydayCommands(facts: ComputerFacts, shell: string, checkComputer = false): string[] {
+function everydayCommands(
+  facts: ComputerFacts,
+  shell: string,
+  {
+    checkComputer = false,
+    findMyFiles = false
+  }: { checkComputer?: boolean; findMyFiles?: boolean } = {}
+): string[] {
+  // Likewise a file of the person's: "Find the file E2260028 in my Downloads."
+  // went through two approved Get-ChildItem commands and 139 s with Gemma 4
+  // E4B, where find_my_files needs no approval. The command stays for anywhere
+  // find_my_files does not look.
+  const findFirst = findMyFiles ? [FIND_MY_FILES_FIRST] : []
   // With `check_computer` on, free space and "is it installed, which version"
   // are its job and never a command's. Measured: "Is Node.js installed, and
   // which version?" sent Llama 3.1 8B and Gemma 4 E4B alike to run_command,
@@ -367,6 +388,7 @@ function everydayCommands(facts: ComputerFacts, shell: string, checkComputer = f
       // A placeholder, not a realistic name: measured on Windows, an 8B told
       // "an acre is 43560 square feet" ran this line exactly as written,
       // searching the whole home folder for '*budget*'.
+      ...findFirst,
       "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*<part of the name>*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
       ...machineFacts(
@@ -387,6 +409,7 @@ function everydayCommands(facts: ComputerFacts, shell: string, checkComputer = f
   // example: measured, an example written as find '<folder>' taught an 8B to
   // write find '~/Downloads', where the quotes stop ~ from meaning home.
   const posix = [
+    ...findFirst,
     "Find files by part of the name: find ~ -iname '*<part of the name>*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
     ...machineFacts(

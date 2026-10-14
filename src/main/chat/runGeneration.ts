@@ -758,7 +758,8 @@ export async function runGeneration(
         ? {
             command: resolveCommandShell(settings.general.defaultShell),
             startsIn: shellStartsIn,
-            checkComputer: toolOn('check_computer')
+            checkComputer: toolOn('check_computer'),
+            findMyFiles: toolOn('find_my_files')
           }
         : null
     ),

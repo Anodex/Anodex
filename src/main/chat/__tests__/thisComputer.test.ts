@@ -409,3 +409,20 @@ describe('machine facts come from check_computer when it is on', () => {
     })
   }
 })
+
+describe("the person's files come from find_my_files when it is on", () => {
+  // "Find the file E2260028 in my Downloads." went through two approved
+  // Get-ChildItem commands and 139 s with Gemma 4 E4B.
+  for (const platform of ['win32', 'darwin', 'linux'] as const) {
+    it(`points at find_my_files ahead of the find command on ${platform}`, () => {
+      const base = shell(platform === 'win32' ? 'powershell' : '/bin/bash')
+      const on = describeComputer(facts({ platform }), { ...base, findMyFiles: true })
+      const off = describeComputer(facts({ platform }), { ...base, findMyFiles: false })
+      const onLines = on.shell?.howTo ?? []
+      const find = onLines.findIndex((line) => line.startsWith('Find files by part of the name'))
+
+      expect(onLines[find - 1]).toContain('find_my_files')
+      expect((off.shell?.howTo ?? []).join('\n')).not.toContain('find_my_files')
+    })
+  }
+})
