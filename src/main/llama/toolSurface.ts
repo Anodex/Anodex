@@ -203,7 +203,7 @@ export function boundToolSurface(options: {
     return rank !== undefined && rank < minDirectTools
   }).length
   const floor = Math.min(loopToolsPresent, maxDirectTools, allNames.length)
-  const gateway = createDeferredToolGateway(define, allNames)
+  const gateway = createDeferredToolGateway(define, allNames, alwaysDefer === 'all')
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
 
@@ -407,7 +407,9 @@ export function rankToolNames(functions: Record<string, ToolFunction>): string[]
 
 function createDeferredToolGateway(
   define: DefineChatSessionFunction,
-  catalogNames: readonly string[]
+  catalogNames: readonly string[],
+  /** Every tool is deferred: see `ON_REQUEST_FIND_DESCRIPTION`. */
+  onRequestOnly = false
 ): Gateway {
   const deferred: DeferredToolBox = { current: {} }
   const defineGateway = define as unknown as (config: {
@@ -417,9 +419,10 @@ function createDeferredToolGateway(
   }) => ChatSessionModelFunction
 
   const find = defineGateway({
-    description:
-      'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool. ' +
-      describeCatalog(catalogNames),
+    description: onRequestOnly
+      ? ON_REQUEST_FIND_DESCRIPTION
+      : 'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool. ' +
+        describeCatalog(catalogNames),
     params: {
       type: 'object',
       properties: {
@@ -507,6 +510,25 @@ function createDeferredToolGateway(
  * is decided after this description is written, and a name the model can also
  * call natively is harmless to repeat.
  */
+/**
+ * What `find_available_tool` says when every tool is behind it — a local
+ * model's plain chat message about none of the computer, the web or Anodex.
+ *
+ * The usual description names the whole catalogue so nothing is invisible.
+ * On these turns that list is the problem: measured with Llama 3.1 8B, with
+ * every tool deferred but named, it went through the gateway for "What is 17
+ * times 23?" (`run_command`: `echo 17 * 23`), a discount sum (`fetch_url`,
+ * twice) and "Who wrote Romeo and Juliet?" (`find_skill`). So this says what
+ * the tools are for instead of what they are called, and that a question
+ * answered from knowledge needs none of them. They all stay reachable: a
+ * search by what is needed still finds them.
+ */
+const ON_REQUEST_FIND_DESCRIPTION =
+  'Search for a tool when the person asks you to act on this computer (files, apps, settings, the shell), ' +
+  'use the internet, or read or change Anodex itself (schedules, memory, mail, projects). Then call ' +
+  'describe_available_tool and call_available_tool. Not needed to answer from what you know, do ' +
+  'arithmetic, or write text: answer those directly.'
+
 function describeCatalog(catalogNames: readonly string[]): string {
   if (catalogNames.length === 0) return ''
   return `Every tool that exists, whether native or deferred: ${[...catalogNames].sort().join(', ')}.`

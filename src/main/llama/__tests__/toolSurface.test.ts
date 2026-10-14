@@ -298,6 +298,10 @@ describe('bounded tool surface', () => {
       argumentsJson: '{}'
     })
     expect(remember).toHaveBeenCalled()
+    // Named, the tools read as an invitation; a plain question needs none.
+    const find = result.functions.find_available_tool.description ?? ''
+    expect(find).not.toContain('check_computer')
+    expect(find).toContain('answer those directly')
   })
 
   it('changes nothing when the tools it would defer are not on the surface', () => {
