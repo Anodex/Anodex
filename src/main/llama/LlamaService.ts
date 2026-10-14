@@ -1882,7 +1882,20 @@ class LlamaService extends EventEmitter {
       // below rather than surfacing a confusing raw abort error.
       if (params.signal?.aborted || genController.signal.aborted) {
         if (nativeToolCheckpoint.requested) this.disposeSession()
-        log.info('Generation stopped by an abort signal')
+        // A stop the person did not ask for says where the turn's tokens went.
+        // Measured with Llama 3.1 8B on "Search my notes for the word budget.":
+        // 904 s, 1,199 tokens, nothing visible and no call completed, ended by
+        // the time limit, and the log could not say whether those tokens were a
+        // tool call that never closed or something else. Counts only.
+        const stopReason = currentStopReason()
+        if (stopReason && stopReason !== 'user') {
+          log.warn('Generation stopped by an abort signal', {
+            stopReason,
+            ...diagnostics.snapshot()
+          })
+        } else {
+          log.info('Generation stopped by an abort signal')
+        }
         return {
           content: visibleContent,
           stats: buildStats(tokenCount, startedAt),

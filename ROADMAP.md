@@ -50,16 +50,25 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   for … a fact", "Check facts about this computer" each drew the questions),
   and the example commands come only with a message that may be about the
   computer. Still fragile: one wording change elsewhere in the prompt brought
-  back four `echo` answers, which #382's guard catches. The invented path and
-  the send-to-phone ask are still to re-run.
+  back four `echo` answers, which #382's guard catches. Re-run on 0.19.2
+  (Windows, 2026-10-14): "Send <file> from my Downloads to my phone" found the
+  file and said to pair a phone or link email, with no shell command; "What does
+  my todo list say?" did not invent a path but presented a file that only
+  mentioned a todo as the list, which `find_my_files` now flags (#397).
   **0.19.1 (#391):** a plain local chat message about none of the computer, the
   web or Anodex now keeps every tool behind the gateway, and the gateway is
   described by purpose rather than by naming the catalogue. Fresh-chat suite on
   the Iris Xe laptop, 8 questions and sums plus 3 computer tasks: Llama 3.1 8B
   4/8 → 7/8 (7/8 without Anodex), Gemma 4 E4B 8/8 with no tool calls, computer
-  tasks still answered with the right tool. Llama still makes one stray gateway
-  call in about eight plain questions (a `fetch_url` for a discount sum); left
-  alone, because pushing further means tuning to one older model.
+  tasks still answered with the right tool. Llama still made the odd stray
+  gateway call, and the gateway's dead ends then sent it searching again; #397
+  answers those with "answer in your reply" on plain questions: 10/12 → 12/12
+  over three launches, with no minutes-long replies.
+- **A local tool call that never closes runs to the 15-minute limit.** Llama 3.1
+  8B, "Search my notes for the word budget.": 904 s, 1,199 tokens, nothing
+  visible, no call completed. #397 logs the turn's diagnostics when a limit stops
+  it; read them the next time it happens before choosing a guard (a parameter
+  length cap, or a no-visible-progress deadline).
 - ~~**"Fastest" ranks by file size, which misjudges per-layer-embedding models.**~~
   Fixed: `speedRankOf` reads the parameters a model computes with from its name
   (`E4B`, `30B-A3B`: `activeParametersB`), and on the Fastest card variety only

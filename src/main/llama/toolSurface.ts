@@ -431,7 +431,8 @@ function createDeferredToolGateway(
       },
       required: ['query']
     },
-    handler: (args) => findDeferredTools(deferred.current, stringArgument(args.query))
+    handler: (args) =>
+      findDeferredTools(deferred.current, stringArgument(args.query), onRequestOnly)
   })
 
   const describe = defineGateway({
@@ -453,7 +454,8 @@ function createDeferredToolGateway(
       describeDeferredTool(
         deferred.current,
         stringArgument(args.name),
-        nonNegativeIntegerArgument(args.offset)
+        nonNegativeIntegerArgument(args.offset),
+        onRequestOnly
       )
   })
 
@@ -475,7 +477,8 @@ function createDeferredToolGateway(
       callDeferredTool(
         deferred.current,
         stringArgument(args.name),
-        stringArgument(args.argumentsJson)
+        stringArgument(args.argumentsJson),
+        onRequestOnly
       )
   })
 
@@ -535,10 +538,16 @@ function describeCatalog(catalogNames: readonly string[]): string {
   return `Every tool that exists, whether native or deferred: ${[...catalogNames].sort().join(', ')}.`
 }
 
-function findDeferredTools(functions: Record<string, ToolFunction>, query: string): string {
+function findDeferredTools(
+  functions: Record<string, ToolFunction>,
+  query: string,
+  onRequestOnly = false
+): string {
   const terms = discoveryTerms(query)
   if (terms.length === 0) {
-    return 'No deferred tools matched. Name the specific object or domain you need, not only a generic action such as read, search, or list.'
+    return onRequestOnly
+      ? NOTHING_TO_LOOK_UP
+      : 'No deferred tools matched. Name the specific object or domain you need, not only a generic action such as read, search, or list.'
   }
   const ranked = Object.entries(functions)
     .map(([name, fn]) => {
@@ -556,7 +565,11 @@ function findDeferredTools(functions: Record<string, ToolFunction>, query: strin
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     .slice(0, 8)
 
-  if (ranked.length === 0) return 'No deferred tools matched. Try a broader capability query.'
+  if (ranked.length === 0) {
+    return onRequestOnly
+      ? NOTHING_TO_LOOK_UP
+      : 'No deferred tools matched. Try a broader capability query.'
+  }
   return ranked.map((item) => `${item.name} — ${item.description}`).join('\n')
 }
 
@@ -611,24 +624,44 @@ function discoveryWords(value: string): string[] {
  * `call_available_tool`, wrapped that call too and got the missing-tool error.
  * Anodex's own advice walked it into a dead end.
  */
-function explainUnknownDeferredTool(name: string): string {
+function explainUnknownDeferredTool(name: string, onRequestOnly = false): string {
   if ((GATEWAY_TOOL_NAMES as readonly string[]).includes(name)) {
     return (
       `"${name}" is one of the always-available gateway tools, not a deferred one. ` +
       'Call it directly rather than through call_available_tool.'
     )
   }
+  if (onRequestOnly) return `There is no tool named "${name}". ${NOTHING_TO_LOOK_UP}`
   return `No deferred tool named "${name}". Use find_available_tool first.`
 }
+
+/**
+ * What the gateway answers a dead end with when every tool is behind it: a
+ * local model's plain chat message about none of the computer, the web or
+ * Anodex.
+ *
+ * Its usual dead-end replies send the model searching again ("Try a broader
+ * capability query", "Use find_available_tool first"), and on these turns the
+ * search was never needed. Measured with Llama 3.1 8B on "Name one fruit.":
+ * it called `call_available_tool` with the name "Apple", was told to use
+ * `find_available_tool` first, and replied "The result of the last function
+ * call was: No deferred tool named "Apple"…" instead of the fruit; about one
+ * plain question in five in that run went that way. Like `checkPrintOnly` for
+ * the shell, this ends the loop with the one instruction that does: answer in
+ * the reply.
+ */
+const NOTHING_TO_LOOK_UP =
+  'No tool does that, and none is needed: answer the person directly in your reply, from what you know.'
 
 function describeDeferredTool(
   functions: Record<string, ToolFunction>,
   name: string,
-  offset: number
+  offset: number,
+  onRequestOnly = false
 ): string {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) return explainUnknownDeferredTool(name)
+  if (!tool) return explainUnknownDeferredTool(name, onRequestOnly)
   const parameters: unknown = tool.params
   const serialized = JSON.stringify(
     {
@@ -652,11 +685,12 @@ function describeDeferredTool(
 async function callDeferredTool(
   functions: Record<string, ToolFunction>,
   name: string,
-  argumentsJson: string
+  argumentsJson: string,
+  onRequestOnly = false
 ): Promise<unknown> {
   const resolvedName = resolveDeferredToolName(functions, name)
   const tool = functions[resolvedName]
-  if (!tool) throw new ToolGuidanceError(explainUnknownDeferredTool(name))
+  if (!tool) throw new ToolGuidanceError(explainUnknownDeferredTool(name, onRequestOnly))
 
   let args: unknown
   try {
