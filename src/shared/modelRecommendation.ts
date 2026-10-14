@@ -135,6 +135,9 @@ function bytesToGb(bytes: number): number {
 /** Smallest first, so a search from the top finds the strongest that fits. */
 const TIER_LADDER: ModelTier[] = ['1b', '3b', '7b', '14b', '32b', '70b']
 
+/** The rungs too big to recommend unless they fit in graphics memory. */
+const NEEDS_GPU: ReadonlySet<ModelTier> = new Set(['32b', '70b'])
+
 /**
  * The largest size class this machine can hold.
  *
@@ -164,10 +167,18 @@ const TIER_LADDER: ModelTier[] = ['1b', '3b', '7b', '14b', '32b', '70b']
  * constraint belongs to the size, not to one row of a list, so it lives here
  * now and is derived from the tier's own reference size rather than from a
  * number somebody typed.
+ *
+ * The 32B rung has the same requirement for the same reason. At 20 GB it is
+ * the 70B problem at half the size: measured on a 32 GB Windows laptop with
+ * no card, an 8B model was already slow to answer, and 32B is four times the
+ * bytes to read for every word. Every machine without graphics memory of its
+ * own tops out at 14B, which is the largest that still answers at a pace a
+ * person waits for.
  */
 export function pickTier(ramGb: number, gpuGb: number): ModelTier | null {
   const fits = TIER_LADDER.filter(
-    (tier) => ramGb >= tierMemory(tier).minRamGb && (tier !== '70b' || gpuGb >= tierSizeGb('70b'))
+    (tier) =>
+      ramGb >= tierMemory(tier).minRamGb && (!NEEDS_GPU.has(tier) || gpuGb >= tierSizeGb(tier))
   )
   return fits.length > 0 ? fits[fits.length - 1] : null
 }

@@ -4,7 +4,7 @@ import { contextPerJob, jobsThatFit } from '@shared/contextShare'
 import { app } from 'electron'
 import { PromptPrefixStore } from './promptWarmup'
 import { EventEmitter } from 'node:events'
-import { freemem, totalmem } from 'node:os'
+import { cpus, freemem, totalmem } from 'node:os'
 import { basename, join } from 'node:path'
 import type {
   Llama,
@@ -20,7 +20,12 @@ import type {
   Token
 } from 'node-llama-cpp'
 import { estimateTier } from '../models/huggingFaceCatalog'
-import { listGpuDevices, resolveGpuMemory } from './gpuDevices'
+import {
+  isAppleSilicon,
+  listGpuDevices,
+  recommendableGpuMemory,
+  resolveGpuMemory
+} from './gpuDevices'
 import { contextSizeFor } from '@shared/modelRecommendation'
 import type {
   EngineState,
@@ -2977,7 +2982,11 @@ class LlamaService extends EventEmitter {
       // system RAM — so on a machine with a card beside one, the aggregate
       // counts the same memory twice and reports the whole machine as unified.
       // See `resolveGpuMemory`; with no device listing this is the old reading.
-      const memory = resolveGpuMemory(devices, vram, gpuNames.length)
+      // Then read the way recommendations need it: see `recommendableGpuMemory`.
+      const memory = recommendableGpuMemory(
+        resolveGpuMemory(devices, vram, gpuNames.length),
+        isAppleSilicon(process.platform, process.arch, cpus()[0]?.model ?? '')
+      )
       return { gpuNames, vramBytes: memory.vramBytes, unified: memory.unified }
     } catch (error) {
       log.warn('Hardware probe failed:', error)

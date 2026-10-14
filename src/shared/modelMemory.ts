@@ -101,9 +101,13 @@ export function gpuMemoryGb(ramGb: number, vramGb: number, unified: boolean): nu
  * the toy model's favour, and it won Best Overall.
  *
  * System memory is discounted because it is never all available, and is
- * slower than a card besides.
+ * slower than a card besides. Without a card it is also capped at the 14B
+ * rung, the largest `pickTier` offers such a machine: the processor reads
+ * every byte of the model for every word, so on a 32 GB laptop "60% of RAM"
+ * made a 19 GB model look like a good use of a machine that answers slowly
+ * at 5 GB.
  */
 export function fastMemoryGb(ramGb: number, vramGb: number, unified: boolean): number {
   if (unified) return ramGb * 0.7
-  return vramGb >= 4 ? vramGb : ramGb * 0.6
+  return vramGb >= 4 ? vramGb : Math.min(ramGb * 0.6, tierSizeGb('14b'))
 }
