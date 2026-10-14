@@ -1,12 +1,14 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants, statfsSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import os from 'node:os'
-import { delimiter, join, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { formatBytes } from '@shared/format'
 import type { ToolFactory } from './types'
 import { runReadTool } from './helpers'
+import type { KnownFolders } from './folderAccess'
 import { expandHomeShorthand } from './homeShorthand'
+import { readKnownFolders } from './knownFolders'
 
 /** A program name, not a path or a command line: nothing here runs what the model typed. */
 const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/
@@ -58,7 +60,7 @@ export const checkComputerTool: ToolFactory = (define, ctx) =>
             case 'port':
               return { modelResult: await checkPort(args.port) }
             case 'disk':
-              return checkDisk(diskPath(args.path, ctx.workspaceRoot))
+              return checkDisk(diskPath(args.path, ctx.workspaceRoot, readKnownFolders()))
             case 'system':
               return { modelResult: describeSystem() }
             default:
@@ -156,27 +158,60 @@ async function checkPort(port: number | undefined): Promise<string> {
 }
 
 /**
- * The folder whose disk to measure. A home shorthand (`~`, `$HOME`...) means
- * the home folder, and a relative path is read from the project, or from home
- * when there is none — never from the app's own working directory, which is
- * where `statfs` would otherwise resolve it and which means nothing to the
- * person asking. Not confined to the workspace: this reads a disk's free space,
- * nothing inside the folder.
+ * The folder whose disk to measure, read the way a person names one.
+ *
+ * - A home shorthand (`~`, `$HOME`...) means the home folder.
+ * - A path starting with an everyday folder (`Documents`, `Downloads/old`)
+ *   means that folder where this computer keeps it, as `request_folder_access`
+ *   reads it.
+ * - Anything else relative is read from the project, or from home without one.
+ *
+ * Never from the app's own working directory, which is where `statfs` would
+ * otherwise resolve it. Measured with Gemma 4 E4B: "$HOME" became a folder of
+ * that name inside the app, and "the drive my Documents folder is on" became
+ * `Documents\Documents`, because a plain chat's working folder is Documents.
+ * Not confined to the workspace: this reads a disk's free space, nothing inside
+ * the folder.
  */
 export function diskPath(
   requested: string | undefined,
   workspaceRoot: string | null | undefined,
-  home: string = os.homedir()
+  known: KnownFolders = {}
 ): string {
+  const home = known.home ?? os.homedir()
   const raw = requested?.trim().replace(/^["']|["']$/g, '') ?? ''
   const base = workspaceRoot || home
   if (!raw) return base
-  return resolve(base, expandHomeShorthand(raw, home) ?? raw)
+  const fromHome = expandHomeShorthand(raw, home)
+  if (fromHome) return fromHome
+  if (isAbsolute(raw)) return resolve(raw)
+  const [first, ...rest] = raw.split(/[\\/]/)
+  const everyday = EVERYDAY_FOLDERS.has(first.toLowerCase())
+    ? known[first.toLowerCase() as keyof KnownFolders]
+    : undefined
+  return everyday ? join(everyday, ...rest) : resolve(base, raw)
+}
+
+const EVERYDAY_FOLDERS: ReadonlySet<string> = new Set(['desktop', 'documents', 'downloads'])
+
+/**
+ * The deepest part of `path` that exists. Free space belongs to the disk, so a
+ * folder not made yet ("is there room for it in Downloads/new-game?") is
+ * answered by the disk it would be made on rather than refused.
+ */
+function nearestExisting(path: string): string {
+  let current = path
+  while (!existsSync(current)) {
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return current
 }
 
 function checkDisk(path: string): { modelResult: string; madeProgress?: false } {
   try {
-    const stats = statfsSync(path)
+    const stats = statfsSync(nearestExisting(path))
     const free = Number(stats.bavail) * Number(stats.bsize)
     const total = Number(stats.blocks) * Number(stats.bsize)
     return {

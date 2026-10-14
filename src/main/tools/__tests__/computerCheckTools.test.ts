@@ -73,30 +73,49 @@ describe('findOnPath', () => {
 describe('diskPath', () => {
   const home = path.resolve('/home/sam')
   const project = path.resolve('/work/site')
+  // OneDrive's Documents, which is not under home: the lookup has to win.
+  const known = { home, documents: path.resolve('/cloud/Documents') }
 
   it('measures home for a home shorthand, as a shell would', () => {
     // Gemma 4 E4B asked for "$HOME" and got a folder of that name inside the
     // app's own directory.
-    expect(diskPath('$HOME', project, home)).toBe(home)
-    expect(diskPath('~', undefined, home)).toBe(home)
-    expect(diskPath('"%USERPROFILE%"', undefined, home)).toBe(home)
+    expect(diskPath('$HOME', project, known)).toBe(home)
+    expect(diskPath('~', undefined, known)).toBe(home)
+    expect(diskPath('"%USERPROFILE%"', undefined, known)).toBe(home)
   })
 
-  it('reads a relative path from the project, or from home without one', () => {
-    expect(diskPath('data', project, home)).toBe(path.join(project, 'data'))
-    expect(diskPath('Downloads', undefined, home)).toBe(path.join(home, 'Downloads'))
+  it('reads an everyday folder where this computer keeps it', () => {
+    // A plain chat works in Documents, so "Documents" read from there was
+    // Documents/Documents.
+    expect(diskPath('Documents', known.documents, known)).toBe(known.documents)
+    expect(diskPath('documents/taxes', undefined, known)).toBe(path.join(known.documents, 'taxes'))
+  })
+
+  it('reads any other relative path from the project, or from home without one', () => {
+    expect(diskPath('data', project, known)).toBe(path.join(project, 'data'))
+    // Downloads is not in `known` here, so it is an ordinary name.
+    expect(diskPath('Downloads', undefined, known)).toBe(path.join(home, 'Downloads'))
   })
 
   it('measures the project, or home, when no path is given', () => {
-    expect(diskPath(undefined, project, home)).toBe(project)
-    expect(diskPath('  ', undefined, home)).toBe(home)
+    expect(diskPath(undefined, project, known)).toBe(project)
+    expect(diskPath('  ', undefined, known)).toBe(home)
   })
 
   it('keeps an absolute path as it is', () => {
-    expect(diskPath(tmpdir(), project, home)).toBe(tmpdir())
+    expect(diskPath(tmpdir(), project, known)).toBe(tmpdir())
+  })
+})
+
+describe('check_computer disk', () => {
+  it('reports the real home folder for "$HOME"', async () => {
+    expect(await check({ check: 'disk', path: '$HOME' })).toContain(homedir())
   })
 
-  it('reports the real home folder for "$HOME" through the tool', async () => {
-    expect(await check({ check: 'disk', path: '$HOME' })).toContain(homedir())
+  it('measures the disk a folder not made yet would be on', async () => {
+    const future = path.join(tmpdir(), 'anodex-not-made-yet', 'game')
+    expect(await check({ check: 'disk', path: future })).toMatch(
+      /free of .+ on the disk holding .+anodex-not-made-yet/
+    )
   })
 })
