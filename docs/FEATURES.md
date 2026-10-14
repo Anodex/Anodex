@@ -89,6 +89,12 @@ Why it is good:
   graphics that took a new chat from about 40 s to 4–10 s before the first word on
   Llama 3.1 8B, and from about 36 s to 18 s on the hybrid Qwen3.6-14B-A3B, which
   can only resume from a saved snapshot.
+- The first chat after Anodex starts is quick too. A text model that has just
+  loaded reads those shared instructions in the background, from the last ones
+  used with it, and steps aside the moment a message is sent. On the same laptop
+  the first chat after launch went from about 25 s to 2.6 s before the first word,
+  when the message came a typical twenty seconds after opening. Typing straight
+  away is no slower than before.
 - Stop works while a local model is still reading a new chat's prompt, and quitting
   then exits cleanly, including right after a reply while its title and follow-up
   suggestion are being written. Prompts are read in short pieces with a check for

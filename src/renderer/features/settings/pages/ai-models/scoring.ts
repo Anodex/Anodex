@@ -2,6 +2,7 @@ import type { ModelInfo } from '@shared/model.types'
 import type { HardwareInfo } from '@shared/system.types'
 import type { RecommendedModel } from '@shared/recommendedModels'
 import { recommendedModelFileName } from '@shared/recommendedModels'
+import { activeParametersB, tierForParametersB } from '@shared/activeParameters'
 import { contextSizeFor, isModelHardwareCompatible, pickTier } from '@shared/modelRecommendation'
 import { fastMemoryGb as sharedFastMemoryGb, gpuMemoryGb } from '@shared/modelMemory'
 import type { ModelReliabilityRecord } from '@shared/modelReliability.types'
@@ -164,15 +165,6 @@ export function hardwareFitLabel(hardware: HardwareInfo): string {
 }
 
 /**
- * Ranking score used to pick and order recommended-model slots. Deliberately
- * unclamped — clamping here (rather than only at display time) caused ties
- * between models that comfortably fit but differ meaningfully in capability
- * (e.g. a 3B and a 32B model both saturating at 100), which made "Best
- * Coding" pick whichever tied model happened to sit first in the catalog
- * array instead of the actually stronger one. Clamp only when rendering a
- * badge via `clampScore`.
- */
-/**
  * What a model of this size is worth when nobody has rated it.
  *
  * A hand-curated entry carries measured `qualityRank`/`speedRank`; a live
@@ -203,10 +195,28 @@ export function qualityRankOf(model: RecommendedModel): number {
   return model.qualityRank ?? TIER_PRIOR[model.tier].quality
 }
 
+/**
+ * How fast a model answers, 1-10. A hand-rated `speedRank` wins; otherwise the
+ * prior for the size class it *computes* like, which is its file's class unless
+ * its name states fewer working parameters (`E4B`, `30B-A3B`: see
+ * `activeParametersB`). Quality stays with the file's class, since a model's
+ * knowledge is in everything it stores.
+ */
 export function speedRankOf(model: RecommendedModel): number {
-  return model.speedRank ?? TIER_PRIOR[model.tier].speed
+  if (model.speedRank !== undefined) return model.speedRank
+  const active = activeParametersB(`${model.id} ${model.name}`)
+  return TIER_PRIOR[active === null ? model.tier : tierForParametersB(active)].speed
 }
 
+/**
+ * Ranking score used to pick and order recommended-model slots. Deliberately
+ * unclamped — clamping here (rather than only at display time) caused ties
+ * between models that comfortably fit but differ meaningfully in capability
+ * (e.g. a 3B and a 32B model both saturating at 100), which made "Best
+ * Coding" pick whichever tied model happened to sit first in the catalog
+ * array instead of the actually stronger one. Clamp only when rendering a
+ * badge via `clampScore`.
+ */
 export function scoreRecommendedModel(
   model: RecommendedModel,
   hardware: HardwareInfo | null,
@@ -272,22 +282,6 @@ export function modelSizeGb(model: RecommendedModel): number {
 }
 
 /**
- * How well a model uses the machine it would run on.
- *
- * "The best model for this computer" is not "a model this computer can open".
- * The score used to reward headroom — how much memory was left over — which
- * says a 1GB model on a 24GB graphics card is an excellent fit, and it was: on
- * a machine with 63GB of memory and a 24GB card, Anodex recommended a
- * two-billion-parameter model over the twenty-seven-billion one the machine
- * runs every day, because the small one left more room.
- *
- * What counts is the memory a model can actually run *fast* in: the graphics
- * card where there is one, shared memory on an Apple machine, and otherwise
- * system memory, which is slower and never all available. A model should fill
- * that and not much more — spilling past it means running partly on the CPU,
- * which works and crawls.
- */
-/**
  * {@link sharedFastMemoryGb} for a detected machine.
  *
  * The rule itself lives in `shared/modelMemory` because the tier ladder needs
@@ -303,6 +297,22 @@ export function fastMemoryGb(hardware: HardwareInfo): number {
   )
 }
 
+/**
+ * How well a model uses the machine it would run on.
+ *
+ * "The best model for this computer" is not "a model this computer can open".
+ * The score used to reward headroom — how much memory was left over — which
+ * says a 1GB model on a 24GB graphics card is an excellent fit, and it was: on
+ * a machine with 63GB of memory and a 24GB card, Anodex recommended a
+ * two-billion-parameter model over the twenty-seven-billion one the machine
+ * runs every day, because the small one left more room.
+ *
+ * What counts is the memory a model can actually run *fast* in: the graphics
+ * card where there is one, shared memory on an Apple machine, and otherwise
+ * system memory, which is slower and never all available. A model should fill
+ * that and not much more — spilling past it means running partly on the CPU,
+ * which works and crawls.
+ */
 function usesTheMachine(model: RecommendedModel, hardware: HardwareInfo): number {
   // A graphics card only decides this when there is enough of it to hold a
   // model worth running. Below `recommendModel`'s own four-gigabyte bar the
@@ -414,15 +424,28 @@ export function buildRecommendedSlots(
    * score," so e.g. "Best Coding" could lose its top pick and fall back to a
    * non-coding model, and "Large Context" could fall back to a model that
    * doesn't actually have the largest context on this hardware.)
+   *
+   * A family already on another card is passed over for one that is not, so
+   * the strip offers a choice. `criterion`, when a slot's label is a claim
+   * ("Fastest"), confines that to candidates equal to its top pick on it:
+   * variety may decide a tie, never make the claim false. Without it, Fastest
+   * on a 32 GB laptop skipped Gemma 4 E4B, already represented by another
+   * Gemma, for Llama 3.1 8B, which answered the same questions more slowly.
    */
   const take = (
     id: string,
     label: string,
     note: string,
-    rank: () => RecommendedModel[]
+    rank: () => RecommendedModel[],
+    criterion?: (model: RecommendedModel) => number
   ): RecommendedSlot | null => {
     const unused = rank().filter((candidate) => !used.has(candidate.id))
-    const model = unused.find((candidate) => !usedFamilies.has(candidate.family)) ?? unused[0]
+    const best = unused[0]
+    const peers =
+      criterion && best
+        ? unused.filter((candidate) => criterion(candidate) === criterion(best))
+        : unused
+    const model = peers.find((candidate) => !usedFamilies.has(candidate.family)) ?? best
     if (!model) return null
     used.add(model.id)
     usedFamilies.add(model.family)
@@ -508,7 +531,8 @@ export function buildRecommendedSlots(
     () =>
       [...speedCandidates]
         .sort((a, b) => speedRankOf(b.model) - speedRankOf(a.model) || b.score - a.score)
-        .map((entry) => entry.model)
+        .map((entry) => entry.model),
+    speedRankOf
   )
 
   const largeContext = take(

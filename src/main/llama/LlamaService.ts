@@ -3,6 +3,7 @@ import type { PromptReadingProgress } from '@shared/chat.types'
 import { contextPerJob, jobsThatFit } from '@shared/contextShare'
 import { app } from 'electron'
 import { PromptPrefixStore } from './promptWarmup'
+import { TextPromptPrefixStore, type TextPromptPrefix } from './textPromptPrefix'
 import { EventEmitter } from 'node:events'
 import { cpus, freemem, totalmem } from 'node:os'
 import { basename, join } from 'node:path'
@@ -495,6 +496,16 @@ class LlamaService extends EventEmitter {
    * `readPromptAhead`. Replaced with a fresh one each time.
    */
   private sideWork = new AbortController()
+  /** Where a text model's shared opening is kept for {@link warmUpTextPrompt}. */
+  private readonly textPromptPrefixes = new TextPromptPrefixStore(() =>
+    join(app.getPath('userData'), 'text-prompt-prefix.json')
+  )
+  /**
+   * The read-ahead a freshly loaded text model runs in the background, while it
+   * runs. A reply aborts it before taking the model, so somebody who types
+   * straight away is never queued behind it; what it already read stays read.
+   */
+  private textWarmUp: AbortController | null = null
 
   private status: EngineState['status'] = 'unloaded'
   /** What the hardware could support for the loaded model — see `EngineState`. */
@@ -590,12 +601,14 @@ class LlamaService extends EventEmitter {
       generating: this.generating || this.visionJobs > 0,
       parallelJobs: this.modelLock.capacity,
       activeReplies: this.visionJobs + (this.generating ? 1 : 0),
-      contextTokensUsed: this.sessionAwaitingFirstPrompt
-        ? undefined
-        : this.contextSequence?.nextTokenIndex,
-      contextTokensConversationId: this.sessionAwaitingFirstPrompt
-        ? undefined
-        : this.activeConversationId
+      // No session means no conversation's tokens: after a load the sequence
+      // holds only `warmUpTextPrompt`'s shared opening.
+      contextTokensUsed:
+        this.sessionAwaitingFirstPrompt || !this.session
+          ? undefined
+          : this.contextSequence?.nextTokenIndex,
+      contextTokensConversationId:
+        this.sessionAwaitingFirstPrompt || !this.session ? undefined : this.activeConversationId
     }
   }
 
@@ -656,6 +669,7 @@ class LlamaService extends EventEmitter {
       release()
     }
     if (this.visionService.active) void this.warmUpPromptCache(info.path)
+    else if (this.model) void this.warmUpTextPrompt(info.path)
     return state
   }
 
@@ -681,6 +695,96 @@ class LlamaService extends EventEmitter {
         release()
       }
     }
+  }
+
+  /**
+   * Have a freshly loaded text model read the opening its conversations share,
+   * in the background, so the first message after a load does not pay for it.
+   *
+   * The opening is the one the last conversation read with this model
+   * (`rememberTextPrompt`), rendered the way a new chat renders it — the same
+   * chat wrapper and tool documentation — and read in the same stoppable pieces
+   * as `readPromptAhead`, with the same checkpoints on a hybrid model. A new
+   * chat's prompt then matches it up to its own message, which is all it reads.
+   * A remembered opening that has since changed costs only the part that
+   * differs: the real turn trims back to what still matches.
+   *
+   * Steps aside rather than queueing anybody: a reply aborts it before taking
+   * the model (`generate`), and an unload does through `sideWork`. It never
+   * starts once a conversation has a session, since that conversation has
+   * already read its own opening.
+   *
+   * Never throws: a failed warm-up costs one slow first message, nothing more.
+   */
+  private async warmUpTextPrompt(modelPath: string): Promise<void> {
+    const prefix = this.textPromptPrefixes.load(modelPath)
+    if (!prefix) return
+    const controller = new AbortController()
+    this.textWarmUp = controller
+    const signal = AbortSignal.any([controller.signal, this.sideWork.signal])
+    const release = await this.modelLock.acquire()
+    let session: LlamaChatSession | undefined
+    try {
+      const sequence = this.contextSequence
+      if (signal.aborted || this.currentModel?.path !== modelPath || this.session || !sequence) {
+        return
+      }
+      const nlc = await this.getModule()
+      const chatWrapper = this.toolCallingWrapper(nlc)
+      session = new nlc.LlamaChatSession({
+        contextSequence: sequence,
+        systemPrompt: prefix.systemPrompt,
+        ...(chatWrapper ? { chatWrapper: chatWrapper as never } : {})
+      })
+      const started = Date.now()
+      await this.readPromptAhead({
+        session,
+        sequence,
+        prompt: PREFIX_PROBE_MESSAGES[0],
+        functions: prefix.functions as Record<string, ToolFunction> | undefined,
+        signal,
+        snapshots: true
+      })
+      log.info('Read the shared opening ahead after load', {
+        modelPath,
+        tokens: sequence.nextTokenIndex,
+        ms: Date.now() - started,
+        stopped: signal.aborted
+      })
+    } catch (error) {
+      log.warn('Could not read the shared opening after load:', error)
+    } finally {
+      session?.dispose()
+      release()
+      if (this.textWarmUp === controller) this.textWarmUp = null
+    }
+  }
+
+  /**
+   * Keep the opening a conversation is about to read, for the next load's
+   * {@link warmUpTextPrompt}. Tool handlers are dropped: rendering the prompt
+   * needs only what is documented.
+   */
+  private rememberTextPrompt(
+    session: LlamaChatSession,
+    functions: Record<string, ToolFunction> | undefined
+  ): void {
+    const modelPath = this.currentModel?.path
+    const system = session.getChatHistory()[0]
+    if (!modelPath || system?.type !== 'system' || typeof system.text !== 'string') return
+    const documented: TextPromptPrefix['functions'] = functions
+      ? Object.fromEntries(
+          Object.entries(functions).map(([name, fn]) => [
+            name,
+            { description: fn.description, params: fn.params as unknown }
+          ])
+        )
+      : undefined
+    this.textPromptPrefixes.save({
+      modelPath,
+      systemPrompt: system.text,
+      ...(documented ? { functions: documented } : {})
+    })
   }
 
   /** The body of {@link loadModel}, run with the model lock already held. */
@@ -952,6 +1056,9 @@ class LlamaService extends EventEmitter {
    * race the underlying runtime (see {@link modelLock}).
    */
   async generate(params: GenerateParams): Promise<GenerateOutcome> {
+    // A reply never waits behind the load-time read-ahead: what it has read
+    // stays read, and this turn reads the rest itself, stoppably.
+    this.textWarmUp?.abort()
     const release = await this.acquireModelLock()
     try {
       return await this.generateInternal(params)
@@ -1366,6 +1473,7 @@ class LlamaService extends EventEmitter {
       // in pieces it can be stopped between, rather than inside the first
       // round where nothing can stop it.
       if (this.sessionAwaitingFirstPrompt) {
+        this.rememberTextPrompt(session, functions)
         await this.readPromptAhead({
           session,
           sequence: this.contextSequence,
