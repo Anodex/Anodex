@@ -125,6 +125,43 @@ export function resolveGpuMemory(
   }
 }
 
+/**
+ * Graphics memory as model recommendations should read it.
+ *
+ * `resolveGpuMemory` answers "is this memory shared with the system", and an
+ * Intel or AMD laptop's integrated graphics answers yes, the same as Apple
+ * Silicon. Everything that recommends a model reads `unified` as Apple's
+ * kind: a graphics processor with the bandwidth to run a large model out of
+ * system memory. A laptop's integrated chip does not have it, so treating it
+ * that way offered a 32 GB Windows laptop with Iris Xe graphics a 32B-class
+ * model — 20 GB that would answer at a word or two a second.
+ *
+ * So off Apple Silicon a shared pool is reported as no graphics memory at all,
+ * and the machine is judged on its system RAM like any other without a card.
+ * Its memory is already counted there, which is also why the integrated
+ * chip's own figure is dropped rather than read as a card's. This changes
+ * nothing about how a model loads: llama.cpp still offloads to whatever device
+ * it finds.
+ */
+export function recommendableGpuMemory(
+  memory: { vramBytes: number | null; unified: boolean },
+  appleSilicon: boolean
+): { vramBytes: number | null; unified: boolean } {
+  if (!memory.unified || appleSilicon) {
+    return { vramBytes: memory.vramBytes, unified: memory.unified }
+  }
+  return { vramBytes: null, unified: false }
+}
+
+/**
+ * An Apple Silicon Mac, including an x64 build running under Rosetta (which
+ * reports `x64` but an Apple processor). An Intel Mac with integrated
+ * graphics is the case this exists to exclude.
+ */
+export function isAppleSilicon(platform: string, arch: string, cpuModel: string): boolean {
+  return platform === 'darwin' && (arch === 'arm64' || /^Apple\b/.test(cpuModel.trim()))
+}
+
 let cached: Promise<GpuDevice[]> | null = null
 
 /**

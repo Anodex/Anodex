@@ -92,17 +92,32 @@ describe('recommendModel', () => {
     expect(rec.rationale).toContain('comfortably')
   })
 
-  it('withholds the 70B rung from a machine with no graphics memory', () => {
-    // It loads on a large enough machine and produces a couple of tokens a
+  it('withholds the 32B and 70B rungs from a machine with no graphics memory', () => {
+    // They load on a large enough machine and produce a couple of tokens a
     // second, which is not a recommendation.
     const huge = tierMemory('70b').idealRamGb * 2
     expect(recommendModel({ ramBytes: huge * GB, vramBytes: null, unified: false }).tier).toBe(
+      '14b'
+    )
+    expect(recommendModel({ ramBytes: huge * GB, vramBytes: 24 * GB, unified: false }).tier).toBe(
       '32b'
     )
     expect(recommendModel({ ramBytes: huge * GB, vramBytes: 48 * GB, unified: false }).tier).toBe(
       '70b'
     )
     expect(recommendModel({ ramBytes: huge * GB, vramBytes: null, unified: true }).tier).toBe('70b')
+  })
+
+  /**
+   * A 32 GB Windows laptop with Iris Xe graphics, as it was offered a
+   * 32B-class model: integrated graphics read as unified memory. The probe now
+   * reports it as no graphics memory (`recommendableGpuMemory`), and on that
+   * reading the laptop gets the largest rung a processor runs.
+   */
+  it('offers a 32 GB laptop without a card 14B, not 32B', () => {
+    expect(recommendModel({ ramBytes: 31.7 * GB, vramBytes: null, unified: false }).tier).toBe(
+      '14b'
+    )
   })
 
   it('always uses auto GPU offload', () => {

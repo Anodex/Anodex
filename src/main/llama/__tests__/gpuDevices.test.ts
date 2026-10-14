@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseDeviceList, resolveGpuMemory } from '../gpuDevices'
+import {
+  isAppleSilicon,
+  parseDeviceList,
+  recommendableGpuMemory,
+  resolveGpuMemory
+} from '../gpuDevices'
 
 const GB = 1024 ** 3
 const MIB = 1024 * 1024
@@ -124,5 +129,37 @@ describe('resolveGpuMemory', () => {
     // `null` means unknown and callers treat it as such; `0` would read as a
     // machine with a GPU that has no memory.
     expect(resolveGpuMemory([], null)).toMatchObject({ vramBytes: null, unified: false })
+  })
+})
+
+describe('recommendableGpuMemory', () => {
+  const shared = { vramBytes: 16 * GB, unified: true }
+
+  it("keeps Apple Silicon's unified memory", () => {
+    expect(recommendableGpuMemory(shared, true)).toEqual(shared)
+  })
+
+  it("reports a PC's integrated graphics as no graphics memory", () => {
+    // Its memory is system RAM, already counted; read as a card it would be
+    // counted twice, and read as unified it would be Apple's kind.
+    expect(recommendableGpuMemory(shared, false)).toEqual({ vramBytes: null, unified: false })
+  })
+
+  it('leaves a graphics card alone', () => {
+    const card = { vramBytes: 8 * GB, unified: false }
+    expect(recommendableGpuMemory(card, false)).toEqual(card)
+  })
+})
+
+describe('isAppleSilicon', () => {
+  it('knows an Apple Mac, natively and under Rosetta', () => {
+    expect(isAppleSilicon('darwin', 'arm64', 'Apple M2')).toBe(true)
+    expect(isAppleSilicon('darwin', 'x64', 'Apple M1 Pro')).toBe(true)
+  })
+
+  it('is not fooled by an Intel Mac or an ARM PC', () => {
+    expect(isAppleSilicon('darwin', 'x64', 'Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz')).toBe(false)
+    expect(isAppleSilicon('win32', 'arm64', 'Snapdragon(R) X Elite')).toBe(false)
+    expect(isAppleSilicon('linux', 'arm64', '')).toBe(false)
   })
 })
