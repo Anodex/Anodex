@@ -504,6 +504,18 @@ gh api repos/Anodex/Anodex/releases --jq \
 More than one line means a duplicate; consolidate onto the one
 `/releases/latest` resolves to and delete the other.
 
+**No line at all can mean the release lost its tag.** v0.19.1 published green,
+with every file attached, as `untagged-ec31f695…`: its notes and title had been
+edited onto the draft through the API, and the published release came out
+detached from `v0.19.1`, so `/releases/latest` went on returning 0.19.0 and no
+install was offered anything. Check `/releases/latest` names the new tag, not
+just that the workflow passed. Re-attaching is one call, and the tag must
+already exist:
+
+```bash
+gh api -X PATCH repos/Anodex/Anodex/releases/<id> -f tag_name=vX.Y.Z
+```
+
 ## Security notes
 
 - Never expose Node/Electron APIs directly to the renderer. Use the typed preload
