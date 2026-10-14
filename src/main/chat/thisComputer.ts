@@ -151,11 +151,129 @@ const COMPUTER_WORDS = new RegExp(
       'pip',
       'winget',
       'brew',
-      'apt'
+      'apt',
+      // Everyday asks that name no file or program word, found once this list
+      // began deciding which tools a turn sees rather than only its examples.
+      'kill',
+      'close',
+      'quit',
+      'uptime',
+      '(?:un)?mute',
+      'volume',
+      'sound',
+      'brightness',
+      'shut ?down',
+      'restart',
+      'reboot'
     ].join('|') +
     ')\\b',
   'i'
 )
+
+/**
+ * Whether a chat message may need something from the web — a page, a search,
+ * anything current — so the turn should keep the web tools in full view.
+ *
+ * Generous for the same reason as `mayConcernThisComputer`: a match only keeps
+ * things as they were, and a miss still reaches the web tools through the
+ * gateway (`find_available_tool`), just one step later. Measured on Windows with
+ * Llama 3.1 8B, the miss it exists to prevent: "Who wrote Romeo and Juliet?"
+ * fetched a web page before answering a fact it already knew.
+ */
+export function mayNeedTheWeb(messages: string[]): boolean {
+  return messages.some((message) => WEB_WORDS.test(message) || URL_LIKE.test(message))
+}
+
+const WEB_WORDS = new RegExp(
+  '\\b(?:' +
+    [
+      'web',
+      'websites?',
+      'sites?',
+      'pages?',
+      'links?',
+      'urls?',
+      'online',
+      'internet',
+      'search',
+      'google',
+      'look(?:ing)? (?:it )?up',
+      'lookup',
+      'browse',
+      'latest',
+      'news',
+      'today',
+      'tonight',
+      'yesterday',
+      'tomorrow',
+      'this (?:week|month|year)',
+      'current(?:ly)?',
+      'recent(?:ly)?',
+      'right now',
+      'nowadays',
+      'prices?',
+      'stocks?',
+      'weather',
+      'forecast',
+      'scores?',
+      'who won',
+      'released?',
+      'download',
+      'sources?',
+      'cite',
+      'research',
+      '20[2-9]\\d'
+    ].join('|') +
+    ')\\b',
+  'i'
+)
+
+/**
+ * Whether a chat message may be about Anodex's own state — its schedules,
+ * projects, runs, mail, memory or settings — so the turn keeps the tools that
+ * read and change it (`anodex_status`, `schedule_task`, the memory tools...)
+ * in full view.
+ *
+ * Generous, and a miss is only one step slower: everything stays reachable
+ * through the gateway. Measured on Windows with Llama 3.1 8B: with
+ * `anodex_status` in view on every turn it called it for "Name a planet." and
+ * four other plain questions in a row.
+ */
+export function mayConcernAnodex(messages: string[]): boolean {
+  return messages.some((message) => ANODEX_WORDS.test(message))
+}
+
+const ANODEX_WORDS = new RegExp(
+  '\\b(?:' +
+    [
+      'anodex',
+      'schedul(?:e|ed|es|ing|er)',
+      'tasks?',
+      'remind(?:er|ers)?',
+      'agents?',
+      'projects?',
+      'e-?mails?',
+      'inbox',
+      'mail',
+      'settings?',
+      'remember',
+      'recall',
+      'forget',
+      'memor(?:y|ies)',
+      'notes?',
+      'my name',
+      'call me',
+      'research',
+      'critical thinking',
+      'phone',
+      'models?'
+    ].join('|') +
+    ')\\b',
+  'i'
+)
+
+/** http(s)://, www., or a bare domain such as example.com. */
+const URL_LIKE = /https?:\/\/|\bwww\.|\b[\w-]+\.(?:com|org|net|io|dev|ai|co|gov|edu)\b/i
 
 /** C:\, ~/, /home/ or /Users/, or a file name with an extension such as report.docx. */
 const PATH_LIKE = /[a-z]:\\|~[\\/]|\/(?:home|users)\/|\b[\w-]+\.[a-z][a-z0-9]{1,4}\b/i

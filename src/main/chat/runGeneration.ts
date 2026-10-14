@@ -2,7 +2,13 @@ import type { PromptReadingProgress } from '@shared/chat.types'
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
-import { describeComputer, liveComputerFacts, mayConcernThisComputer } from './thisComputer'
+import {
+  describeComputer,
+  liveComputerFacts,
+  mayConcernAnodex,
+  mayConcernThisComputer,
+  mayNeedTheWeb
+} from './thisComputer'
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
@@ -708,6 +714,17 @@ export async function runGeneration(
   // budgeting against a fraction of the window instead is what let a 4K model
   // admit 3,918 characters of workspace and recall into a prompt whose fixed
   // cost had already outgrown the window.
+  // The message and the person's one before it, so "yes, do that" after "zip my
+  // photos" is read as the request it confirms.
+  const plainChatTurn = resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
+  const recentUserText = [
+    request.prompt,
+    request.history.filter((turn) => turn.role === 'user').at(-1)?.content
+  ].filter((text): text is string => typeof text === 'string')
+  const toolsOnRequest =
+    plainChatTurn && effectiveProviderId === 'local'
+      ? localChatToolsOnRequest(recentUserText)
+      : undefined
   // One reader for the assistant voice: a selected personality wins over the
   // free-text field, and a personality deleted while selected falls back to it.
   // Reading `globalStyle` directly here is what would let the picker and the
@@ -741,15 +758,7 @@ export async function runGeneration(
     // may be about the computer — see `mayConcernThisComputer`. The person's
     // previous message counts too, so "yes, do that" after "zip my photos"
     // keeps them. Agent and project turns are left as they were.
-    commandExamples:
-      resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
-        ? mayConcernThisComputer(
-            [
-              request.prompt,
-              request.history.filter((turn) => turn.role === 'user').at(-1)?.content
-            ].filter((text): text is string => typeof text === 'string')
-          )
-        : undefined,
+    commandExamples: plainChatTurn ? mayConcernThisComputer(recentUserText) : undefined,
     runtime:
       effectiveProviderId === 'local'
         ? ({ kind: 'local' } as const)
@@ -994,6 +1003,7 @@ export async function runGeneration(
       // Resolved once, by the same rule the prompt uses, so the transport
       // and the system prompt can never disagree about what this turn is.
       surface: resolvePromptSurface(io.surface, Boolean(activeProject)),
+      ...(toolsOnRequest ? { toolsOnRequest } : {}),
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
       // Local replay uses the bounded Context Ledger recall window.
@@ -1214,4 +1224,34 @@ function withConfiguredReplyCeiling(
 
 function unlessEmpty<T>(list: T[]): T[] | undefined {
   return list.length > 0 ? list : undefined
+}
+
+/**
+ * Which tools a local model's plain chat turn keeps behind the gateway, given
+ * the person's latest messages. Everything stays callable through
+ * `find_available_tool`; this only decides what is documented up front.
+ *
+ * A small model reaches for whatever is in full view. Measured on Windows with
+ * Llama 3.1 8B in fresh chats: with the whole surface shown it called a tool for
+ * 7 of 8 plain questions and sums — `Get-WinSystemInfo` for "What is the capital
+ * of Australia?" — and scored 4/8 against 7/8 for the same model with no
+ * Anodex prompt. Deferring only the shell and web moved it to `check_computer`
+ * and `anodex_status` instead ("Name a planet." called `anodex_status` on five
+ * turns of seven). So a message about none of the computer, the web or Anodex
+ * itself defers every tool; one about some of them keeps those in view and
+ * defers the rest of that kind.
+ *
+ * The word lists are English and generous. A miss costs one gateway step, never
+ * the request, which is what keeps this safe for every language and machine.
+ */
+export function localChatToolsOnRequest(messages: string[]): string[] | 'all' | undefined {
+  const computer = mayConcernThisComputer(messages)
+  const web = mayNeedTheWeb(messages)
+  const anodex = mayConcernAnodex(messages)
+  if (!computer && !web && !anodex) return 'all'
+  const deferred = [
+    ...(computer ? [] : ['run_command', 'start_process', 'check_computer', 'find_cleanup']),
+    ...(web ? [] : ['fetch_url', 'web_search', 'download_file'])
+  ]
+  return deferred.length > 0 ? deferred : undefined
 }

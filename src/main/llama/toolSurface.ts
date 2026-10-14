@@ -61,6 +61,26 @@ const MAX_FIND_DESCRIPTION_CHARS = 320
 /** Page large tool schemas instead of sending the whole catalog at once. */
 const MAX_SCHEMA_CHUNK_CHARS = 4_000
 
+/**
+ * Which tools a turn keeps behind the gateway: named ones, or every one.
+ *
+ * `'all'` is for a plain chat message about nothing on the computer, the web
+ * or Anodex itself. A small model reaches for whatever is in full view: with
+ * the shell and web deferred, Llama 3.1 8B called `check_computer` for "What is
+ * the capital of Australia?" and `anodex_status` for "Name a planet." on five
+ * turns of seven. With only the gateway in view it answers in words, and the
+ * catalog is still one `find_available_tool` away.
+ */
+export type ToolDeferral = ReadonlySet<string> | 'all'
+
+/** `GenerateParams.toolsOnRequest` as `boundToolSurface` takes it. */
+export function toolDeferral(
+  toolsOnRequest: string[] | 'all' | undefined
+): ToolDeferral | undefined {
+  if (toolsOnRequest === 'all') return 'all'
+  return toolsOnRequest && toolsOnRequest.length > 0 ? new Set(toolsOnRequest) : undefined
+}
+
 export interface BoundedToolSurface {
   functions: Record<string, ToolFunction>
   directToolNames: string[]
@@ -111,6 +131,20 @@ export function boundToolSurface(options: {
    * behaviour exactly.
    */
   hardLimitTokens?: number
+  /**
+   * Tools kept behind the gateway this turn however much room there is: still
+   * callable through `find_available_tool`, never documented in full.
+   *
+   * For a plain chat message that is not about the computer or the web. A small
+   * model shown `run_command` and `fetch_url` reaches for them on questions it
+   * can answer itself: measured on Windows with Llama 3.1 8B in fresh chats, 7
+   * of 8 plain questions and sums called one ("What is the capital of
+   * Australia?" ran `Get-WinSystemInfo`, a 25%-off question ran
+   * `($40 * 0.75)`), scoring 4/8 against 7/8 for the same model without Anodex.
+   * Deferred rather than removed, so a request the word lists miss still
+   * reaches the tool, one step later.
+   */
+  alwaysDefer?: ToolDeferral
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -120,6 +154,7 @@ export function boundToolSurface(options: {
     maxDirectTools = Number.POSITIVE_INFINITY,
     minDirectTools = 0,
     hardLimitTokens = Number.POSITIVE_INFINITY,
+    alwaysDefer,
     measureFixedTokens
   } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
@@ -127,8 +162,12 @@ export function boundToolSurface(options: {
   }
 
   const allNames = Object.keys(allFunctions)
+  const deferred = (name: string): boolean =>
+    alwaysDefer === 'all' || Boolean(alwaysDefer?.has(name))
+  const deferring = allNames.some(deferred)
   const wholeSurfaceCost = measureFixedTokens(allFunctions)
   if (
+    !deferring &&
     allNames.length <= maxDirectTools &&
     wholeSurfaceCost <= targetFixedTokens &&
     wholeSurfaceCost <= hardLimitTokens
@@ -164,12 +203,13 @@ export function boundToolSurface(options: {
     return rank !== undefined && rank < minDirectTools
   }).length
   const floor = Math.min(loopToolsPresent, maxDirectTools, allNames.length)
-  const gateway = createDeferredToolGateway(define, allNames)
+  const gateway = createDeferredToolGateway(define, allNames, alwaysDefer === 'all')
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
 
   for (const name of rankToolNames(allFunctions)) {
     if (directToolNames.length >= maxDirectTools) break
+    if (deferred(name)) continue
     const candidate = { ...selected, [name]: allFunctions[name] }
     // The budget bounds the tail, never the loop the surface needs to function.
     //
@@ -367,7 +407,9 @@ export function rankToolNames(functions: Record<string, ToolFunction>): string[]
 
 function createDeferredToolGateway(
   define: DefineChatSessionFunction,
-  catalogNames: readonly string[]
+  catalogNames: readonly string[],
+  /** Every tool is deferred: see `ON_REQUEST_FIND_DESCRIPTION`. */
+  onRequestOnly = false
 ): Gateway {
   const deferred: DeferredToolBox = { current: {} }
   const defineGateway = define as unknown as (config: {
@@ -377,9 +419,10 @@ function createDeferredToolGateway(
   }) => ChatSessionModelFunction
 
   const find = defineGateway({
-    description:
-      'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool. ' +
-      describeCatalog(catalogNames),
+    description: onRequestOnly
+      ? ON_REQUEST_FIND_DESCRIPTION
+      : 'Search tools whose full schemas were deferred to save context. Use this when the needed native tool is not already available, then call describe_available_tool before call_available_tool. ' +
+        describeCatalog(catalogNames),
     params: {
       type: 'object',
       properties: {
@@ -467,6 +510,25 @@ function createDeferredToolGateway(
  * is decided after this description is written, and a name the model can also
  * call natively is harmless to repeat.
  */
+/**
+ * What `find_available_tool` says when every tool is behind it — a local
+ * model's plain chat message about none of the computer, the web or Anodex.
+ *
+ * The usual description names the whole catalogue so nothing is invisible.
+ * On these turns that list is the problem: measured with Llama 3.1 8B, with
+ * every tool deferred but named, it went through the gateway for "What is 17
+ * times 23?" (`run_command`: `echo 17 * 23`), a discount sum (`fetch_url`,
+ * twice) and "Who wrote Romeo and Juliet?" (`find_skill`). So this says what
+ * the tools are for instead of what they are called, and that a question
+ * answered from knowledge needs none of them. They all stay reachable: a
+ * search by what is needed still finds them.
+ */
+const ON_REQUEST_FIND_DESCRIPTION =
+  'Search for a tool when the person asks you to act on this computer (files, apps, settings, the shell), ' +
+  'use the internet, or read or change Anodex itself (schedules, memory, mail, projects). Then call ' +
+  'describe_available_tool and call_available_tool. Not needed to answer from what you know, do ' +
+  'arithmetic, or write text: answer those directly.'
+
 function describeCatalog(catalogNames: readonly string[]): string {
   if (catalogNames.length === 0) return ''
   return `Every tool that exists, whether native or deferred: ${[...catalogNames].sort().join(', ')}.`

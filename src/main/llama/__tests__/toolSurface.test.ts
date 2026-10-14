@@ -3,6 +3,7 @@ import type { DefineChatSessionFunction, ToolFunction } from '../../tools/types'
 import {
   boundToolSurface,
   GATEWAY_TOOL_COUNT,
+  toolDeferral,
   maxDirectToolsForContext,
   rankToolNames
 } from '../toolSurface'
@@ -235,6 +236,85 @@ describe('bounded tool surface', () => {
       argumentsJson: '{"to":"person@example.com"}'
     })
     expect(sendEmail).toHaveBeenCalledWith({ to: 'person@example.com' })
+  })
+
+  it('keeps a plain question’s shell and web tools behind the gateway, still callable', async () => {
+    // Fresh chats on Llama 3.1 8B: "What is the capital of Australia?" ran a
+    // command when run_command sat in full view. Deferred, not removed.
+    const runCommand = vi.fn(() => Promise.resolve('ran'))
+    const allFunctions = {
+      run_command: tool('Run a shell command.', runCommand),
+      fetch_url: tool('Fetch a web page.'),
+      anodex_status: tool("Read Anodex's own state."),
+      remember_fact: tool('Save a personal memory.')
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Room for everything: only the deferral moves anything behind the gateway.
+      targetFixedTokens: 10_000,
+      alwaysDefer: new Set(['run_command', 'fetch_url']),
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    expect(result.directToolNames).toEqual(
+      expect.arrayContaining(['anodex_status', 'remember_fact'])
+    )
+    expect(result.directToolNames).not.toContain('run_command')
+    expect(result.directToolNames).not.toContain('fetch_url')
+    expect(result.deferredToolNames).toEqual(expect.arrayContaining(['run_command', 'fetch_url']))
+
+    await result.functions.call_available_tool.handler({
+      name: 'run_command',
+      argumentsJson: '{}'
+    })
+    expect(runCommand).toHaveBeenCalled()
+  })
+
+  it('can put every tool behind the gateway and still reach each one', async () => {
+    const remember = vi.fn(() => Promise.resolve('saved'))
+    const allFunctions = {
+      check_computer: tool('Report on this computer.'),
+      remember_fact: tool('Save a personal memory.', remember)
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      alwaysDefer: 'all',
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    expect(result.directToolNames).toEqual([])
+    expect(result.deferredToolNames).toEqual(
+      expect.arrayContaining(['check_computer', 'remember_fact'])
+    )
+    await result.functions.call_available_tool.handler({
+      name: 'remember_fact',
+      argumentsJson: '{}'
+    })
+    expect(remember).toHaveBeenCalled()
+    // Named, the tools read as an invitation; a plain question needs none.
+    const find = result.functions.find_available_tool.description ?? ''
+    expect(find).not.toContain('check_computer')
+    expect(find).toContain('answer those directly')
+  })
+
+  it('changes nothing when the tools it would defer are not on the surface', () => {
+    const allFunctions = { read_file: tool('Read a file.') }
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 1_000,
+      alwaysDefer: new Set(['run_command']),
+      measureFixedTokens: fixedCost
+    })
+    expect(result.routed).toBe(false)
+    expect(result.functions).toBe(allFunctions)
   })
 
   it('caps native schemas even when more would fit the token target', () => {
@@ -591,6 +671,15 @@ describe('the deferred-tool gateway', () => {
     await expect(call.handler({ name: 'read_file', argumentsJson: '{}' })).rejects.toThrow(
       /No deferred tool named/
     )
+  })
+})
+
+describe('toolDeferral', () => {
+  it('passes "all" through, makes a set of names, and treats nothing as nothing', () => {
+    expect(toolDeferral('all')).toBe('all')
+    expect(toolDeferral(['run_command'])).toEqual(new Set(['run_command']))
+    expect(toolDeferral([])).toBeUndefined()
+    expect(toolDeferral(undefined)).toBeUndefined()
   })
 })
 

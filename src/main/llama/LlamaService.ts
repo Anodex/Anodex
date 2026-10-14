@@ -112,6 +112,7 @@ import {
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
+  toolDeferral,
   maxDirectToolsForContext,
   type BoundedToolSurface
 } from './toolSurface'
@@ -228,6 +229,13 @@ export interface GenerateParams {
    * keeps the deliberating behaviour it had.
    */
   surface?: PromptSurface
+  /**
+   * Tools this turn offers only through the gateway (`find_available_tool`),
+   * whatever room there is — see `boundToolSurface`'s `alwaysDefer`. Set by
+   * `runGeneration` for a plain chat message that is not about the computer or
+   * the web; absent everywhere else.
+   */
+  toolsOnRequest?: string[] | 'all'
   /**
    * Fraction of the history budget this generation's session rebuild may
    * replay verbatim; the rest is summarized by the Context Ledger compaction
@@ -2581,6 +2589,7 @@ class LlamaService extends EventEmitter {
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       minDirectTools: COMPLETE_BUILDER_LOOP,
       hardLimitTokens,
+      alwaysDefer: toolDeferral(params.toolsOnRequest),
       measureFixedTokens
     })
   }
