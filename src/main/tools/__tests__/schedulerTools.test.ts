@@ -369,6 +369,21 @@ describe('set_reminder, where it goes', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
+  it('sets the reminder elsewhere when email is one of several places and is not linked', async () => {
+    // Gemma 4 E4B, from a phone, listed all three; refusing the whole reminder
+    // lost it, and the reply said it had been set.
+    const result = await tool().handler({
+      when: 'in 2 minutes',
+      message: 'Stretch',
+      via: ['desktop', 'phone', 'email']
+    })
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ remindVia: ['desktop', 'phone'] })
+    )
+    expect(result).toContain('Reminder set')
+    expect(result).toContain('Not by email: no email account is linked')
+  })
+
   it('emails once an account is linked', async () => {
     settingsState.emailAccounts = [{ id: 'a1' }]
     const result = await tool().handler({ when: 'at 3pm', message: 'Call Sam', via: ['email'] })
