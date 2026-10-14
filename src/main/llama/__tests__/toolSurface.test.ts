@@ -304,6 +304,48 @@ describe('bounded tool surface', () => {
     expect(find).toContain('answer those directly')
   })
 
+  it('answers a dead end on a plain question with "answer in your reply", not another search', async () => {
+    // Llama 3.1 8B, "Name one fruit.": call_available_tool({ name: "Apple" }),
+    // told to use find_available_tool first, then a reply about the error.
+    const onRequest = boundToolSurface({
+      allFunctions: { check_computer: tool('Report on this computer.') },
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      alwaysDefer: 'all',
+      measureFixedTokens: fixedCost
+    })
+    const directly = /answer the person directly in your reply/
+    expect(await onRequest.functions.find_available_tool.handler({ query: 'fruit' })).toMatch(
+      directly
+    )
+    await expect(
+      onRequest.functions.call_available_tool.handler({ name: 'Apple', argumentsJson: '{}' })
+    ).rejects.toThrow(directly)
+    expect(await onRequest.functions.describe_available_tool.handler({ name: 'Apple' })).toMatch(
+      directly
+    )
+    // A real tool is still found and described.
+    expect(
+      await onRequest.functions.find_available_tool.handler({ query: 'computer report' })
+    ).toContain('check_computer')
+  })
+
+  it('keeps sending a model searching when the turn can use tools', async () => {
+    const routed = boundToolSurface({
+      allFunctions: { run_command: tool('Run a shell command.') },
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      alwaysDefer: new Set(['run_command']),
+      measureFixedTokens: fixedCost
+    })
+    expect(await routed.functions.find_available_tool.handler({ query: 'fruit' })).toContain(
+      'Try a broader capability query'
+    )
+    await expect(
+      routed.functions.call_available_tool.handler({ name: 'Apple', argumentsJson: '{}' })
+    ).rejects.toThrow('Use find_available_tool first')
+  })
+
   it('changes nothing when the tools it would defer are not on the surface', () => {
     const allFunctions = { read_file: tool('Read a file.') }
     const result = boundToolSurface({
