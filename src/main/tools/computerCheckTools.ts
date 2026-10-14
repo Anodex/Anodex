@@ -107,13 +107,43 @@ export function findOnPath(
   return null
 }
 
+/**
+ * Programs known by more than one name, the name that runs first.
+ *
+ * Measured: asked "Is Node.js installed, and which version?", Llama 3.1 8B
+ * checked "nodejs" and was told it was not installed, on a machine where
+ * `node` was. The shell example this tool replaced said to check "under every
+ * name it goes by"; the tool has to know the names itself.
+ */
+const PROGRAM_ALIASES: readonly (readonly string[])[] = [
+  ['node', 'nodejs', 'node.js'],
+  ['python', 'python3', 'py'],
+  ['pip', 'pip3'],
+  ['code', 'vscode', 'vs-code']
+]
+
+/** `name` first, then the other names of the program it is, if it has any. */
+export function programNames(name: string): string[] {
+  const lower = name.toLowerCase()
+  const group = PROGRAM_ALIASES.find((names) => names.includes(lower))
+  return [...new Set([name, lower, ...(group ?? [])])]
+}
+
 async function checkProgram(name: string): Promise<string> {
-  const program = name.trim()
-  if (!PROGRAM_NAME.test(program)) {
+  const asked = name.trim()
+  if (!PROGRAM_NAME.test(asked)) {
     return 'Give just a program name, such as "java" or "git", not a path or a command.'
   }
-  const found = findOnPath(program)
-  if (!found) return `${program} is not installed (not found on PATH).`
+  let program = asked
+  let found: string | null = null
+  for (const candidate of programNames(asked)) {
+    found = findOnPath(candidate)
+    if (found) {
+      program = candidate
+      break
+    }
+  }
+  if (!found) return `${asked} is not installed (not found on PATH under any name it goes by).`
   const flag = /^javac?$/i.test(program) ? '-version' : '--version'
   const version = await new Promise<string>((resolve) => {
     execFile(
