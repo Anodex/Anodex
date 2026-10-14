@@ -9,6 +9,7 @@ import { runReadTool } from './helpers'
 import type { KnownFolders } from './folderAccess'
 import { expandHomeShorthand } from './homeShorthand'
 import { readKnownFolders } from './knownFolders'
+import { operatingSystemName } from '../chat/thisComputer'
 
 /** A program name, not a path or a command line: nothing here runs what the model typed. */
 const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/
@@ -227,9 +228,9 @@ function checkDisk(path: string): { modelResult: string; madeProgress?: false } 
 
 function describeSystem(): string {
   const cpus = os.cpus()
-  const names: Record<string, string> = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }
   return [
-    `OS: ${names[process.platform] ?? process.platform} ${os.release()} (${os.arch()})`,
+    // The everyday name first, the build after it for anyone who needs it.
+    `OS: ${operatingSystemName()} (build ${os.release()}, ${os.arch()})`,
     `CPU: ${cpus[0]?.model.trim() ?? 'unknown'}, ${cpus.length} threads`,
     `Memory: ${formatBytes(os.freemem())} free of ${formatBytes(os.totalmem())}`,
     `Home folder: ${os.homedir()}`

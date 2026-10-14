@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { checkComputerTool, diskPath, findOnPath } from '../computerCheckTools'
+import { operatingSystemName } from '../../chat/thisComputer'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 type Args = {
@@ -117,5 +118,14 @@ describe('check_computer disk', () => {
     expect(await check({ check: 'disk', path: future })).toMatch(
       /free of .+ on the disk holding .+anodex-not-made-yet/
     )
+  })
+})
+
+describe('check_computer system report', () => {
+  it('names the operating system the way the prompt does', async () => {
+    // It printed os.release(): "Windows 10.0.26200" is Windows 11, read by
+    // both models as Windows 10, against a prompt that said Windows 11.
+    const report = await check({ check: 'system' })
+    expect(report).toContain(`OS: ${operatingSystemName()} (build `)
   })
 })

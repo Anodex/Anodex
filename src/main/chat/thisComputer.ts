@@ -306,7 +306,7 @@ const URL_LIKE = /https?:\/\/|\bwww\.|\b[\w-]+\.(?:com|org|net|io|dev|ai|co|gov|
 /** C:\, ~/, /home/ or /Users/, or a file name with an extension such as report.docx. */
 const PATH_LIKE = /[a-z]:\\|~[\\/]|\/(?:home|users)\/|\b[\w-]+\.[a-z][a-z0-9]{1,4}\b/i
 
-function osName(facts: ComputerFacts): string {
+function osName(facts: Pick<ComputerFacts, 'platform' | 'release' | 'osRelease'>): string {
   if (facts.platform === 'win32') {
     // Windows 11 still reports itself as 10.0; the build number is what differs.
     const build = Number(facts.release.split('.')[2])
@@ -508,6 +508,23 @@ function linuxPackageInstall(osRelease: string | null): string {
 }
 
 let cachedOsRelease: string | null | undefined
+
+/**
+ * This computer's operating system by its everyday name ("Windows 11", "macOS
+ * 15"), the same name the prompt's This computer section uses.
+ *
+ * For `check_computer`'s system report, which printed `os.release()` as the
+ * version: "Windows 10.0.26200" is Windows 11, and both models read it as
+ * Windows 10. Llama 3.1 8B then replied "Windows 10, not Windows 11 as
+ * mentioned in the environment section", the tool and the prompt disagreeing.
+ */
+export function operatingSystemName(): string {
+  return osName({
+    platform: process.platform,
+    release: os.release(),
+    osRelease: process.platform === 'linux' ? readOsRelease() : null
+  })
+}
 
 function readOsRelease(): string | null {
   if (cachedOsRelease !== undefined) return cachedOsRelease
