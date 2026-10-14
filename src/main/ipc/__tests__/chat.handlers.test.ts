@@ -48,6 +48,7 @@ vi.mock('../../settings/SettingsStore', () => ({
         cloudProviderEnabled: false
       },
       assistantStyle: { globalStyle: '', personalities: [], activePersonalityId: null },
+      profile: { displayName: 'Anodex User', avatarBase64: null },
       generation: { temperature: 0.7, topP: 0.9, maxTokens: 512 },
       provider: { active: 'local', anthropic: { apiKey: '', model: 'claude-sonnet-5' } }
     })
