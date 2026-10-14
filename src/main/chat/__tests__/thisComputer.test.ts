@@ -236,7 +236,9 @@ describe('example commands go only with a message about the computer', () => {
       'And the capital of Germany?',
       'What is 12 times 7?',
       'Give me a word that means happy.',
-      'Write a haiku about autumn.'
+      'Write a haiku about autumn.',
+      'List three primary colours.',
+      'What is the tallest mountain on Earth?'
     ]) {
       expect(mayConcernThisComputer([question]), question).toBe(false)
     }
@@ -253,7 +255,11 @@ describe('example commands go only with a message about the computer', () => {
       'Rename report.docx to final.docx',
       'Find the budget spreadsheet on my laptop.',
       'Is there anything in C:\\Temp?',
-      'Make this picture smaller.'
+      'Make this picture smaller.',
+      'Do I have a maintenance sheet for the EX1200 anywhere?',
+      'Where did I put my tax receipts?',
+      'What does my todo list say?',
+      'Find the invoice from March.'
     ]) {
       expect(mayConcernThisComputer([request]), request).toBe(true)
     }

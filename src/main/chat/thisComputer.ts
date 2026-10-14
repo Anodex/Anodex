@@ -164,7 +164,30 @@ const COMPUTER_WORDS = new RegExp(
       'brightness',
       'shut ?down',
       'restart',
-      'reboot'
+      'reboot',
+      // The person's own documents by what they are, and asks about where
+      // something is. Measured: "Do I have a maintenance sheet for the EX1200
+      // anywhere?" named none of the words above, so the file tools stayed
+      // behind the gateway and Llama 3.1 8B said it was not aware of one
+      // while the PDF sat in Downloads. "list" is left out on purpose: "List
+      // three primary colours" is a plain question.
+      'anywhere',
+      'saved',
+      'where did i (?:put|save|leave)',
+      'sheets?',
+      'spreadsheets?',
+      'manuals?',
+      'invoices?',
+      'receipts?',
+      'statements?',
+      'contracts?',
+      'resumes?',
+      'cv',
+      'excel',
+      'word docs?',
+      'powerpoint',
+      'slides?',
+      'to-?dos?'
     ].join('|') +
     ')\\b',
   'i'
