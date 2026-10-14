@@ -36,7 +36,7 @@ const mocks = vi.hoisted(() => ({
   /** What `TokenActivityStore` reports has been spent today. */
   todayTokens: 0,
   /** `toolsOnRequest` as the provider actually received it, per call. */
-  seenToolsOnRequest: [] as Array<string[] | undefined>
+  seenToolsOnRequest: [] as Array<string[] | 'all' | undefined>
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -207,12 +207,18 @@ describe('runGeneration — tools a plain local chat keeps behind the gateway', 
     history
   })
 
-  it('defers the shell and the web for a plain question', async () => {
+  it('defers every tool for a plain question', async () => {
     await runGeneration(ask('What is the capital of Australia?'), chatIo)
 
-    expect(mocks.seenToolsOnRequest.at(-1)).toEqual(
-      expect.arrayContaining(['run_command', 'fetch_url', 'web_search'])
-    )
+    expect(mocks.seenToolsOnRequest.at(-1)).toBe('all')
+  })
+
+  it("keeps Anodex's own tools in view for a question about Anodex", async () => {
+    await runGeneration(ask('What do I have scheduled this week?'), chatIo)
+
+    const deferred = mocks.seenToolsOnRequest.at(-1)
+    expect(deferred).not.toBe('all')
+    expect(deferred).toEqual(expect.arrayContaining(['run_command', 'check_computer']))
   })
 
   it('keeps the shell in view for a question about the computer', async () => {

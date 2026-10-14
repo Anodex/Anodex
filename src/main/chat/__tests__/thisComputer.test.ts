@@ -7,6 +7,7 @@ import {
 } from '@shared/prompts'
 import {
   describeComputer,
+  mayConcernAnodex,
   mayConcernThisComputer,
   mayNeedTheWeb,
   type ComputerFacts
@@ -347,5 +348,32 @@ describe('web tools stay in view only for a message that may need the web', () =
 
   it('counts the message before, so a go-ahead keeps them', () => {
     expect(mayNeedTheWeb(['Yes, please.', 'Can you search for that?'])).toBe(true)
+  })
+})
+
+describe("Anodex's own tools stay in view only for a message about Anodex", () => {
+  it('finds nothing about Anodex in a plain question or sum', () => {
+    for (const question of [
+      'Who wrote Romeo and Juliet?',
+      'What is the capital of Australia?',
+      'Name a planet.',
+      'What is 17 times 23?',
+      'Write a haiku about autumn.'
+    ]) {
+      expect(mayConcernAnodex([question]), question).toBe(false)
+    }
+  })
+
+  it('finds the asks that are about Anodex', () => {
+    for (const request of [
+      'What do I have scheduled this week?',
+      'Remind me to call Mum at six.',
+      'Remember that my name is Sam.',
+      'Which model are you using?',
+      'Check my inbox.',
+      'Open the settings for Anodex.'
+    ]) {
+      expect(mayConcernAnodex([request]), request).toBe(true)
+    }
   })
 })

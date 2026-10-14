@@ -50,6 +50,7 @@ import {
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
+  toolDeferral,
   GATEWAY_TOOL_COUNT,
   maxDirectToolsForContext,
   type BoundedToolSurface
@@ -1443,7 +1444,7 @@ export class LlamaVisionService {
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       minDirectTools: COMPLETE_BUILDER_LOOP,
       hardLimitTokens: visionSchemaCeilingTokens(this.contextSize, allFunctions, params),
-      alwaysDefer: params.toolsOnRequest ? new Set(params.toolsOnRequest) : undefined,
+      alwaysDefer: toolDeferral(params.toolsOnRequest),
       measureFixedTokens: (functions) =>
         functions ? Math.ceil(JSON.stringify(toOpenAiTools(functions)).length / 4) : 0
     })

@@ -3,6 +3,7 @@ import type { DefineChatSessionFunction, ToolFunction } from '../../tools/types'
 import {
   boundToolSurface,
   GATEWAY_TOOL_COUNT,
+  toolDeferral,
   maxDirectToolsForContext,
   rankToolNames
 } from '../toolSurface'
@@ -270,6 +271,33 @@ describe('bounded tool surface', () => {
       argumentsJson: '{}'
     })
     expect(runCommand).toHaveBeenCalled()
+  })
+
+  it('can put every tool behind the gateway and still reach each one', async () => {
+    const remember = vi.fn(() => Promise.resolve('saved'))
+    const allFunctions = {
+      check_computer: tool('Report on this computer.'),
+      remember_fact: tool('Save a personal memory.', remember)
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      alwaysDefer: 'all',
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    expect(result.directToolNames).toEqual([])
+    expect(result.deferredToolNames).toEqual(
+      expect.arrayContaining(['check_computer', 'remember_fact'])
+    )
+    await result.functions.call_available_tool.handler({
+      name: 'remember_fact',
+      argumentsJson: '{}'
+    })
+    expect(remember).toHaveBeenCalled()
   })
 
   it('changes nothing when the tools it would defer are not on the surface', () => {
@@ -639,6 +667,15 @@ describe('the deferred-tool gateway', () => {
     await expect(call.handler({ name: 'read_file', argumentsJson: '{}' })).rejects.toThrow(
       /No deferred tool named/
     )
+  })
+})
+
+describe('toolDeferral', () => {
+  it('passes "all" through, makes a set of names, and treats nothing as nothing', () => {
+    expect(toolDeferral('all')).toBe('all')
+    expect(toolDeferral(['run_command'])).toEqual(new Set(['run_command']))
+    expect(toolDeferral([])).toBeUndefined()
+    expect(toolDeferral(undefined)).toBeUndefined()
   })
 })
 

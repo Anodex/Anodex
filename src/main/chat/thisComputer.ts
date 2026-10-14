@@ -228,6 +228,50 @@ const WEB_WORDS = new RegExp(
   'i'
 )
 
+/**
+ * Whether a chat message may be about Anodex's own state — its schedules,
+ * projects, runs, mail, memory or settings — so the turn keeps the tools that
+ * read and change it (`anodex_status`, `schedule_task`, the memory tools...)
+ * in full view.
+ *
+ * Generous, and a miss is only one step slower: everything stays reachable
+ * through the gateway. Measured on Windows with Llama 3.1 8B: with
+ * `anodex_status` in view on every turn it called it for "Name a planet." and
+ * four other plain questions in a row.
+ */
+export function mayConcernAnodex(messages: string[]): boolean {
+  return messages.some((message) => ANODEX_WORDS.test(message))
+}
+
+const ANODEX_WORDS = new RegExp(
+  '\\b(?:' +
+    [
+      'anodex',
+      'schedul(?:e|ed|es|ing|er)',
+      'tasks?',
+      'remind(?:er|ers)?',
+      'agents?',
+      'projects?',
+      'e-?mails?',
+      'inbox',
+      'mail',
+      'settings?',
+      'remember',
+      'recall',
+      'forget',
+      'memor(?:y|ies)',
+      'notes?',
+      'my name',
+      'call me',
+      'research',
+      'critical thinking',
+      'phone',
+      'models?'
+    ].join('|') +
+    ')\\b',
+  'i'
+)
+
 /** http(s)://, www., or a bare domain such as example.com. */
 const URL_LIKE = /https?:\/\/|\bwww\.|\b[\w-]+\.(?:com|org|net|io|dev|ai|co|gov|edu)\b/i
 

@@ -107,6 +107,7 @@ import {
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
+  toolDeferral,
   maxDirectToolsForContext,
   type BoundedToolSurface
 } from './toolSurface'
@@ -229,7 +230,7 @@ export interface GenerateParams {
    * `runGeneration` for a plain chat message that is not about the computer or
    * the web; absent everywhere else.
    */
-  toolsOnRequest?: string[]
+  toolsOnRequest?: string[] | 'all'
   /**
    * Fraction of the history budget this generation's session rebuild may
    * replay verbatim; the rest is summarized by the Context Ledger compaction
@@ -2583,7 +2584,7 @@ class LlamaService extends EventEmitter {
       maxDirectTools: maxDirectToolsForContext(this.contextSize),
       minDirectTools: COMPLETE_BUILDER_LOOP,
       hardLimitTokens,
-      alwaysDefer: params.toolsOnRequest ? new Set(params.toolsOnRequest) : undefined,
+      alwaysDefer: toolDeferral(params.toolsOnRequest),
       measureFixedTokens
     })
   }

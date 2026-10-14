@@ -61,6 +61,26 @@ const MAX_FIND_DESCRIPTION_CHARS = 320
 /** Page large tool schemas instead of sending the whole catalog at once. */
 const MAX_SCHEMA_CHUNK_CHARS = 4_000
 
+/**
+ * Which tools a turn keeps behind the gateway: named ones, or every one.
+ *
+ * `'all'` is for a plain chat message about nothing on the computer, the web
+ * or Anodex itself. A small model reaches for whatever is in full view: with
+ * the shell and web deferred, Llama 3.1 8B called `check_computer` for "What is
+ * the capital of Australia?" and `anodex_status` for "Name a planet." on five
+ * turns of seven. With only the gateway in view it answers in words, and the
+ * catalog is still one `find_available_tool` away.
+ */
+export type ToolDeferral = ReadonlySet<string> | 'all'
+
+/** `GenerateParams.toolsOnRequest` as `boundToolSurface` takes it. */
+export function toolDeferral(
+  toolsOnRequest: string[] | 'all' | undefined
+): ToolDeferral | undefined {
+  if (toolsOnRequest === 'all') return 'all'
+  return toolsOnRequest && toolsOnRequest.length > 0 ? new Set(toolsOnRequest) : undefined
+}
+
 export interface BoundedToolSurface {
   functions: Record<string, ToolFunction>
   directToolNames: string[]
@@ -124,7 +144,7 @@ export function boundToolSurface(options: {
    * Deferred rather than removed, so a request the word lists miss still
    * reaches the tool, one step later.
    */
-  alwaysDefer?: ReadonlySet<string>
+  alwaysDefer?: ToolDeferral
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -142,7 +162,9 @@ export function boundToolSurface(options: {
   }
 
   const allNames = Object.keys(allFunctions)
-  const deferring = allNames.some((name) => alwaysDefer?.has(name))
+  const deferred = (name: string): boolean =>
+    alwaysDefer === 'all' || Boolean(alwaysDefer?.has(name))
+  const deferring = allNames.some(deferred)
   const wholeSurfaceCost = measureFixedTokens(allFunctions)
   if (
     !deferring &&
@@ -187,7 +209,7 @@ export function boundToolSurface(options: {
 
   for (const name of rankToolNames(allFunctions)) {
     if (directToolNames.length >= maxDirectTools) break
-    if (alwaysDefer?.has(name)) continue
+    if (deferred(name)) continue
     const candidate = { ...selected, [name]: allFunctions[name] }
     // The budget bounds the tail, never the loop the surface needs to function.
     //
