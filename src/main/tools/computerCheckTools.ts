@@ -165,7 +165,7 @@ async function checkPort(port: number | undefined): Promise<string> {
  */
 export function diskPath(
   requested: string | undefined,
-  workspaceRoot: string | undefined,
+  workspaceRoot: string | null | undefined,
   home: string = os.homedir()
 ): string {
   const raw = requested?.trim().replace(/^["']|["']$/g, '') ?? ''
