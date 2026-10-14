@@ -161,7 +161,11 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
       required: ['when', 'message']
     } as const,
     handler: (args: { when: string; message: string; via?: ReminderChannel[] }) =>
-      runGuardedToolWithPrepare<{ request: CreateScheduledTaskRequest; label: string }>(
+      runGuardedToolWithPrepare<{
+        request: CreateScheduledTaskRequest
+        label: string
+        noEmail: boolean
+      }>(
         ctx,
         {
           name: 'set_reminder',
@@ -173,10 +177,17 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
         () => {
           const message = args.message.trim()
           if (!message) throw new Error('A reminder needs a message.')
-          const via = (args.via ?? []).filter((channel): channel is ReminderChannel =>
+          const asked = (args.via ?? []).filter((channel): channel is ReminderChannel =>
             ['desktop', 'phone', 'email'].includes(channel)
           )
-          if (via.includes('email') && settingsStore.get().email.accounts.length === 0) {
+          // Email without a linked account is dropped when anywhere else was asked
+          // for, the way a phone that is not paired falls back to the desktop.
+          // Refusing the whole reminder lost it: from a phone, Gemma 4 E4B listed
+          // all three places for "Remind me in 2 minutes to stretch.", was refused,
+          // and told the person "I have set a reminder for you".
+          const noEmail = asked.includes('email') && settingsStore.get().email.accounts.length === 0
+          const via = noEmail ? asked.filter((channel) => channel !== 'email') : asked
+          if (noEmail && via.length === 0) {
             throw new Error(
               'No email account is linked, so a reminder cannot be emailed. Link one in Settings → Email, or remind on the desktop or phone instead.'
             )
@@ -200,11 +211,12 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
                 kind: 'reminder',
                 ...(via.length ? { remindVia: via } : {})
               },
-              label
+              label,
+              noEmail
             }
           })
         },
-        async ({ request, label }) => {
+        async ({ request, label, noEmail }) => {
           const task = schedulerStore.create(request)
           schedulerService.notifyTasksChanged()
           const next =
@@ -224,6 +236,9 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
               `Next: ${next}`,
               `Where: ${describeChannels(channels)}`,
               phoneWarning,
+              noEmail
+                ? 'Not by email: no email account is linked. Linking one is in Settings → Email.'
+                : null,
               'The person can edit or delete it on the Scheduler page.'
             ]
               .filter(Boolean)

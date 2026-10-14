@@ -8,6 +8,7 @@ import {
 import {
   describeComputer,
   mayConcernAnodex,
+  mayConcernTheSchedule,
   mayConcernThisComputer,
   mayNeedTheWeb,
   type ComputerFacts
@@ -425,4 +426,30 @@ describe("the person's files come from find_my_files when it is on", () => {
       expect((off.shell?.howTo ?? []).join('\n')).not.toContain('find_my_files')
     })
   }
+})
+
+describe('a message about the schedule puts the Scheduler first', () => {
+  it('finds reminders and timed asks', () => {
+    for (const request of [
+      'Remind me in 2 minutes to stretch.',
+      'Set a reminder for 2 minutes from now: stretch.',
+      'Schedule a summary every morning.',
+      'Wake me with an alarm tomorrow at 7.',
+      'Tell me the news at 9am.',
+      'Delete the scheduled task.'
+    ]) {
+      expect(mayConcernTheSchedule([request]), request).toBe(true)
+    }
+  })
+
+  it('finds nothing to schedule in a plain question', () => {
+    for (const question of [
+      'What is the capital of Australia?',
+      'Send E2250044A.pdf to my phone.',
+      'What time is it in Tokyo?',
+      'Name a planet.'
+    ]) {
+      expect(mayConcernTheSchedule([question]), question).toBe(false)
+    }
+  })
 })

@@ -1445,6 +1445,7 @@ export class LlamaVisionService {
       minDirectTools: COMPLETE_BUILDER_LOOP,
       hardLimitTokens: visionSchemaCeilingTokens(this.contextSize, allFunctions, params),
       alwaysDefer: toolDeferral(params.toolsOnRequest),
+      upFront: params.toolsUpFront,
       measureFixedTokens: (functions) =>
         functions ? Math.ceil(JSON.stringify(toOpenAiTools(functions)).length / 4) : 0
     })

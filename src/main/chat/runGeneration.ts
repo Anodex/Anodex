@@ -6,6 +6,7 @@ import {
   describeComputer,
   liveComputerFacts,
   mayConcernAnodex,
+  mayConcernTheSchedule,
   mayConcernThisComputer,
   mayNeedTheWeb
 } from './thisComputer'
@@ -723,6 +724,10 @@ export async function runGeneration(
     plainChatTurn && effectiveProviderId === 'local'
       ? localChatToolsOnRequest(recentUserText)
       : undefined
+  const toolsUpFront =
+    plainChatTurn && effectiveProviderId === 'local'
+      ? localChatToolsUpFront(recentUserText)
+      : undefined
 
   // Two passes over the same composer. The first prices everything the user
   // chose — rules, style, skills, plan, the request itself, and the protected
@@ -1020,6 +1025,7 @@ export async function runGeneration(
       // and the system prompt can never disagree about what this turn is.
       surface: promptSurface,
       ...(toolsOnRequest ? { toolsOnRequest } : {}),
+      ...(toolsUpFront ? { toolsUpFront } : {}),
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
       // Local replay uses the bounded Context Ledger recall window.
@@ -1260,6 +1266,18 @@ function unlessEmpty<T>(list: T[]): T[] | undefined {
  * The word lists are English and generous. A miss costs one gateway step, never
  * the request, which is what keeps this safe for every language and machine.
  */
+/**
+ * Which tools a local model's plain chat turn sees first, ahead of the fixed
+ * ranking, given the person's latest messages. Only the Scheduler today: see
+ * `mayConcernTheSchedule` for the turn that could not set a reminder because
+ * the file and phone tools ranked ahead of it filled the direct surface.
+ */
+export function localChatToolsUpFront(messages: string[]): string[] | undefined {
+  return mayConcernTheSchedule(messages)
+    ? ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
+    : undefined
+}
+
 export function localChatToolsOnRequest(messages: string[]): string[] | 'all' | undefined {
   const computer = mayConcernThisComputer(messages)
   const web = mayNeedTheWeb(messages)

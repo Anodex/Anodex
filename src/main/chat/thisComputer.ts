@@ -272,6 +272,24 @@ const WEB_WORDS = new RegExp(
  * `anodex_status` in view on every turn it called it for "Name a planet." and
  * four other plain questions in a row.
  */
+/**
+ * Whether a chat message may ask for a reminder or something on a schedule, so
+ * the Scheduler tools go first among those a local model sees in full: see
+ * `localChatToolsUpFront`.
+ *
+ * Measured from a phone with Gemma 4 E4B at a 16K window: "Remind me in 2
+ * minutes to stretch." and "Set a reminder for 2 minutes from now" both got "I
+ * cannot set a reminder. I can only send files." Ten tools fit in full at that
+ * size, and the file and phone tools ranked ahead of `set_reminder`, which was
+ * eleventh and sat behind the gateway unsearched.
+ */
+export function mayConcernTheSchedule(messages: string[]): boolean {
+  return messages.some((message) => SCHEDULE_WORDS.test(message))
+}
+
+const SCHEDULE_WORDS =
+  /\b(?:remind(?:er|ers)?|schedul(?:e|ed|es|ing)|alarm|every (?:day|morning|evening|night|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in \d+ (?:minutes?|mins?|hours?|days?)|tomorrow at|at \d{1,2}(?::\d{2})?\s?(?:am|pm))\b/i
+
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))
 }

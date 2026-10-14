@@ -172,13 +172,17 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
       required: ['path']
     } as const,
     handler: async (args: { path: string; note?: string; to?: 'phone' | 'email' }) => {
+      // A refusal fails the call rather than returning normally. Returned, it was
+      // recorded as a success, and the phone and desktop both labelled it "Sent
+      // you a file": measured from a phone, "Remind me in 2 minutes to stretch."
+      // reached this tool, was refused, and the transcript said a file was sent.
       const refuse = (reason: string): Promise<string> =>
         runReadTool(ctx, {
           name: 'send_file_to_me',
           kind: 'read',
           title: `Send ${basename(args.path)}`,
           args,
-          run: () => Promise.resolve({ modelResult: reason, madeProgress: false })
+          run: () => Promise.reject(new Error(reason))
         })
 
       let path = args.path.trim()

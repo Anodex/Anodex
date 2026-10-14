@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ToolConfirmRequest } from '@shared/tools.types'
+import type { ToolCall, ToolConfirmRequest } from '@shared/tools.types'
 
 const h = vi.hoisted(() => ({
   root: '',
@@ -61,8 +61,10 @@ afterEach(() => rmSync(h.root, { recursive: true, force: true }))
 
 function tools(mode: 'ask' | 'untethered', conversationId = 'conv-1') {
   const prompts: ToolConfirmRequest[] = []
+  const emitted: ToolCall[] = []
   const ctx = {
     ...createMockContext(h.root),
+    emit: (call: ToolCall) => emitted.push(call),
     workspaceRoot: null,
     conversationId,
     permissionMode: mode,
@@ -79,7 +81,8 @@ function tools(mode: 'ask' | 'untethered', conversationId = 'conv-1') {
     send: sendFileToMeTool(define, ctx) as unknown as {
       handler: (a: { path: string; to?: 'phone' | 'email' }) => Promise<string>
     },
-    prompts
+    prompts,
+    emitted
   }
 }
 
@@ -107,6 +110,15 @@ describe('finding a file and sending it to the person', () => {
     const result = await send.handler({ path: join(h.root, 'Documents', 'private.txt') })
     expect(result).toContain('Only a file find_my_files found')
     expect(prompts).toHaveLength(0)
+    expect(h.sent).toEqual([])
+  })
+
+  it('records a refused send as failed, so nothing reads "Sent you a file"', async () => {
+    // From a phone, "Remind me in 2 minutes to stretch." reached this tool, was
+    // refused, and the transcript said a file had been sent.
+    const { send, emitted } = tools('untethered')
+    await send.handler({ path: 'stretch' })
+    expect(emitted.at(-1)?.status).toBe('error')
     expect(h.sent).toEqual([])
   })
 

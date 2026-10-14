@@ -239,6 +239,11 @@ export interface GenerateParams {
    */
   toolsOnRequest?: string[] | 'all'
   /**
+   * Tools this turn ranks first among those it documents in full, ahead of
+   * `DIRECT_TOOL_PRIORITY`. Set by `localChatToolsUpFront`; absent elsewhere.
+   */
+  toolsUpFront?: string[]
+  /**
    * Fraction of the history budget this generation's session rebuild may
    * replay verbatim; the rest is summarized by the Context Ledger compaction
    * path. Legacy null values are normalized before reaching the engine.
@@ -2712,6 +2717,7 @@ class LlamaService extends EventEmitter {
       minDirectTools: COMPLETE_BUILDER_LOOP,
       hardLimitTokens,
       alwaysDefer: toolDeferral(params.toolsOnRequest),
+      upFront: params.toolsUpFront,
       measureFixedTokens
     })
   }
