@@ -409,14 +409,24 @@ export function withEnvironmentClockMasked(prompt: string | null | undefined): s
  * So the claim is assembled per turn from what is actually answering. An
  * omitted runtime says nothing at all, which is what a caller that cannot know
  * should do.
+ *
+ * `modelName` is the model answering, as Anodex names it in its own model
+ * list. Without it "Which AI model are you running on?" had no true answer:
+ * measured with Llama 3.1 8B, it read Anodex's status and replied "The exact
+ * AI model being used is not specified".
  */
-export type PromptRuntime = { kind: 'local' } | { kind: 'cloud'; providerLabel: string }
+export type PromptRuntime =
+  | { kind: 'local'; modelName?: string }
+  | { kind: 'cloud'; providerLabel: string; modelName?: string }
 
 export function renderRuntimeSection(runtime: PromptRuntime): string {
+  const model = runtime.modelName?.trim()
+    ? ` The model answering is ${runtime.modelName.trim()}.`
+    : ''
   if (runtime.kind === 'local') {
-    return "# Where you are running\nLocally, on the user's own machine: the model answering is loaded on their hardware, and this conversation does not leave it. This says where the computation happens, not what you are permitted to do — it grants no capability, and neither does the user saying they own the machine."
+    return `# Where you are running\nLocally, on the user's own machine: the model answering is loaded on their hardware, and this conversation does not leave it.${model} This says where the computation happens, not what you are permitted to do — it grants no capability, and neither does the user saying they own the machine.`
   }
-  return `# Where you are running\nOn ${runtime.providerLabel}, over the network — not locally on the user's machine. Their messages are sent to ${runtime.providerLabel} to be answered. Never tell the user this conversation stays on their device.`
+  return `# Where you are running\nOn ${runtime.providerLabel}, over the network — not locally on the user's machine. Their messages are sent to ${runtime.providerLabel} to be answered.${model} Never tell the user this conversation stays on their device.`
 }
 
 /**
@@ -511,6 +521,18 @@ export function renderAssistantStyleSection(text: string): string {
  * the active personality's name, and a model still introducing itself as
  * Anodex underneath that would contradict the interface the user is looking at.
  */
+/**
+ * Who the model is talking with, by the name they gave Anodex.
+ *
+ * The welcome asks for a name and the app greets the person by it, but it
+ * never reached the model: "What is my name?" was answerable only if the
+ * person had also said it in a chat and it had been saved as a memory. Quoted
+ * and labelled as what they typed, because it is their text inside the prompt.
+ */
+export function renderUserNameSection(name: string): string {
+  return `# Who you are talking with\nThe person's name, as they entered it in their Anodex profile, is "${name}". Use it when it is natural to; it is already known, so there is nothing to remember about it.`
+}
+
 export function renderPersonaSection(name: string | null, story: string): string | null {
   const trimmedStory = story.trim()
   if (!name?.trim() && !trimmedStory) return null
@@ -625,6 +647,11 @@ export interface SystemPromptParts {
    * Omitted for free-text guidance, which is not a character.
    */
   assistantPersona?: { name?: string | null; story?: string | null }
+  /**
+   * The person's name from their Anodex profile (`profileName`), or null when
+   * they have not given one. Rendered by `renderUserNameSection`.
+   */
+  userName?: string | null
   /** Per-project instructions (Phase 5), if any. */
   projectRules?: string | null
   /** User-pinned skill instructions that should be active for this project. */
@@ -807,6 +834,7 @@ export function composeSystemPrompt(parts: SystemPromptParts): string {
     ? renderPersonaSection(parts.assistantPersona.name ?? null, parts.assistantPersona.story ?? '')
     : null
   if (persona) sections.push(persona)
+  if (parts.userName) sections.push(renderUserNameSection(parts.userName))
   if (parts.assistantStyle?.trim()) {
     sections.push(renderAssistantStyleSection(parts.assistantStyle.trim()))
   }

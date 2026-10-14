@@ -12,6 +12,7 @@ import {
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
+import { profileName } from '@shared/userIdentity'
 import { randomUUID } from 'node:crypto'
 import type {
   ChatRequest,
@@ -620,12 +621,13 @@ export async function runGeneration(
 
   const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
   const shellStartsIn = workspaceRoot ?? plainChatShellHome
-  const hasShell =
+  /** Whether this turn's tool settings switch `name` on, by the registry's rule. */
+  const toolOn = (name: string): boolean =>
     settings.tools.enabled &&
-    shellStartsIn !== null &&
     (io.enabledTools == null
-      ? !settings.tools.disabledTools.includes('run_command')
-      : io.enabledTools.has('run_command'))
+      ? !settings.tools.disabledTools.includes(name)
+      : io.enabledTools.has(name))
+  const hasShell = shellStartsIn !== null && toolOn('run_command')
   const includeReferenceContext = io.includeReferenceContext !== false
 
   // Resolved once and reused below for cloud-provider gating (transcript
@@ -755,7 +757,9 @@ export async function runGeneration(
       hasShell && shellStartsIn
         ? {
             command: resolveCommandShell(settings.general.defaultShell),
-            startsIn: shellStartsIn
+            startsIn: shellStartsIn,
+            checkComputer: toolOn('check_computer'),
+            findMyFiles: toolOn('find_my_files')
           }
         : null
     ),
@@ -766,13 +770,20 @@ export async function runGeneration(
     commandExamples: plainChatTurn ? mayConcernThisComputer(recentUserText) : undefined,
     runtime:
       effectiveProviderId === 'local'
-        ? ({ kind: 'local' } as const)
-        : ({ kind: 'cloud', providerLabel: CLOUD_PROVIDER_LABELS[effectiveProviderId] } as const),
+        ? ({ kind: 'local', modelName: modelDescriptor?.name } as const)
+        : ({
+            kind: 'cloud',
+            providerLabel: CLOUD_PROVIDER_LABELS[effectiveProviderId],
+            modelName: modelDescriptor?.id
+          } as const),
     assistantStyle: activeAssistantStyle,
     // Who they are, separate from how they talk — see `renderPersonaSection`.
     // The chat byline shows this name, so the model has to know it too, or it
     // introduces itself as Anodex under a header saying otherwise.
     assistantPersona: { name: activePersona.name, story: activePersona.story },
+    // The name from the welcome, so "What is my name?" has an answer: see
+    // `renderUserNameSection`.
+    userName: profileName(settings.profile.displayName),
     projectRules,
     activeSkillContext,
     // Only when the setting is on; `composeSystemPrompt` drops the section

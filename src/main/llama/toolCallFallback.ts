@@ -136,10 +136,66 @@ interface Candidate {
   jsonText: string
 }
 
+/**
+ * Gemma 4's own call markers, written out as text instead of taken as a call:
+ * `<|tool_call>call:NAME{…}<tool_call|>`.
+ *
+ * Observed with Gemma 4 E4B, asked "Do I have a maintenance sheet for the
+ * EX1200 anywhere?": its whole reply was
+ * `<|tool_call>call_available_tool{{"name": "find_my_files", …}}<tool_call|>`,
+ * shown to the person as the answer. node-llama-cpp's Gemma wrapper did not
+ * take it as a call: the `call:` prefix was missing and the braces doubled.
+ *
+ * Read as conservatively as the other dialects: `call:` optional, one doubled
+ * pair of braces unwrapped, Gemma's `<|"|>` string marks turned into quotes
+ * and bare keys quoted, then strict JSON or nothing. The tool must exist, as
+ * `detectFallbackToolCall` checks for every shape.
+ */
+// The arguments run to the end marker, not the first `}`: the observed call
+// nested a JSON string with braces of its own inside doubled braces.
+const GEMMA_TOOL_CALL =
+  /<\|tool_call>\s*(?:call:)?([A-Za-z_][\w.-]*)\s*(\{[\s\S]*?\})\s*<tool_call\|>/g
+
+function extractGemmaToolCallCandidates(text: string): Candidate[] {
+  const candidates: Candidate[] = []
+  for (const match of text.matchAll(GEMMA_TOOL_CALL)) {
+    const args = gemmaArguments(match[2])
+    if (args === null) continue
+    candidates.push({
+      matchedText: match[0],
+      jsonText: JSON.stringify({ name: match[1], arguments: args })
+    })
+  }
+  return candidates
+}
+
+function gemmaArguments(body: string): Record<string, unknown> | null {
+  let inner = body.trim()
+  if (inner.startsWith('{{') && inner.endsWith('}}')) inner = inner.slice(1, -1)
+  // Plain JSON first, so nothing inside a string value is ever rewritten; then
+  // Gemma's own notation, with bare keys quoted only right after `{` or `,`.
+  return (
+    parseObject(inner) ??
+    parseObject(inner.replaceAll('<|"|>', '"').replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":'))
+  )
+}
+
+function parseObject(json: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(json)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
 function extractCandidates(text: string): Candidate[] {
   const candidates: Candidate[] = []
 
   candidates.push(...extractDeepSeekCandidates(text))
+  candidates.push(...extractGemmaToolCallCandidates(text))
   candidates.push(...extractToolCodeCandidates(text))
   for (const match of text.matchAll(TOOL_CALL_TAG)) {
     candidates.push({ matchedText: match[0], jsonText: match[1] })
@@ -579,6 +635,8 @@ export function stripFallbackCall(text: string, call: FallbackToolCall): string 
 export function findPotentialToolCallTextStart(text: string): number {
   const starts = [
     text.indexOf('<tool_call'),
+    // Gemma 4's call marker: raw payload, held back like the others.
+    text.indexOf('<|tool_call>'),
     // Held back while it streams, like the other wrappers.
     text.indexOf('```tool_code'),
     // Held back for the same reason as `<tool_call`: it can appear without one.

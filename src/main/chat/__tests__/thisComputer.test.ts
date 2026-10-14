@@ -236,7 +236,9 @@ describe('example commands go only with a message about the computer', () => {
       'And the capital of Germany?',
       'What is 12 times 7?',
       'Give me a word that means happy.',
-      'Write a haiku about autumn.'
+      'Write a haiku about autumn.',
+      'List three primary colours.',
+      'What is the tallest mountain on Earth?'
     ]) {
       expect(mayConcernThisComputer([question]), question).toBe(false)
     }
@@ -253,7 +255,11 @@ describe('example commands go only with a message about the computer', () => {
       'Rename report.docx to final.docx',
       'Find the budget spreadsheet on my laptop.',
       'Is there anything in C:\\Temp?',
-      'Make this picture smaller.'
+      'Make this picture smaller.',
+      'Do I have a maintenance sheet for the EX1200 anywhere?',
+      'Where did I put my tax receipts?',
+      'What does my todo list say?',
+      'Find the invoice from March.'
     ]) {
       expect(mayConcernThisComputer([request]), request).toBe(true)
     }
@@ -376,4 +382,47 @@ describe("Anodex's own tools stay in view only for a message about Anodex", () =
       expect(mayConcernAnodex([request]), request).toBe(true)
     }
   })
+})
+
+describe('machine facts come from check_computer when it is on', () => {
+  // "Is Node.js installed, and which version?" sent Llama 3.1 8B and Gemma 4
+  // E4B to run_command, which asks first, because the examples taught
+  // Get-Command and --version.
+  for (const platform of ['win32', 'darwin', 'linux'] as const) {
+    it(`points at check_computer instead of a command on ${platform}`, () => {
+      const on = describeComputer(facts({ platform }), {
+        ...shell(platform === 'win32' ? 'powershell' : '/bin/bash'),
+        checkComputer: true
+      })
+      const off = describeComputer(facts({ platform }), {
+        ...shell(platform === 'win32' ? 'powershell' : '/bin/bash'),
+        checkComputer: false
+      })
+      const onText = on.shell?.howTo.join('\n') ?? ''
+      const offText = off.shell?.howTo.join('\n') ?? ''
+
+      expect(onText).toContain('check_computer, not a command')
+      expect(onText).not.toMatch(/--version|Get-PSDrive|df -h/)
+      // Switched off, the tool is never named and the commands come back.
+      expect(offText).not.toContain('check_computer')
+      expect(offText).toMatch(/--version/)
+    })
+  }
+})
+
+describe("the person's files come from find_my_files when it is on", () => {
+  // "Find the file E2260028 in my Downloads." went through two approved
+  // Get-ChildItem commands and 139 s with Gemma 4 E4B.
+  for (const platform of ['win32', 'darwin', 'linux'] as const) {
+    it(`points at find_my_files ahead of the find command on ${platform}`, () => {
+      const base = shell(platform === 'win32' ? 'powershell' : '/bin/bash')
+      const on = describeComputer(facts({ platform }), { ...base, findMyFiles: true })
+      const off = describeComputer(facts({ platform }), { ...base, findMyFiles: false })
+      const onLines = on.shell?.howTo ?? []
+      const find = onLines.findIndex((line) => line.startsWith('Find files by part of the name'))
+
+      expect(onLines[find - 1]).toContain('find_my_files')
+      expect((off.shell?.howTo ?? []).join('\n')).not.toContain('find_my_files')
+    })
+  }
 })

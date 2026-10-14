@@ -467,3 +467,53 @@ describe('dialects that wrap the call in an array or rename its keys', () => {
     expect(detectFallbackToolCall('[TOOL_CALLS] []', tools)).toBeNull()
   })
 })
+
+describe("Gemma 4's call markers written as text", () => {
+  const gateway = new Set(['call_available_tool', 'find_my_files'])
+
+  // Verbatim, Gemma 4 E4B: "Do I have a maintenance sheet for the EX1200
+  // anywhere?" -- this was the whole reply the person saw.
+  const observed =
+    '<|tool_call>call_available_tool{{"name": "find_my_files", "argumentsJson": "{\\"query\\": \\"EX1200 maintenance sheet\\"}"}}<tool_call|>'
+
+  it('recovers the observed call, doubled braces and a nested JSON string included', () => {
+    const call = detectFallbackToolCall(observed, gateway)
+    expect(call?.name).toBe('call_available_tool')
+    expect(call?.arguments).toEqual({
+      name: 'find_my_files',
+      argumentsJson: '{"query": "EX1200 maintenance sheet"}'
+    })
+    expect(stripFallbackCall(observed, call!)).toBe('')
+  })
+
+  it('reads Gemma\'s own notation: call:, bare keys and <|"|> strings', () => {
+    const call = detectFallbackToolCall(
+      '<|tool_call>call:find_my_files{words:<|"|>EX1200 maintenance<|"|>}<tool_call|>',
+      gateway
+    )
+    expect(call).toMatchObject({
+      name: 'find_my_files',
+      arguments: { words: 'EX1200 maintenance' }
+    })
+  })
+
+  it('leaves a value that only looks like a key alone', () => {
+    const call = detectFallbackToolCall(
+      '<|tool_call>call:find_my_files{"words": "budget, notes: March"}<tool_call|>',
+      gateway
+    )
+    expect(call?.arguments).toEqual({ words: 'budget, notes: March' })
+  })
+
+  it('refuses a tool that was not offered', () => {
+    expect(
+      detectFallbackToolCall('<|tool_call>call:run_command{"command": "dir"}<tool_call|>', gateway)
+    ).toBeNull()
+  })
+
+  it('holds the marker back while it streams', () => {
+    expect(findPotentialToolCallTextStart('Let me look. <|tool_call>call:find')).toBe(
+      'Let me look. '.length
+    )
+  })
+})

@@ -40,6 +40,21 @@ export function firstName(displayName: string | undefined | null): string | null
   return name.split(/\s+/)[0]
 }
 
+/** Longer than any real name; a profile field holding more is not a name. */
+const MAX_NAME_CHARS = 80
+
+/**
+ * The person's name as they gave it to Anodex, for the model to know, or null
+ * when they have not given one (the placeholder included).
+ *
+ * One line and bounded, because it is typed text that goes into the prompt.
+ */
+export function profileName(displayName: string | undefined | null): string | null {
+  const name = (displayName ?? '').replace(/\s+/g, ' ').trim()
+  if (!name || name === PLACEHOLDER_NAME || name.length > MAX_NAME_CHARS) return null
+  return name
+}
+
 /** Up to two initials, for an avatar with no photo. */
 export function initialsOf(displayName: string | undefined | null): string {
   const name = (displayName ?? '').trim()

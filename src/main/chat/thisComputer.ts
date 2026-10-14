@@ -26,7 +26,14 @@ export interface ComputerFacts {
  */
 export function describeComputer(
   facts: ComputerFacts,
-  shell: { command: string | undefined; startsIn: string } | null
+  shell: {
+    command: string | undefined
+    startsIn: string
+    /** Whether `check_computer` is switched on this turn: see `everydayCommands`. */
+    checkComputer?: boolean
+    /** Whether `find_my_files` is switched on this turn: see `everydayCommands`. */
+    findMyFiles?: boolean
+  } | null
 ): PromptComputer {
   const platform =
     facts.platform === 'win32' || facts.platform === 'darwin' || facts.platform === 'linux'
@@ -44,7 +51,10 @@ export function describeComputer(
     computer.shell = {
       name,
       startsIn: shell.startsIn,
-      howTo: everydayCommands(facts, name)
+      howTo: everydayCommands(facts, name, {
+        checkComputer: shell.checkComputer === true,
+        findMyFiles: shell.findMyFiles === true
+      })
     }
   }
   return computer
@@ -164,7 +174,30 @@ const COMPUTER_WORDS = new RegExp(
       'brightness',
       'shut ?down',
       'restart',
-      'reboot'
+      'reboot',
+      // The person's own documents by what they are, and asks about where
+      // something is. Measured: "Do I have a maintenance sheet for the EX1200
+      // anywhere?" named none of the words above, so the file tools stayed
+      // behind the gateway and Llama 3.1 8B said it was not aware of one
+      // while the PDF sat in Downloads. "list" is left out on purpose: "List
+      // three primary colours" is a plain question.
+      'anywhere',
+      'saved',
+      'where did i (?:put|save|leave)',
+      'sheets?',
+      'spreadsheets?',
+      'manuals?',
+      'invoices?',
+      'receipts?',
+      'statements?',
+      'contracts?',
+      'resumes?',
+      'cv',
+      'excel',
+      'word docs?',
+      'powerpoint',
+      'slides?',
+      'to-?dos?'
     ].join('|') +
     ')\\b',
   'i'
@@ -278,7 +311,7 @@ const URL_LIKE = /https?:\/\/|\bwww\.|\b[\w-]+\.(?:com|org|net|io|dev|ai|co|gov|
 /** C:\, ~/, /home/ or /Users/, or a file name with an extension such as report.docx. */
 const PATH_LIKE = /[a-z]:\\|~[\\/]|\/(?:home|users)\/|\b[\w-]+\.[a-z][a-z0-9]{1,4}\b/i
 
-function osName(facts: ComputerFacts): string {
+function osName(facts: Pick<ComputerFacts, 'platform' | 'release' | 'osRelease'>): string {
   if (facts.platform === 'win32') {
     // Windows 11 still reports itself as 10.0; the build number is what differs.
     const build = Number(facts.release.split('.')[2])
@@ -319,17 +352,49 @@ function isPowerShell(name: string): boolean {
  * 8K window pays for each line. Only what differs by system and is asked for
  * in ordinary chat — opening, the clipboard, the Trash, installing.
  */
-function everydayCommands(facts: ComputerFacts, shell: string): string[] {
+/** Said ahead of the find-files example when find_my_files is on. */
+const FIND_MY_FILES_FIRST =
+  "A file of the person's, by its name or words in it, in Documents, Desktop, Downloads or OneDrive: find_my_files, which never needs approval. The command below is for anywhere else."
+
+/** Said instead of the free-space and installed-program examples when check_computer is on. */
+const CHECK_COMPUTER_FIRST =
+  'Free space, whether a program is installed and which version, whether a port is free, and what this computer is: check_computer, not a command. It never needs the person to approve it.'
+
+function everydayCommands(
+  facts: ComputerFacts,
+  shell: string,
+  {
+    checkComputer = false,
+    findMyFiles = false
+  }: { checkComputer?: boolean; findMyFiles?: boolean } = {}
+): string[] {
+  // Likewise a file of the person's: "Find the file E2260028 in my Downloads."
+  // went through two approved Get-ChildItem commands and 139 s with Gemma 4
+  // E4B, where find_my_files needs no approval. The command stays for anywhere
+  // find_my_files does not look.
+  const findFirst = findMyFiles ? [FIND_MY_FILES_FIRST] : []
+  // With `check_computer` on, free space and "is it installed, which version"
+  // are its job and never a command's. Measured: "Is Node.js installed, and
+  // which version?" sent Llama 3.1 8B and Gemma 4 E4B alike to run_command,
+  // which asks for approval, because the example below taught Get-Command and
+  // --version; check_computer answers it without asking.
+  const machineFacts = (freeSpace: string, installed: string): string[] =>
+    checkComputer
+      ? [CHECK_COMPUTER_FIRST]
+      : [`Free space on the drive the person's files are on: ${freeSpace}`, installed]
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
       // A placeholder, not a realistic name: measured on Windows, an 8B told
       // "an acre is 43560 square feet" ran this line exactly as written,
       // searching the whole home folder for '*budget*'.
+      ...findFirst,
       "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*<part of the name>*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
-      "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version',
+      ...machineFacts(
+        'Get-PSDrive ($HOME.Substring(0, 1))',
+        'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version'
+      ),
       "Memory in use, and the programs using most: Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 Name, @{n='MB'; e={[math]::Round($_.WorkingSet64 / 1MB)}}",
       'Move or rename: Move-Item "$HOME\\Desktop\\<old>" "$HOME\\Desktop\\<new>"',
       'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
@@ -344,10 +409,13 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   // example: measured, an example written as find '<folder>' taught an 8B to
   // write find '~/Downloads', where the quotes stop ~ from meaning home.
   const posix = [
+    ...findFirst,
     "Find files by part of the name: find ~ -iname '*<part of the name>*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
-    "Free space on the drive the person's files are on: df -h ~",
-    'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version',
+    ...machineFacts(
+      'df -h ~',
+      'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version'
+    ),
     // Placeholders, never realistic names, in anything that changes files:
     // measured, a "gio trash ~/Downloads/old.zip" example was copied as the
     // target of a real command.
@@ -463,6 +531,23 @@ function linuxPackageInstall(osRelease: string | null): string {
 }
 
 let cachedOsRelease: string | null | undefined
+
+/**
+ * This computer's operating system by its everyday name ("Windows 11", "macOS
+ * 15"), the same name the prompt's This computer section uses.
+ *
+ * For `check_computer`'s system report, which printed `os.release()` as the
+ * version: "Windows 10.0.26200" is Windows 11, and both models read it as
+ * Windows 10. Llama 3.1 8B then replied "Windows 10, not Windows 11 as
+ * mentioned in the environment section", the tool and the prompt disagreeing.
+ */
+export function operatingSystemName(): string {
+  return osName({
+    platform: process.platform,
+    release: os.release(),
+    osRelease: process.platform === 'linux' ? readOsRelease() : null
+  })
+}
 
 function readOsRelease(): string | null {
   if (cachedOsRelease !== undefined) return cachedOsRelease

@@ -2,7 +2,8 @@ import { createServer, type Server } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkComputerTool, diskPath, findOnPath } from '../computerCheckTools'
+import { checkComputerTool, diskPath, findOnPath, programNames } from '../computerCheckTools'
+import { operatingSystemName } from '../../chat/thisComputer'
 import { createMockContext, createMockDefine } from './test-helpers'
 
 type Args = {
@@ -116,6 +117,34 @@ describe('check_computer disk', () => {
     const future = path.join(tmpdir(), 'anodex-not-made-yet', 'game')
     expect(await check({ check: 'disk', path: future })).toMatch(
       /free of .+ on the disk holding .+anodex-not-made-yet/
+    )
+  })
+})
+
+describe('check_computer system report', () => {
+  it('names the operating system the way the prompt does', async () => {
+    // It printed os.release(): "Windows 10.0.26200" is Windows 11, read by
+    // both models as Windows 10, against a prompt that said Windows 11.
+    const report = await check({ check: 'system' })
+    expect(report).toContain(`OS: ${operatingSystemName()} (build `)
+  })
+})
+
+describe('programNames', () => {
+  it('tries the other names a program goes by', () => {
+    // "nodejs" was reported not installed on a machine where `node` was.
+    expect(programNames('nodejs')).toEqual(['nodejs', 'node', 'node.js'])
+    expect(programNames('Node.js')).toEqual(['Node.js', 'node.js', 'node', 'nodejs'])
+    expect(programNames('python3')).toContain('py')
+  })
+
+  it('leaves a program with one name as it is', () => {
+    expect(programNames('git')).toEqual(['git'])
+  })
+
+  it('finds node when asked for nodejs', async () => {
+    expect(await check({ check: 'program', name: 'nodejs' })).toMatch(
+      /node is installed at .+\. Version: v\d+/
     )
   })
 })
