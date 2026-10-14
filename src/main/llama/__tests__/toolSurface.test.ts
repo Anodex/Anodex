@@ -844,3 +844,41 @@ describe('delegate on the tool surface', () => {
     expect(ranked.indexOf('delegate')).toBeLessThan(ranked.indexOf('load_skill'))
   })
 })
+
+describe('tools a message puts up front', () => {
+  // Gemma 4 E4B, 16K, from a phone: "Remind me in 2 minutes to stretch." got "I
+  // cannot set a reminder. I can only send files." set_reminder ranked eleventh
+  // behind the file and phone tools, past the ten the window shows in full.
+  const allFunctions = {
+    find_my_files: tool('Find a file.'),
+    send_file_to_me: tool('Send a file to the phone.'),
+    move_to_trash: tool('Move to the Trash.'),
+    set_reminder: tool('Set a reminder.')
+  }
+
+  it('documents an up-front tool even when the ranking would leave it out', () => {
+    const surface = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      maxDirectTools: 2,
+      upFront: ['set_reminder'],
+      measureFixedTokens: fixedCost
+    })
+    expect(surface.directToolNames[0]).toBe('set_reminder')
+    expect(surface.deferredToolNames).toContain('move_to_trash')
+  })
+
+  it('ignores a name the surface does not have', () => {
+    const surface = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 10_000,
+      maxDirectTools: 2,
+      upFront: ['no_such_tool'],
+      measureFixedTokens: fixedCost
+    })
+    expect(surface.directToolNames).not.toContain('no_such_tool')
+    expect(surface.directToolNames).toEqual(['find_my_files', 'send_file_to_me'])
+  })
+})

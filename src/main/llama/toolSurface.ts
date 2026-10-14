@@ -146,6 +146,13 @@ export function boundToolSurface(options: {
    * reaches the tool, one step later.
    */
   alwaysDefer?: ToolDeferral
+  /**
+   * Tools ranked first, in this order, ahead of `DIRECT_TOOL_PRIORITY`, for a
+   * turn whose message says what it needs. They still have to fit the budget,
+   * and a name the surface does not have is ignored. See
+   * `localChatToolsUpFront`.
+   */
+  upFront?: readonly string[]
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -156,6 +163,7 @@ export function boundToolSurface(options: {
     minDirectTools = 0,
     hardLimitTokens = Number.POSITIVE_INFINITY,
     alwaysDefer,
+    upFront,
     measureFixedTokens
   } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
@@ -208,7 +216,7 @@ export function boundToolSurface(options: {
   const selected: Record<string, ToolFunction> = { ...gateway.functions }
   const directToolNames: string[] = []
 
-  for (const name of rankToolNames(allFunctions)) {
+  for (const name of firstThenRanked(upFront, rankToolNames(allFunctions))) {
     if (directToolNames.length >= maxDirectTools) break
     if (deferred(name)) continue
     const candidate = { ...selected, [name]: allFunctions[name] }
@@ -396,6 +404,13 @@ const DIRECT_TOOL_PRIORITY = [
 const DIRECT_TOOL_RANK = new Map<string, number>(
   DIRECT_TOOL_PRIORITY.map((name, index) => [name, index])
 )
+
+/** `first` (those present), then the rest of `ranked` in its own order. */
+function firstThenRanked(first: readonly string[] | undefined, ranked: string[]): string[] {
+  if (!first?.length) return ranked
+  const present = first.filter((name) => ranked.includes(name))
+  return [...present, ...ranked.filter((name) => !present.includes(name))]
+}
 
 /** Order native schemas without interpreting the task's prose. */
 export function rankToolNames(functions: Record<string, ToolFunction>): string[] {
