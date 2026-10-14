@@ -706,17 +706,13 @@ export async function runGeneration(
   // carries the user-file, email and web surfaces, and so still pays for them.
   const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
 
-  // Two passes over the same composer. The first prices everything the user
-  // chose — rules, style, skills, plan, the request itself, and the protected
-  // continuation checkpoints — with no automatic reference material in it. That
-  // measurement is the input to the capacity contract, which then decides how
-  // much automatic material the window can actually afford. Composing once and
-  // budgeting against a fraction of the window instead is what let a 4K model
-  // admit 3,918 characters of workspace and recall into a prompt whose fixed
-  // cost had already outgrown the window.
-  // The message and the person's one before it, so "yes, do that" after "zip my
-  // photos" is read as the request it confirms.
-  const plainChatTurn = resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
+  // What kind of turn this is, resolved once by the rule the prompt uses, so
+  // the prompt's example commands and the transport's tool surface can never
+  // disagree about it. A plain chat reads the person's message and their one
+  // before it, so "yes, do that" after "zip my photos" is read as the request
+  // it confirms: see `mayConcernThisComputer` and `localChatToolsOnRequest`.
+  const promptSurface = resolvePromptSurface(io.surface, Boolean(activeProject))
+  const plainChatTurn = promptSurface === 'chat'
   const recentUserText = [
     request.prompt,
     request.history.filter((turn) => turn.role === 'user').at(-1)?.content
@@ -725,6 +721,15 @@ export async function runGeneration(
     plainChatTurn && effectiveProviderId === 'local'
       ? localChatToolsOnRequest(recentUserText)
       : undefined
+
+  // Two passes over the same composer. The first prices everything the user
+  // chose — rules, style, skills, plan, the request itself, and the protected
+  // continuation checkpoints — with no automatic reference material in it. That
+  // measurement is the input to the capacity contract, which then decides how
+  // much automatic material the window can actually afford. Composing once and
+  // budgeting against a fraction of the window instead is what let a 4K model
+  // admit 3,918 characters of workspace and recall into a prompt whose fixed
+  // cost had already outgrown the window.
   // One reader for the assistant voice: a selected personality wins over the
   // free-text field, and a personality deleted while selected falls back to it.
   // Reading `globalStyle` directly here is what would let the picker and the
@@ -1002,7 +1007,7 @@ export async function runGeneration(
       sessionMode: io.sessionMode,
       // Resolved once, by the same rule the prompt uses, so the transport
       // and the system prompt can never disagree about what this turn is.
-      surface: resolvePromptSurface(io.surface, Boolean(activeProject)),
+      surface: promptSurface,
       ...(toolsOnRequest ? { toolsOnRequest } : {}),
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
