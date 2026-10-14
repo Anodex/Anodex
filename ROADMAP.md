@@ -52,6 +52,20 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   computer. Still fragile: one wording change elsewhere in the prompt brought
   back four `echo` answers, which #382's guard catches. The invented path and
   the send-to-phone ask are still to re-run.
+  **0.19.1 (#391):** a plain local chat message about none of the computer, the
+  web or Anodex now keeps every tool behind the gateway, and the gateway is
+  described by purpose rather than by naming the catalogue. Fresh-chat suite on
+  the Iris Xe laptop, 8 questions and sums plus 3 computer tasks: Llama 3.1 8B
+  4/8 → 7/8 (7/8 without Anodex), Gemma 4 E4B 8/8 with no tool calls, computer
+  tasks still answered with the right tool. Llama still makes one stray gateway
+  call in about eight plain questions (a `fetch_url` for a discount sum); left
+  alone, because pushing further means tuning to one older model.
+- **"Fastest" ranks by file size, which misjudges per-layer-embedding models.**
+  Gemma 4 E4B is a 5.7 GB file but computes like a 4B model; on the Iris Xe laptop
+  it answered the suite faster than Llama 3.1 8B (4.6 GB), and behaved better,
+  yet the scorer names Llama "Fastest". A fix belongs in how `speedRankOf` and
+  `modelSizeGb` read a model (an `E<n>B` effective size, or active parameters
+  for mixture-of-experts like `A3B`), not in a special case for one family.
 
 ### Phone and platforms
 
@@ -162,7 +176,8 @@ These are complete capabilities, not action items:
   reachable through the deferred gateway, plus ordered mixed-channel chat streaming
   and readable recovery when a local provider interrupts visible prose with reasoning
   or a tool call. Tool availability and continuation are driven by configuration and
-  execution state, never prompt-keyword guards.
+  execution state, never prompt-keyword guards. (Keywords decide only which tools a
+  local model's plain chat message sees in full; everything stays reachable.)
 - In-app model discovery/downloads, hardware recommendations, reliability scoring,
   token activity, and the Workspace Dock.
 - Signed releases on all three platforms through GitHub, with the in-app updater
