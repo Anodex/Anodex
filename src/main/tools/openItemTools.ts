@@ -4,6 +4,7 @@ import { extname, isAbsolute, relative as relativePath, resolve, sep } from 'nod
 import { shell } from 'electron'
 import type { ToolFactory } from './types'
 import { runGuardedTool, runReadTool } from './helpers'
+import { expandHomeShorthand } from './homeShorthand'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { isSafeExternalUrl, openExternalSafely } from '../safeExternalUrl'
 
@@ -56,8 +57,8 @@ const RUNS_IN_A_BROWSER: ReadonlySet<string> = new Set(['.html', '.htm', '.svg']
  * Where a target points, and whether that is inside the open project.
  *
  * "Open my Downloads folder" used to need Downloads added as a project first,
- * which is ceremony for showing a folder. A full path or a `~` path now opens
- * from anywhere on this computer, and so does a plain name when no project is
+ * which is ceremony for showing a folder. A full path or a home path (`~`,
+ * `$HOME`: see `expandHomeShorthand`) now opens from anywhere on this computer, and so does a plain name when no project is
  * open, counted from the home folder. A relative path with a project open still
  * means the project, and may not climb out of it.
  */
@@ -65,7 +66,7 @@ export function resolveOpenTarget(
   target: string,
   workspaceRoot: string | null
 ): { path: string; inProject: boolean } {
-  const expanded = target.replace(/^~(?=$|[\\/])/, homedir())
+  const expanded = expandHomeShorthand(target) ?? target
   if (isAbsolute(expanded)) {
     const path = resolve(expanded)
     const inside =
