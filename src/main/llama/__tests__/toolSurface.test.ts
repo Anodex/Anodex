@@ -237,6 +237,54 @@ describe('bounded tool surface', () => {
     expect(sendEmail).toHaveBeenCalledWith({ to: 'person@example.com' })
   })
 
+  it('keeps a plain question’s shell and web tools behind the gateway, still callable', async () => {
+    // Fresh chats on Llama 3.1 8B: "What is the capital of Australia?" ran a
+    // command when run_command sat in full view. Deferred, not removed.
+    const runCommand = vi.fn(() => Promise.resolve('ran'))
+    const allFunctions = {
+      run_command: tool('Run a shell command.', runCommand),
+      fetch_url: tool('Fetch a web page.'),
+      anodex_status: tool("Read Anodex's own state."),
+      remember_fact: tool('Save a personal memory.')
+    }
+
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      // Room for everything: only the deferral moves anything behind the gateway.
+      targetFixedTokens: 10_000,
+      alwaysDefer: new Set(['run_command', 'fetch_url']),
+      measureFixedTokens: fixedCost
+    })
+
+    expect(result.routed).toBe(true)
+    expect(result.directToolNames).toEqual(
+      expect.arrayContaining(['anodex_status', 'remember_fact'])
+    )
+    expect(result.directToolNames).not.toContain('run_command')
+    expect(result.directToolNames).not.toContain('fetch_url')
+    expect(result.deferredToolNames).toEqual(expect.arrayContaining(['run_command', 'fetch_url']))
+
+    await result.functions.call_available_tool.handler({
+      name: 'run_command',
+      argumentsJson: '{}'
+    })
+    expect(runCommand).toHaveBeenCalled()
+  })
+
+  it('changes nothing when the tools it would defer are not on the surface', () => {
+    const allFunctions = { read_file: tool('Read a file.') }
+    const result = boundToolSurface({
+      allFunctions,
+      define: fakeDefine,
+      targetFixedTokens: 1_000,
+      alwaysDefer: new Set(['run_command']),
+      measureFixedTokens: fixedCost
+    })
+    expect(result.routed).toBe(false)
+    expect(result.functions).toBe(allFunctions)
+  })
+
   it('caps native schemas even when more would fit the token target', () => {
     const allFunctions = Object.fromEntries(
       Array.from({ length: 20 }, (_, index) => [

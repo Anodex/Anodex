@@ -111,6 +111,20 @@ export function boundToolSurface(options: {
    * behaviour exactly.
    */
   hardLimitTokens?: number
+  /**
+   * Tools kept behind the gateway this turn however much room there is: still
+   * callable through `find_available_tool`, never documented in full.
+   *
+   * For a plain chat message that is not about the computer or the web. A small
+   * model shown `run_command` and `fetch_url` reaches for them on questions it
+   * can answer itself: measured on Windows with Llama 3.1 8B in fresh chats, 7
+   * of 8 plain questions and sums called one ("What is the capital of
+   * Australia?" ran `Get-WinSystemInfo`, a 25%-off question ran
+   * `($40 * 0.75)`), scoring 4/8 against 7/8 for the same model without Anodex.
+   * Deferred rather than removed, so a request the word lists miss still
+   * reaches the tool, one step later.
+   */
+  alwaysDefer?: ReadonlySet<string>
   measureFixedTokens: (functions: Record<string, ToolFunction> | undefined) => number
 }): BoundedToolSurface {
   const {
@@ -120,6 +134,7 @@ export function boundToolSurface(options: {
     maxDirectTools = Number.POSITIVE_INFINITY,
     minDirectTools = 0,
     hardLimitTokens = Number.POSITIVE_INFINITY,
+    alwaysDefer,
     measureFixedTokens
   } = options
   if (!allFunctions || Object.keys(allFunctions).length === 0) {
@@ -127,8 +142,10 @@ export function boundToolSurface(options: {
   }
 
   const allNames = Object.keys(allFunctions)
+  const deferring = allNames.some((name) => alwaysDefer?.has(name))
   const wholeSurfaceCost = measureFixedTokens(allFunctions)
   if (
+    !deferring &&
     allNames.length <= maxDirectTools &&
     wholeSurfaceCost <= targetFixedTokens &&
     wholeSurfaceCost <= hardLimitTokens
@@ -170,6 +187,7 @@ export function boundToolSurface(options: {
 
   for (const name of rankToolNames(allFunctions)) {
     if (directToolNames.length >= maxDirectTools) break
+    if (alwaysDefer?.has(name)) continue
     const candidate = { ...selected, [name]: allFunctions[name] }
     // The budget bounds the tail, never the loop the surface needs to function.
     //

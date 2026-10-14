@@ -34,7 +34,9 @@ const mocks = vi.hoisted(() => ({
   /** The configured daily cap for every cloud provider in this mock. */
   dailyTokenCap: null as number | null,
   /** What `TokenActivityStore` reports has been spent today. */
-  todayTokens: 0
+  todayTokens: 0,
+  /** `toolsOnRequest` as the provider actually received it, per call. */
+  seenToolsOnRequest: [] as Array<string[] | undefined>
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -106,6 +108,7 @@ vi.mock('../../llm/ProviderRegistry', () => ({
     id: 'test',
     generate: (params: GenerateParams) => {
       mocks.seenOptions.push(params.options)
+      mocks.seenToolsOnRequest.push(params.toolsOnRequest)
       // Tool activity has to land *during* the turn, the way a real provider
       // reports it — the recording under test reads what those callbacks
       // accumulated, so firing them afterwards would prove nothing.
@@ -193,6 +196,60 @@ beforeEach(() => {
   mocks.dailyTokenCap = null
   mocks.todayTokens = 0
   mocks.seenOptions.length = 0
+  mocks.seenToolsOnRequest.length = 0
+})
+
+describe('runGeneration — tools a plain local chat keeps behind the gateway', () => {
+  const chatIo: RunGenerationIo = { ...io, surface: 'chat' }
+  const ask = (prompt: string, history: ChatRequest['history'] = []): ChatRequest => ({
+    ...request(null),
+    prompt,
+    history
+  })
+
+  it('defers the shell and the web for a plain question', async () => {
+    await runGeneration(ask('What is the capital of Australia?'), chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).toEqual(
+      expect.arrayContaining(['run_command', 'fetch_url', 'web_search'])
+    )
+  })
+
+  it('keeps the shell in view for a question about the computer', async () => {
+    await runGeneration(ask('How much free disk space do I have?'), chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).not.toContain('run_command')
+    expect(mocks.seenToolsOnRequest.at(-1)).toContain('fetch_url')
+  })
+
+  it('keeps the web in view for a question that needs it', async () => {
+    await runGeneration(ask("What's the weather tomorrow in Denver?"), chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).not.toContain('fetch_url')
+  })
+
+  it('reads a go-ahead with the request it confirms', async () => {
+    await runGeneration(
+      ask('Yes, do that.', [{ role: 'user', content: 'Zip up my Pictures folder.' }]),
+      chatIo
+    )
+
+    expect(mocks.seenToolsOnRequest.at(-1) ?? []).not.toContain('run_command')
+  })
+
+  it('leaves a cloud model its whole surface', async () => {
+    mocks.providerActive = 'anthropic'
+
+    await runGeneration(ask('What is the capital of Australia?'), chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).toBeUndefined()
+  })
+
+  it('leaves project and agent turns alone', async () => {
+    await runGeneration({ ...request('p1'), prompt: 'What is 17 times 23?' }, chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).toBeUndefined()
+  })
 })
 
 describe('runGeneration — project memory', () => {

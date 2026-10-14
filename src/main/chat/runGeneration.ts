@@ -2,7 +2,12 @@ import type { PromptReadingProgress } from '@shared/chat.types'
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
-import { describeComputer, liveComputerFacts, mayConcernThisComputer } from './thisComputer'
+import {
+  describeComputer,
+  liveComputerFacts,
+  mayConcernThisComputer,
+  mayNeedTheWeb
+} from './thisComputer'
 import type { DelegateCapability } from '@shared/subAgents'
 import { dailyCapReached, dailyCapRefusal } from '@shared/dailyCap'
 import { commitAttributionLine } from '@shared/commitAttribution'
@@ -712,6 +717,26 @@ export async function runGeneration(
   // free-text field, and a personality deleted while selected falls back to it.
   // Reading `globalStyle` directly here is what would let the picker and the
   // prompt disagree about which voice is in force.
+  // The message and the person's one before it, so "yes, do that" after "zip my
+  // photos" is read as the request it confirms.
+  const plainChatTurn = resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
+  const recentUserText = [
+    request.prompt,
+    request.history.filter((turn) => turn.role === 'user').at(-1)?.content
+  ].filter((text): text is string => typeof text === 'string')
+  // A local model answering a plain chat message that is not about the
+  // computer, or the web, sees the shell and web tools only through the
+  // gateway — see `boundToolSurface`'s `alwaysDefer`. Measured on Windows with
+  // Llama 3.1 8B in fresh chats: with them in full view it called one for 7 of
+  // 8 plain questions and sums, and scored 4/8 against 7/8 for the same model
+  // without Anodex. Cloud models keep the whole surface.
+  const toolsOnRequest =
+    plainChatTurn && effectiveProviderId === 'local'
+      ? [
+          ...(mayConcernThisComputer(recentUserText) ? [] : ['run_command', 'start_process']),
+          ...(mayNeedTheWeb(recentUserText) ? [] : ['fetch_url', 'web_search', 'download_file'])
+        ]
+      : []
   const activePersona = resolveActivePersona({
     saved: settings.assistantStyle.personalities,
     activeId: settings.assistantStyle.activePersonalityId,
@@ -741,15 +766,7 @@ export async function runGeneration(
     // may be about the computer — see `mayConcernThisComputer`. The person's
     // previous message counts too, so "yes, do that" after "zip my photos"
     // keeps them. Agent and project turns are left as they were.
-    commandExamples:
-      resolvePromptSurface(io.surface, Boolean(activeProject)) === 'chat'
-        ? mayConcernThisComputer(
-            [
-              request.prompt,
-              request.history.filter((turn) => turn.role === 'user').at(-1)?.content
-            ].filter((text): text is string => typeof text === 'string')
-          )
-        : undefined,
+    commandExamples: plainChatTurn ? mayConcernThisComputer(recentUserText) : undefined,
     runtime:
       effectiveProviderId === 'local'
         ? ({ kind: 'local' } as const)
@@ -994,6 +1011,7 @@ export async function runGeneration(
       // Resolved once, by the same rule the prompt uses, so the transport
       // and the system prompt can never disagree about what this turn is.
       surface: resolvePromptSurface(io.surface, Boolean(activeProject)),
+      ...(toolsOnRequest.length > 0 ? { toolsOnRequest } : {}),
       // Only the node-llama-cpp engine reads this (it rebuilds its session's
       // KV cache). Cloud/stateless transports bound their own history and stay
       // Local replay uses the bounded Context Ledger recall window.

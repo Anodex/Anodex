@@ -5,7 +5,12 @@ import {
   NO_PROJECT_SHELL_NOTE,
   NO_WORKSPACE_NOTE
 } from '@shared/prompts'
-import { describeComputer, mayConcernThisComputer, type ComputerFacts } from '../thisComputer'
+import {
+  describeComputer,
+  mayConcernThisComputer,
+  mayNeedTheWeb,
+  type ComputerFacts
+} from '../thisComputer'
 
 const folders = {
   home: '/home/sam',
@@ -253,6 +258,33 @@ describe('example commands go only with a message about the computer', () => {
     }
   })
 
+  it('finds everyday asks that name no file or program', () => {
+    // Misses noted once this began deciding which tools a turn sees.
+    for (const request of [
+      'Kill chrome.',
+      'Close Spotify.',
+      "What's my uptime?",
+      'Mute the sound.',
+      'Turn the volume down.',
+      'Restart the computer.'
+    ]) {
+      expect(mayConcernThisComputer([request]), request).toBe(true)
+    }
+  })
+
+  it('finds nothing to do on the computer in the fresh-chat suite questions', () => {
+    // The questions a 0.19.0 suite turned into commands in a fresh chat.
+    for (const question of [
+      'What is the capital of Australia?',
+      'At what temperature does water boil at sea level, in Celsius?',
+      'A shirt costs $40 and is 25% off. What is the sale price?',
+      'A train travels 180 km in 2.5 hours. What is its average speed in km/h?',
+      'A tiller 42 feet wide moves at 5.5 mph. About how many hours does it take to till 470 acres?'
+    ]) {
+      expect(mayConcernThisComputer([question]), question).toBe(false)
+    }
+  })
+
   it('counts the message before, so a go-ahead keeps them', () => {
     expect(mayConcernThisComputer(['Yes, do that.', 'Zip up my Pictures folder.'])).toBe(true)
   })
@@ -283,5 +315,37 @@ describe('example commands go only with a message about the computer', () => {
     expect(composeCacheablePrompt(chat).system).toContain(findLine)
     expect(composeSystemPrompt(chat)).toContain(findLine)
     expect(composeSystemPrompt({ ...chat, commandExamples: false })).not.toContain(findLine)
+  })
+})
+
+describe('web tools stay in view only for a message that may need the web', () => {
+  it('finds no need for the web in a plain question or sum', () => {
+    for (const question of [
+      'Who wrote Romeo and Juliet?',
+      'What is the capital of Australia?',
+      'How many legs does a spider have?',
+      'What is 17 times 23?',
+      'Write a haiku about autumn.'
+    ]) {
+      expect(mayNeedTheWeb([question]), question).toBe(false)
+    }
+  })
+
+  it('finds the asks that do need it', () => {
+    for (const request of [
+      "What's the weather tomorrow?",
+      'Look up the latest Node.js release.',
+      'Summarise https://example.com/post',
+      'Search for flights to Lisbon.',
+      'What happened in the news today?',
+      'Who won the match last night? Check online.',
+      'What does anthropic.com say about pricing?'
+    ]) {
+      expect(mayNeedTheWeb([request]), request).toBe(true)
+    }
+  })
+
+  it('counts the message before, so a go-ahead keeps them', () => {
+    expect(mayNeedTheWeb(['Yes, please.', 'Can you search for that?'])).toBe(true)
   })
 })
