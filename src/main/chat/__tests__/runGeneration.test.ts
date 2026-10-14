@@ -52,6 +52,7 @@ vi.mock('../../settings/SettingsStore', () => ({
       memory: { crossChatEnabled: false, personalEnabled: false, confirmBeforeSaving: true },
       transcriptRecall: { cloudProviderEnabled: false },
       assistantStyle: { globalStyle: '', personalities: [], activePersonalityId: null },
+      profile: { displayName: 'Anodex User', avatarBase64: null },
       provider: {
         active: mocks.providerActive,
         anthropic: { model: 'claude-x', dailyTokenCap: mocks.dailyTokenCap },

@@ -485,6 +485,33 @@ describe('composeSystemPrompt: where the turn is running', () => {
     expect(prompt).not.toMatch(/locally/i)
   })
 
+  // "Which AI model are you running on?" read Anodex's status and got "The
+  // exact AI model being used is not specified" when nothing named it.
+  it('names the model answering, locally or in the cloud', () => {
+    const local = composeSystemPrompt({
+      ...base,
+      surface: 'chat',
+      runtime: { kind: 'local', modelName: 'gemma-4-E4B_q4_0-it' }
+    })
+    expect(local).toContain('The model answering is gemma-4-E4B_q4_0-it.')
+
+    const cloud = composeSystemPrompt({
+      ...base,
+      surface: 'chat',
+      runtime: { kind: 'cloud', providerLabel: 'Claude', modelName: 'claude-sonnet-5-5' }
+    })
+    expect(cloud).toContain('The model answering is claude-sonnet-5-5.')
+  })
+
+  it('tells the model the name the person gave Anodex, and nothing when there is none', () => {
+    const named = composeSystemPrompt({ ...base, surface: 'chat', userName: 'Sam Rivera' })
+    expect(named).toContain('# Who you are talking with')
+    expect(named).toContain('"Sam Rivera"')
+
+    const unnamed = composeSystemPrompt({ ...base, surface: 'chat', userName: null })
+    expect(unnamed).not.toContain('# Who you are talking with')
+  })
+
   it('carries the runtime into agent turns and small-window prompts too', () => {
     const prompt = composeSystemPrompt({
       hasWorkspaceTools: true,
