@@ -60,12 +60,13 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   tasks still answered with the right tool. Llama still makes one stray gateway
   call in about eight plain questions (a `fetch_url` for a discount sum); left
   alone, because pushing further means tuning to one older model.
-- **"Fastest" ranks by file size, which misjudges per-layer-embedding models.**
-  Gemma 4 E4B is a 5.7 GB file but computes like a 4B model; on the Iris Xe laptop
-  it answered the suite faster than Llama 3.1 8B (4.6 GB), and behaved better,
-  yet the scorer names Llama "Fastest". A fix belongs in how `speedRankOf` and
-  `modelSizeGb` read a model (an `E<n>B` effective size, or active parameters
-  for mixture-of-experts like `A3B`), not in a special case for one family.
+- ~~**"Fastest" ranks by file size, which misjudges per-layer-embedding models.**~~
+  Fixed: `speedRankOf` reads the parameters a model computes with from its name
+  (`E4B`, `30B-A3B`: `activeParametersB`), and on the Fastest card variety only
+  breaks a tie on speed, never overrides it. Gemma 4 E4B is now "Fastest" on
+  laptops and 8 GB cards where it was Llama 3.1 8B; quality stays with the
+  file's class. Memory still reads the whole file: a mixture-of-experts model
+  needs room for everything it stores.
 
 ### Phone and platforms
 

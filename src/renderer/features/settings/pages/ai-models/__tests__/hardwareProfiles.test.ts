@@ -177,3 +177,39 @@ describe('one ladder, not two', () => {
     expect(label).toContain(tier!.toUpperCase())
   })
 })
+
+describe('"Fastest" means fastest', () => {
+  /**
+   * Measured on a 32 GB laptop with integrated graphics: Gemma 4 E4B, a 5.7 GB
+   * file that computes like a 4B model, answered faster than Llama 3.1 8B. The
+   * scorer read only file sizes, put them in one class, and then let variety
+   * hand the card to Llama because another Gemma was already showing.
+   */
+  const pool: RecommendedModel[] = [
+    liveModel('gemma-4-12b-it', '7b', 6.8, { family: 'google', hfDownloads: 900_000 }),
+    liveModel('gemma-4-E4B-it', '7b', 5.7, { family: 'google', hfDownloads: 100_000 }),
+    liveModel('Meta-Llama-3.1-8B-Instruct', '7b', 4.6, { family: 'meta', hfDownloads: 2_000_000 })
+  ]
+
+  it('ranks a model by the parameters it computes with, and keeps it when its family is taken', () => {
+    const slots = slotsFor(hardware(32, 0), pool)
+    expect(slots.find((slot) => slot.id === 'fastest')?.model.name).toBe('gemma-4-E4B-it')
+  })
+
+  it('still prefers a new family between equally fast models', () => {
+    // Best Overall takes gemma-a and Best Agent, the only tool caller, takes
+    // gemma-b, so Fastest chooses between gemma-c and a lower-scoring llama.
+    const level = [
+      liveModel('gemma-a-9b', '7b', 5.5, { family: 'google', supportsTools: false }),
+      liveModel('gemma-b-9b', '7b', 5.5, { family: 'google' }),
+      liveModel('gemma-c-9b', '7b', 5.5, { family: 'google', supportsTools: false }),
+      liveModel('llama-9b', '7b', 5.5, {
+        family: 'meta',
+        supportsTools: false,
+        hfDownloads: 1_000
+      })
+    ]
+    const slots = slotsFor(hardware(32, 0), level)
+    expect(slots.find((slot) => slot.id === 'fastest')?.model.family).toBe('meta')
+  })
+})
