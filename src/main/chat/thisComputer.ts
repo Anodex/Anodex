@@ -26,7 +26,12 @@ export interface ComputerFacts {
  */
 export function describeComputer(
   facts: ComputerFacts,
-  shell: { command: string | undefined; startsIn: string } | null
+  shell: {
+    command: string | undefined
+    startsIn: string
+    /** Whether `check_computer` is switched on this turn: see `everydayCommands`. */
+    checkComputer?: boolean
+  } | null
 ): PromptComputer {
   const platform =
     facts.platform === 'win32' || facts.platform === 'darwin' || facts.platform === 'linux'
@@ -44,7 +49,7 @@ export function describeComputer(
     computer.shell = {
       name,
       startsIn: shell.startsIn,
-      howTo: everydayCommands(facts, name)
+      howTo: everydayCommands(facts, name, shell.checkComputer === true)
     }
   }
   return computer
@@ -342,7 +347,20 @@ function isPowerShell(name: string): boolean {
  * 8K window pays for each line. Only what differs by system and is asked for
  * in ordinary chat — opening, the clipboard, the Trash, installing.
  */
-function everydayCommands(facts: ComputerFacts, shell: string): string[] {
+/** Said instead of the free-space and installed-program examples when check_computer is on. */
+const CHECK_COMPUTER_FIRST =
+  'Free space, whether a program is installed and which version, whether a port is free, and what this computer is: check_computer, not a command. It never needs the person to approve it.'
+
+function everydayCommands(facts: ComputerFacts, shell: string, checkComputer = false): string[] {
+  // With `check_computer` on, free space and "is it installed, which version"
+  // are its job and never a command's. Measured: "Is Node.js installed, and
+  // which version?" sent Llama 3.1 8B and Gemma 4 E4B alike to run_command,
+  // which asks for approval, because the example below taught Get-Command and
+  // --version; check_computer answers it without asking.
+  const machineFacts = (freeSpace: string, installed: string): string[] =>
+    checkComputer
+      ? [CHECK_COMPUTER_FIRST]
+      : [`Free space on the drive the person's files are on: ${freeSpace}`, installed]
   if (facts.platform === 'win32') {
     if (!isPowerShell(shell)) return []
     return [
@@ -351,8 +369,10 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
       // searching the whole home folder for '*budget*'.
       "Find files by part of the name: Get-ChildItem $HOME -Recurse -Filter '*<part of the name>*'",
       'Folder sizes: Get-ChildItem $HOME\\Documents -Directory | ForEach-Object { [pscustomobject]@{ Folder = $_.Name; MB = [math]::Round((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1) } } | Sort-Object MB',
-      "Free space on the drive the person's files are on: Get-PSDrive ($HOME.Substring(0, 1))",
-      'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version',
+      ...machineFacts(
+        'Get-PSDrive ($HOME.Substring(0, 1))',
+        'Check whether a program is installed, under every name it goes by, then its version: Get-Command python, python3, py -ErrorAction SilentlyContinue, then python --version'
+      ),
       "Memory in use, and the programs using most: Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 Name, @{n='MB'; e={[math]::Round($_.WorkingSet64 / 1MB)}}",
       'Move or rename: Move-Item "$HOME\\Desktop\\<old>" "$HOME\\Desktop\\<new>"',
       'Zip a folder, leaving it where it is: Compress-Archive -Path "$HOME\\Pictures\\<folder>" -DestinationPath "$HOME\\Desktop\\<folder>.zip"',
@@ -369,8 +389,10 @@ function everydayCommands(facts: ComputerFacts, shell: string): string[] {
   const posix = [
     "Find files by part of the name: find ~ -iname '*<part of the name>*'",
     'Folder sizes: du -sh ~/Documents/* | sort -h',
-    "Free space on the drive the person's files are on: df -h ~",
-    'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version',
+    ...machineFacts(
+      'df -h ~',
+      'Check whether a program is installed, under every name it goes by, then its version: command -v python3 python, then python3 --version'
+    ),
     // Placeholders, never realistic names, in anything that changes files:
     // measured, a "gio trash ~/Downloads/old.zip" example was copied as the
     // target of a real command.

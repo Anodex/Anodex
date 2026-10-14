@@ -621,12 +621,13 @@ export async function runGeneration(
 
   const hasWorkspaceTools = settings.tools.enabled && Boolean(workspaceRoot)
   const shellStartsIn = workspaceRoot ?? plainChatShellHome
-  const hasShell =
+  /** Whether this turn's tool settings switch `name` on, by the registry's rule. */
+  const toolOn = (name: string): boolean =>
     settings.tools.enabled &&
-    shellStartsIn !== null &&
     (io.enabledTools == null
-      ? !settings.tools.disabledTools.includes('run_command')
-      : io.enabledTools.has('run_command'))
+      ? !settings.tools.disabledTools.includes(name)
+      : io.enabledTools.has(name))
+  const hasShell = shellStartsIn !== null && toolOn('run_command')
   const includeReferenceContext = io.includeReferenceContext !== false
 
   // Resolved once and reused below for cloud-provider gating (transcript
@@ -756,7 +757,8 @@ export async function runGeneration(
       hasShell && shellStartsIn
         ? {
             command: resolveCommandShell(settings.general.defaultShell),
-            startsIn: shellStartsIn
+            startsIn: shellStartsIn,
+            checkComputer: toolOn('check_computer')
           }
         : null
     ),

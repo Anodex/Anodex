@@ -383,3 +383,29 @@ describe("Anodex's own tools stay in view only for a message about Anodex", () =
     }
   })
 })
+
+describe('machine facts come from check_computer when it is on', () => {
+  // "Is Node.js installed, and which version?" sent Llama 3.1 8B and Gemma 4
+  // E4B to run_command, which asks first, because the examples taught
+  // Get-Command and --version.
+  for (const platform of ['win32', 'darwin', 'linux'] as const) {
+    it(`points at check_computer instead of a command on ${platform}`, () => {
+      const on = describeComputer(facts({ platform }), {
+        ...shell(platform === 'win32' ? 'powershell' : '/bin/bash'),
+        checkComputer: true
+      })
+      const off = describeComputer(facts({ platform }), {
+        ...shell(platform === 'win32' ? 'powershell' : '/bin/bash'),
+        checkComputer: false
+      })
+      const onText = on.shell?.howTo.join('\n') ?? ''
+      const offText = off.shell?.howTo.join('\n') ?? ''
+
+      expect(onText).toContain('check_computer, not a command')
+      expect(onText).not.toMatch(/--version|Get-PSDrive|df -h/)
+      // Switched off, the tool is never named and the commands come back.
+      expect(offText).not.toContain('check_computer')
+      expect(offText).toMatch(/--version/)
+    })
+  }
+})
