@@ -385,6 +385,13 @@ Tool availability and email tools:
   remaining enabled capability—including email, web, image, GitHub, MCP, and specialty
   project tools—stays reachable through the compact on-demand tool gateway. Prompt
   keywords never add or remove capabilities.
+- On a local model's plain chat message, the message decides which tools are shown in
+  full. One about this computer keeps the computer tools in view, one that may need the
+  internet keeps the web tools, and one about Anodex itself (schedules, memory, mail,
+  projects, settings) keeps those. A message about none of them—a fact, a sum, a piece
+  of writing—puts every tool behind the gateway, because small models reach for
+  whatever tool is in view. Nothing is removed: a missed keyword costs one gateway step.
+  Cloud models and project runs keep the full surface.
 
 - List linked email accounts.
 - List threads.
