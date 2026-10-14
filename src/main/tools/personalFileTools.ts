@@ -63,6 +63,24 @@ function shortPath(path: string): string {
 }
 
 /**
+ * The first line of a find_my_files result.
+ *
+ * A file found only because its contents mention the words is a lead, not the
+ * thing asked for, and the result says so. Measured with Llama 3.1 8B: "What
+ * does my todo list say?" found a design document that mentions a "todo" in
+ * passing, under "Found 1 file:", and the reply was "Your todo list is in the
+ * file REVIEW_LOG_VISUAL_RUNTIME_EVIDENCE.md".
+ */
+export function foundHeading(words: string, results: { matched: string }[]): string {
+  const count = `${results.length} file${results.length === 1 ? '' : 's'}`
+  if (results.some((file) => file.matched === 'name')) return `Found ${count}:`
+  return (
+    `No file is named for "${words}". Found ${count} that only mention it inside, ` +
+    'which may not be what the person means: say what was found rather than calling it theirs.'
+  )
+}
+
+/**
  * find_my_files — look through the person's own folders for a file.
  *
  * "Send me the budget for Friday's meeting" from a phone starts here. Searches
@@ -110,7 +128,7 @@ export const findMyFilesTool: ToolFactory = (define, ctx) =>
           }
           return {
             modelResult: [
-              `Found ${results.length} file${results.length === 1 ? '' : 's'}:`,
+              foundHeading(args.words, results),
               ...results.map(
                 (file) =>
                   `- ${file.path} (${formatBytes(file.sizeBytes)}, changed ${new Date(file.modifiedAt).toLocaleDateString()}; matched ${file.matched})`

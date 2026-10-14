@@ -41,7 +41,7 @@ vi.mock('../../email/EmailService', () => ({
   }
 }))
 
-const { findMyFilesTool, sendFileToMeTool } = await import('../personalFileTools')
+const { findMyFilesTool, foundHeading, sendFileToMeTool } = await import('../personalFileTools')
 const { createMockContext, createMockDefine } = await import('./test-helpers')
 
 let budget: string
@@ -169,5 +169,21 @@ describe('sending a file to the paired phone', () => {
     const { find, send } = tools('untethered')
     await find.handler({ words: 'budget' })
     expect(await send.handler({ path: budget, to: 'phone' })).toContain('No phone is paired')
+  })
+})
+
+describe('foundHeading', () => {
+  it('reports name matches as found', () => {
+    expect(foundHeading('budget', [{ matched: 'name' }, { matched: 'contents: "…"' }])).toBe(
+      'Found 2 files:'
+    )
+  })
+
+  it('says a file that only mentions the words is a lead, not the thing asked for', () => {
+    // "What does my todo list say?" found a design note mentioning a todo, and
+    // the reply called it the person's todo list.
+    const heading = foundHeading('todo list', [{ matched: 'contents: "…a todo…"' }])
+    expect(heading).toContain('No file is named for "todo list"')
+    expect(heading).toContain('rather than calling it theirs')
   })
 })
