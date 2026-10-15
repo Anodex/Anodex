@@ -273,6 +273,29 @@ describe('bounded tool surface', () => {
     expect(sendEmail).toHaveBeenCalled()
   })
 
+  // Llama 3.1 8B, asked for a haiku: 15 minutes of refused gateway calls.
+  it('counts a call that cannot reach a tool as a lookup', async () => {
+    const result = boundToolSurface({
+      allFunctions: {
+        read_file: tool('Read a project file.'),
+        list_directory: tool('List a directory.'),
+        search_files: tool('Search file contents.'),
+        web_search: tool('Search the public web.'),
+        send_email: tool('Send an email.')
+      },
+      define: fakeDefine,
+      targetFixedTokens: 400,
+      measureFixedTokens: fixedCost
+    })
+    const call = (): Promise<unknown> =>
+      Promise.resolve(
+        result.functions.call_available_tool.handler({ name: 'write_poem', argumentsJson: '{}' })
+      ).catch((error: unknown) => error)
+
+    for (let i = 0; i < MAX_LOOKUPS_PER_TURN; i++) expect(await call()).toBeInstanceOf(Error)
+    expect(await call()).toBe(ENOUGH_LOOKUPS)
+  })
+
   it('keeps a plain question’s shell and web tools behind the gateway, still callable', async () => {
     // Fresh chats on Llama 3.1 8B: "What is the capital of Australia?" ran a
     // command when run_command sat in full view. Deferred, not removed.

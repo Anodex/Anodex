@@ -431,6 +431,10 @@ export function rankToolNames(functions: Record<string, ToolFunction>): string[]
  * said. Lookups were the one kind of call nothing counted. A turn that finds
  * the tool it needs uses one to three: a search, a description, perhaps a
  * second page of it.
+ *
+ * A `call_available_tool` that cannot reach a tool counts too. Llama asked for
+ * a haiku about rain wrote 2,637 tokens of gateway calls in 15 minutes and
+ * completed none: each was refused with guidance, and nothing counted those.
  */
 export const MAX_LOOKUPS_PER_TURN = 6
 
@@ -512,13 +516,21 @@ function createDeferredToolGateway(
       },
       required: ['name', 'argumentsJson']
     },
-    handler: (args) =>
-      callDeferredTool(
-        deferred.current,
-        stringArgument(args.name),
-        stringArgument(args.argumentsJson),
-        onRequestOnly
-      )
+    // A call that reaches a tool always runs. One that cannot (no such tool,
+    // arguments that do not fit) is another lookup in all but name, and counts.
+    handler: async (args) => {
+      try {
+        return await callDeferredTool(
+          deferred.current,
+          stringArgument(args.name),
+          stringArgument(args.argumentsJson),
+          onRequestOnly
+        )
+      } catch (error) {
+        if (error instanceof ToolGuidanceError && overAllowance()) return ENOUGH_LOOKUPS
+        throw error
+      }
+    }
   })
 
   return {
