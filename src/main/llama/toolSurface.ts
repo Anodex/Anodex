@@ -421,6 +421,23 @@ export function rankToolNames(functions: Record<string, ToolFunction>): string[]
   })
 }
 
+/**
+ * Lookups (`find_available_tool` and `describe_available_tool`) a turn gets.
+ *
+ * Measured with Llama 3.1 8B on "Find the file E2260028 in my Downloads.":
+ * about eleven lookups in one turn and no tool ever called. Each answer is more
+ * prompt to read; the context filled, shifted, and the turn read 21,552 prompt
+ * tokens at about 25 a second until the 15-minute limit ended it with nothing
+ * said. Lookups were the one kind of call nothing counted. A turn that finds
+ * the tool it needs uses one to three: a search, a description, perhaps a
+ * second page of it.
+ */
+export const MAX_LOOKUPS_PER_TURN = 6
+
+/** What a lookup past the allowance gets back, instead of another search. */
+export const ENOUGH_LOOKUPS =
+  'Enough lookups this turn. Call a tool you have already found with call_available_tool, or answer with what you have.'
+
 function createDeferredToolGateway(
   define: DefineChatSessionFunction,
   catalogNames: readonly string[],
@@ -428,6 +445,9 @@ function createDeferredToolGateway(
   onRequestOnly = false
 ): Gateway {
   const deferred: DeferredToolBox = { current: {} }
+  // Looking a tool up costs a round; past the allowance it says so instead.
+  let lookups = 0
+  const overAllowance = (): boolean => ++lookups > MAX_LOOKUPS_PER_TURN
   const defineGateway = define as unknown as (config: {
     description: string
     params: unknown
@@ -447,7 +467,9 @@ function createDeferredToolGateway(
       required: ['query']
     },
     handler: (args) =>
-      findDeferredTools(deferred.current, stringArgument(args.query), onRequestOnly)
+      overAllowance()
+        ? ENOUGH_LOOKUPS
+        : findDeferredTools(deferred.current, stringArgument(args.query), onRequestOnly)
   })
 
   const describe = defineGateway({
@@ -466,12 +488,14 @@ function createDeferredToolGateway(
       required: ['name']
     },
     handler: (args) =>
-      describeDeferredTool(
-        deferred.current,
-        stringArgument(args.name),
-        nonNegativeIntegerArgument(args.offset),
-        onRequestOnly
-      )
+      overAllowance()
+        ? ENOUGH_LOOKUPS
+        : describeDeferredTool(
+            deferred.current,
+            stringArgument(args.name),
+            nonNegativeIntegerArgument(args.offset),
+            onRequestOnly
+          )
   })
 
   const call = defineGateway({
