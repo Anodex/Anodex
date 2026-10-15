@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DefineChatSessionFunction, ToolFunction } from '../../tools/types'
 import {
   boundToolSurface,
+  ENOUGH_LOOKUPS,
   GATEWAY_TOOL_COUNT,
+  MAX_LOOKUPS_PER_TURN,
   toolDeferral,
   maxDirectToolsForContext,
   rankToolNames
@@ -236,6 +238,62 @@ describe('bounded tool surface', () => {
       argumentsJson: '{"to":"person@example.com"}'
     })
     expect(sendEmail).toHaveBeenCalledWith({ to: 'person@example.com' })
+  })
+
+  // Llama 3.1 8B looked tools up about eleven times in one turn, never called
+  // one, and read prompt until the 15-minute limit. See MAX_LOOKUPS_PER_TURN.
+  it('stops answering lookups past the allowance, and still lets a found tool be called', async () => {
+    const sendEmail = vi.fn(() => Promise.resolve('sent'))
+    const result = boundToolSurface({
+      allFunctions: {
+        read_file: tool('Read a project file.'),
+        list_directory: tool('List a directory.'),
+        search_files: tool('Search file contents.'),
+        web_search: tool('Search the public web.'),
+        send_email: tool('Send an email.', sendEmail)
+      },
+      define: fakeDefine,
+      targetFixedTokens: 400,
+      measureFixedTokens: fixedCost
+    })
+    const gateway = result.functions
+
+    for (let i = 0; i < MAX_LOOKUPS_PER_TURN; i++) {
+      const found: unknown = await (i % 2
+        ? gateway.describe_available_tool.handler({ name: 'send_email' })
+        : gateway.find_available_tool.handler({ query: 'email' }))
+      expect(String(found)).not.toBe(ENOUGH_LOOKUPS)
+    }
+    expect(await gateway.find_available_tool.handler({ query: 'mail' })).toBe(ENOUGH_LOOKUPS)
+    expect(await gateway.describe_available_tool.handler({ name: 'send_email' })).toBe(
+      ENOUGH_LOOKUPS
+    )
+
+    await gateway.call_available_tool.handler({ name: 'send_email', argumentsJson: '{}' })
+    expect(sendEmail).toHaveBeenCalled()
+  })
+
+  // Llama 3.1 8B, asked for a haiku: 15 minutes of refused gateway calls.
+  it('counts a call that cannot reach a tool as a lookup', async () => {
+    const result = boundToolSurface({
+      allFunctions: {
+        read_file: tool('Read a project file.'),
+        list_directory: tool('List a directory.'),
+        search_files: tool('Search file contents.'),
+        web_search: tool('Search the public web.'),
+        send_email: tool('Send an email.')
+      },
+      define: fakeDefine,
+      targetFixedTokens: 400,
+      measureFixedTokens: fixedCost
+    })
+    const call = (): Promise<unknown> =>
+      Promise.resolve(
+        result.functions.call_available_tool.handler({ name: 'write_poem', argumentsJson: '{}' })
+      ).catch((error: unknown) => error)
+
+    for (let i = 0; i < MAX_LOOKUPS_PER_TURN; i++) expect(await call()).toBeInstanceOf(Error)
+    expect(await call()).toBe(ENOUGH_LOOKUPS)
   })
 
   it('keeps a plain question’s shell and web tools behind the gateway, still callable', async () => {

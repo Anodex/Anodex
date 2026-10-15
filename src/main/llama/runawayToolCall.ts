@@ -8,7 +8,9 @@
  * closed. The model carried on as if it had: it wrote its end-of-call marker,
  * its thoughts, and then its whole answer, inventing drives D: to K:, all of it
  * inside one argument the grammar would not let it leave. 6,444 tokens and
- * 35,399 characters, and `check_computer` takes a few words.
+ * 35,399 characters, and `check_computer` takes a few words. The backslash is
+ * one way in; `"path": "/}}` is another, a string the model simply never
+ * closed before ending the call the way its own format does.
  *
  * The sign in every case was the model's own turn markers (`<tool_call|>`,
  * `<|channel>`) appearing inside the arguments. A model writes those only to
@@ -25,8 +27,8 @@
  * is why the test is the token count.
  */
 export class RunawayToolCallWatch {
-  /** The end of each in-flight call's arguments, so a marker split across chunks is still seen. */
-  private readonly tails = new Map<number, string>()
+  /** Each in-flight call's arguments so far. */
+  private readonly calls = new Map<number, string>()
 
   /**
    * @param isModelToken whether `marker` is a single token of this model's
@@ -34,19 +36,117 @@ export class RunawayToolCallWatch {
    */
   constructor(private readonly isModelToken: (marker: string) => boolean) {}
 
-  /** True once the call at `callIndex` has written one of the model's own turn markers. */
-  observe(callIndex: number, chunk: string): boolean {
-    const text = (this.tails.get(callIndex) ?? '') + chunk
-    this.tails.set(callIndex, text.slice(-TAIL_CHARS))
-    for (const [marker] of text.matchAll(MARKER_SHAPE)) {
-      if (this.isModelToken(marker)) return true
+  /**
+   * The call's arguments up to the first of the model's own turn markers, once
+   * one appears in them, and null until then.
+   */
+  observe(callIndex: number, chunk: string): string | null {
+    const before = this.calls.get(callIndex) ?? ''
+    const text = before + chunk
+    this.calls.set(callIndex, text)
+    // Only the new chunk and enough before it to hold a marker split across two.
+    const from = Math.max(0, before.length - MAX_MARKER_CHARS)
+    MARKER_SHAPE.lastIndex = from
+    for (let match = MARKER_SHAPE.exec(text); match; match = MARKER_SHAPE.exec(text)) {
+      if (this.isModelToken(match[0])) return text.slice(0, match.index)
     }
-    return false
+    return withoutRepeatingTail(text)
   }
+}
+
+/**
+ * The other sign, with no marker at all: one short piece written over and over.
+ *
+ * Measured with Llama 3.1 8B on "What does my todo list say?": `"path": "C:\\\\…`,
+ * a backslash pair 3,600 times over for 15 minutes. In JSON each pair is one
+ * backslash, so the string can never end. No argument a person means repeats
+ * a few characters hundreds of times running, so a tail of `REPEAT_RUN_CHARS`
+ * made of one unit of up to `MAX_REPEAT_UNIT` characters is the call gone wrong.
+ *
+ * Returns the text with that run cut back to a single unit, which is what the
+ * model was writing before it stuck (`C:\\`), or null when the tail is not a run.
+ */
+function withoutRepeatingTail(text: string): string | null {
+  if (text.length < REPEAT_RUN_CHARS) return null
+  const tail = text.slice(-REPEAT_RUN_CHARS)
+  for (let unit = 1; unit <= MAX_REPEAT_UNIT; unit++) {
+    let periodic = true
+    for (let i = unit; i < tail.length && periodic; i++) periodic = tail[i] === tail[i - unit]
+    if (!periodic) continue
+    // Walk back to where the run began, then keep one unit of it.
+    const piece = text.slice(-unit)
+    let start = text.length - REPEAT_RUN_CHARS
+    while (start >= unit && text.slice(start - unit, start) === piece) start -= unit
+    return text.slice(0, start) + text.slice(start, start + unit)
+  }
+  return null
+}
+
+/** How long a run of one repeated unit must be before it counts. */
+const REPEAT_RUN_CHARS = 512
+
+/** The longest unit counted as a run: `\\`, `ab`, `- ` and the like, not a repeated sentence. */
+const MAX_REPEAT_UNIT = 8
+
+/**
+ * The arguments the model meant, from what it wrote before losing track, when
+ * that is unambiguous; null otherwise.
+ *
+ * In every case measured the intent was plain: `{"check": "disk", "path": "/}}`
+ * is `{"check": "disk", "path": "/"}` with the closing quote missing, and
+ * `"name": "C:\",` is `"name": "C:\\",` with the backslash meant as a
+ * character. So: drop the closing braces the model wrote for its own format,
+ * then try closing the open string and the object, with and without reading a
+ * backslash before a quote as a character. The first reading that is a JSON
+ * object, names only fields the tool has, includes every field it requires and
+ * keeps every value it allows, is the call. Nothing is guessed beyond that.
+ */
+export function salvageArguments(written: string, schema: unknown): Record<string, unknown> | null {
+  const body = written.trimEnd().replace(/\}+$/, '').trimEnd()
+  const literalBackslashes = body.replace(/(?<!\\)\\"(?=\s*(?:,|$))/g, '\\\\"')
+  for (const base of [body, literalBackslashes]) {
+    // The last ending is for a string the run left ending on a lone backslash.
+    for (const ending of ['}', '"}', '\\"}']) {
+      const args = parseObject(base + ending)
+      if (args && fitsSchema(args, schema)) return args
+    }
+  }
+  return null
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+interface ObjectSchema {
+  properties?: Record<string, { type?: string; enum?: readonly unknown[] }>
+  required?: readonly string[]
+}
+
+/** The top level of a tool's parameter schema: the fields, the required ones, and their allowed values. */
+function fitsSchema(args: Record<string, unknown>, schema: unknown): boolean {
+  const { properties = {}, required = [] } = (schema ?? {}) as ObjectSchema
+  if (required.some((name) => !(name in args))) return false
+  return Object.entries(args).every(([name, value]) => {
+    const field = properties[name]
+    if (!field) return false
+    if (field.enum && !field.enum.includes(value)) return false
+    if (field.type === 'string') return typeof value === 'string'
+    if (field.type === 'number' || field.type === 'integer') return typeof value === 'number'
+    if (field.type === 'boolean') return typeof value === 'boolean'
+    return true
+  })
 }
 
 /** `<|word>`, `<word|>` and `<|word|>`: the shapes chat templates give their markers. */
 const MARKER_SHAPE = /<\|[A-Za-z_]{1,32}\|?>|<[A-Za-z_]{1,32}\|>/g
 
-/** Longer than any marker, short enough to scan on every chunk. */
-const TAIL_CHARS = 40
+/** The longest text `MARKER_SHAPE` matches. */
+const MAX_MARKER_CHARS = 36

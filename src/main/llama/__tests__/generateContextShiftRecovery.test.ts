@@ -553,70 +553,95 @@ describe('LlamaService.generate() context-shift recovery', () => {
   // Measured with Gemma 4 E4B: `"name": "C:\"` never closed, and the model
   // wrote its end-of-call marker, thoughts and answer into the argument for
   // the full 15 minutes. See `RunawayToolCallWatch`.
-  it('stops a tool call that writes its own control tokens, and tries the turn once more', async () => {
-    const access = asTestAccess()
-    prepareFakeEngine(access)
-    // Gemma reads its own `<tool_call|>` as one token, as the real one does.
-    access.model = {
-      tokenizer: () => [],
-      tokenize: (text: string) => (text === '<tool_call|>' ? [49] : Array.from(text, () => 1))
-    }
-    let attempts = 0
-    const session: NonNullable<LlamaServiceTestAccess['session']> = {
-      promptWithMeta: vi.fn(
-        (
-          _prompt: unknown,
-          options: {
-            signal?: AbortSignal
-            onResponseChunk?: (chunk: unknown) => void
-            onFunctionCallParamsChunk?: (chunk: {
-              callIndex: number
-              functionName: string
-              paramsChunk: string
-              done: boolean
-            }) => void
-          }
-        ) => {
-          attempts++
-          if (attempts === 1) {
-            options.onFunctionCallParamsChunk?.({
-              callIndex: 0,
-              functionName: 'web_search',
-              paramsChunk: '{"query": "C:\\", "count": 5}<tool_call|>',
-              done: false
+  describe('a tool call that writes its own turn markers into its arguments', () => {
+    /** A session whose first round writes `firstArguments` for web_search, then answers. */
+    function runawayThenAnswer(firstArguments: string) {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      // Gemma reads its own `<tool_call|>` as one token, as the real one does.
+      access.model = {
+        tokenizer: () => [],
+        tokenize: (text: string) => (text === '<tool_call|>' ? [49] : Array.from(text, () => 1))
+      }
+      const prompts: string[] = []
+      const session: NonNullable<LlamaServiceTestAccess['session']> = {
+        promptWithMeta: vi.fn(
+          (
+            prompt: unknown,
+            options: {
+              signal?: AbortSignal
+              onResponseChunk?: (chunk: unknown) => void
+              onFunctionCallParamsChunk?: (chunk: {
+                callIndex: number
+                functionName: string
+                paramsChunk: string
+                done: boolean
+              }) => void
+            }
+          ) => {
+            prompts.push(String(prompt))
+            if (prompts.length === 1) {
+              options.onFunctionCallParamsChunk?.({
+                callIndex: 0,
+                functionName: 'web_search',
+                paramsChunk: `${firstArguments}<tool_call|>`,
+                done: false
+              })
+              expect(options.signal?.aborted).toBe(true)
+              throw new Error('aborted')
+            }
+            options.onResponseChunk?.({
+              type: undefined,
+              segmentType: undefined,
+              text: 'Here is what I found.',
+              tokens: [1]
             })
-            expect(options.signal?.aborted).toBe(true)
-            throw new Error('aborted')
+            return Promise.resolve({ response: [], responseText: '', stopReason: 'eogToken' })
           }
-          options.onResponseChunk?.({
-            type: undefined,
-            segmentType: undefined,
-            text: 'You have 599 GB free.',
-            tokens: [1]
-          })
-          return Promise.resolve({ response: [], responseText: '', stopReason: 'eogToken' })
-        }
-      ),
-      dispose: vi.fn(),
-      chatWrapper: fakeChatWrapper,
-      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+      access.session = session
+      vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+      const activity: string[] = []
+      const outcome = llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'Search for the budget.',
+        onToken: () => {},
+        tools: webOnlyTools((call) => activity.push(`${call.name}:${call.status}`))
+      })
+      return { outcome, prompts, session, activity }
     }
-    access.session = session
-    vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
 
-    const outcome = await llamaService.generate({
-      conversationId: 'test-conversation',
-      messageId: 'test-message',
-      history: [],
-      prompt: 'How much free disk space do I have?',
-      onToken: () => {},
-      tools: webOnlyTools()
+    it('runs the call it meant, and continues from its result', async () => {
+      // The closing quote never written, the call ended Gemma's own way.
+      const run = runawayThenAnswer('{"query": "budget}}')
+
+      const outcome = await run.outcome
+
+      expect(run.activity.some((entry) => entry.startsWith('web_search:'))).toBe(true)
+      expect(run.prompts).toHaveLength(2)
+      expect(run.prompts[1]).toMatch(/^Search for the budget\.\n\nTool result for web_search:/)
+      expect(run.session.dispose).toHaveBeenCalled()
+      expect(outcome.content).toBe('Here is what I found.')
+      expect(outcome.stopped).toBe(false)
     })
 
-    expect(attempts).toBe(2)
-    expect(session.dispose).toHaveBeenCalled()
-    expect(outcome.content).toBe('You have 599 GB free.')
-    expect(outcome.stopped).toBe(false)
+    it('tries the turn once more when what it wrote cannot be read back', async () => {
+      // `count` is not one of web_search's fields, so nothing is guessed.
+      const run = runawayThenAnswer('{"query": "C:\\", "count": 5}')
+
+      const outcome = await run.outcome
+
+      expect(run.activity).toEqual([])
+      expect(run.prompts).toEqual(['Search for the budget.', 'Search for the budget.'])
+      expect(run.session.dispose).toHaveBeenCalled()
+      expect(outcome.content).toBe('Here is what I found.')
+    })
   })
 
   it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {

@@ -62,6 +62,7 @@ import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import {
   environmentDateFromPrompt,
+  takeEnvironmentClock,
   withEnvironmentClockMasked,
   type PromptSurface
 } from '@shared/prompts'
@@ -110,7 +111,7 @@ import {
   GenerationDiagnosticsTracker,
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
-import { RunawayToolCallWatch } from './runawayToolCall'
+import { RunawayToolCallWatch, salvageArguments } from './runawayToolCall'
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
@@ -1077,10 +1078,12 @@ class LlamaService extends EventEmitter {
       const runaway = { seen: false }
       const outcome = await this.generateInternal(params, runaway)
       // A tool call that lost its own arguments is stopped as soon as it shows
-      // (see `RunawayToolCallWatch`), and tried once more from the start when
-      // nothing of it has reached the person or the computer yet. Measured on
-      // the disk-space question that went wrong 2 times in 8, the next try
-      // answered.
+      // (see `RunawayToolCallWatch`). Usually the round reads it back into the
+      // call it meant and carries on: 8 of 8 answered, over 38 tries of the
+      // disk-space question. What cannot be read back is tried once more from
+      // the start, when nothing of it has reached the person or the computer
+      // yet; that answered 6 of 9, since the same prompt tends to make the same
+      // mistake, which is why reading back comes first.
       if (
         runaway.seen &&
         !params.signal?.aborted &&
@@ -1147,11 +1150,14 @@ class LlamaService extends EventEmitter {
     // The node-llama-cpp session keeps its own history and prompt handling, and its
     // cache follows the session rather than a byte-identical request. It receives the
     // turn context in the system prompt, as before, and the user's words as the prompt.
+    // The time of day goes with the words instead: see `takeEnvironmentClock`.
     if (params.turnContext) {
+      const { context, clock } = takeEnvironmentClock(params.turnContext)
+      const words = params.userPrompt ?? params.prompt
       params = {
         ...params,
-        systemPrompt: [params.systemPrompt, params.turnContext].filter(Boolean).join('\n\n'),
-        prompt: params.userPrompt ?? params.prompt,
+        systemPrompt: [params.systemPrompt, context].filter(Boolean).join('\n\n'),
+        prompt: clock ? `${words}\n\n${clock}` : words,
         turnContext: undefined
       }
     }
@@ -1533,12 +1539,27 @@ class LlamaService extends EventEmitter {
               gbnfSafeSchema(params.options.jsonSchema) as GbnfJsonSchema
             )
           : undefined
+      // The call a runaway tool call meant, once read back from what it wrote:
+      // see `salvageArguments`. Run by the round's catch below, once a turn.
+      const salvage: { call: FallbackToolCall | null; used: boolean } = {
+        call: null,
+        used: false
+      }
       for (let round = 0; ; round++) {
         let roundContent = ''
         let roundSegment = ''
         // Snapshot so this round can tell whether it produced tool activity of
         // its own, independent of earlier rounds.
         const toolActivityBeforeRound = toolActivityCount
+        // Its own signal, so one runaway tool call can be stopped without
+        // stopping the turn. Everything that stops the turn still stops it.
+        const roundController = new AbortController()
+        if (genController.signal.aborted) roundController.abort()
+        else {
+          genController.signal.addEventListener('abort', () => roundController.abort(), {
+            once: true
+          })
+        }
         const promptOptions = {
           temperature: params.options?.temperature,
           topP: params.options?.topP,
@@ -1597,7 +1618,7 @@ class LlamaService extends EventEmitter {
           customStopTriggers: fabricatedResultStopTriggers(
             this.model?.fileInfo?.metadata?.general?.architecture
           ),
-          signal: genController.signal,
+          signal: roundController.signal,
           ...(grammar ? { grammar } : { functions }),
           // Force a checkpoint after every native tool call. Wrappers such
           // as Qwen support parallel function sections; without a bound,
@@ -1661,17 +1682,35 @@ class LlamaService extends EventEmitter {
                 )
                 const update = pendingToolCalls.onParamsChunk(round, chunk)
                 if (update) params.tools?.onActivity(update)
-                if (
-                  !runaway.seen &&
-                  !genController.signal.aborted &&
-                  runawayWatch.observe(chunk.callIndex, chunk.paramsChunk)
-                ) {
-                  runaway.seen = true
-                  log.warn('A tool call wrote its own control tokens into its arguments', {
+                const written =
+                  runaway.seen || roundController.signal.aborted
+                    ? null
+                    : runawayWatch.observe(chunk.callIndex, chunk.paramsChunk)
+                if (written !== null) {
+                  // Read back only when nothing of the turn would be lost by
+                  // rebuilding it: no tool has run and nothing is on screen.
+                  const snapshot = diagnostics.snapshot()
+                  const args =
+                    round === 0 &&
+                    !salvage.used &&
+                    snapshot.completedToolCalls === 0 &&
+                    !visibleContent &&
+                    !roundContent
+                      ? salvageArguments(written, functions[chunk.functionName]?.params)
+                      : null
+                  log.warn('A tool call wrote its own turn markers into its arguments', {
                     functionName: chunk.functionName,
-                    ...diagnostics.snapshot()
+                    readBack: args !== null,
+                    ...snapshot
                   })
-                  abortBox.current?.()
+                  if (args) {
+                    salvage.call = { name: chunk.functionName, arguments: args, matchedText: '' }
+                    salvage.used = true
+                    roundController.abort()
+                  } else {
+                    runaway.seen = true
+                    abortBox.current?.()
+                  }
                 }
               }
             : undefined
@@ -1719,8 +1758,41 @@ class LlamaService extends EventEmitter {
         try {
           meta = await session.promptWithMeta(prompt, promptOptions as never)
           this.sessionAwaitingFirstPrompt = false
+          // Stopped for a runaway call but returned rather than threw: the
+          // catch below is where that call is run.
+          if (salvage.call) throw new Error('Round stopped for a runaway tool call')
         } catch (error) {
           this.sessionAwaitingFirstPrompt = false
+          // A runaway call read back into the one it meant: run it the way a
+          // fallback call runs, through its own handler and its own approval,
+          // then continue from a session rebuilt without the broken call.
+          const meant = salvage.call
+          if (meant && functions && !genController.signal.aborted) {
+            salvage.call = null
+            for (const call of pendingToolCalls.sweep(round)) params.tools?.onActivity(call)
+            log.info('Ran the tool call the model meant, and continuing', {
+              functionName: meant.name
+            })
+            const resultText = await runFallbackToolCall(functions, meant)
+            this.disposeSession()
+            session = await this.ensureSession(
+              params.conversationId,
+              params.systemPrompt,
+              params.history,
+              params.context,
+              toolSchemaReserveTokens,
+              'onLoad',
+              false,
+              params.recallWindowFraction
+            )
+            prompt = `${prompt}
+
+Tool result for ${meant.name}:
+${resultText}
+
+Continue the task using this result. If the task is complete, answer instead of calling another tool.`
+            continue
+          }
           const isContextShiftFailure = isContextShiftCrash(error)
           if (genController.signal.aborted) {
             visibleContent = appendRoundText(visibleContent, stripLeakedEngineText(roundContent))
