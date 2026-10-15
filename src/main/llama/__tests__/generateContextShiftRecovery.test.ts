@@ -644,6 +644,57 @@ describe('LlamaService.generate() context-shift recovery', () => {
     })
   })
 
+  // The tools' descriptions follow the system prompt, so anything chosen for
+  // one message that sits in it is re-read with every tool. See splitTurnContext.
+  it("sends a message's chosen context with a new session's first prompt, not the system prompt", async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const prompts: string[] = []
+    const session: NonNullable<LlamaServiceTestAccess['session']> = {
+      promptWithMeta: vi.fn((prompt: unknown) => {
+        prompts.push(String(prompt))
+        return Promise.resolve({ response: [], responseText: 'ok', stopReason: 'eogToken' })
+      }),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    const systemPrompts: unknown[] = []
+    let fresh = true
+    vi.spyOn(access, 'ensureSession').mockImplementation((...args: unknown[]) => {
+      systemPrompts.push(args[1])
+      // The first turn makes a new session; the second reuses it.
+      ;(access as unknown as { sessionAwaitingFirstPrompt: boolean }).sessionAwaitingFirstPrompt =
+        fresh
+      fresh = false
+      return Promise.resolve(session)
+    })
+    const turnContext = [
+      "# Environment\nToday's date is Thursday, October 15, 2026 (2026-10-15), and the local time was about 4:02 AM MDT when this conversation's context was built.",
+      '# Past chats\n## "Check Git" (2026-10-15)\n- assistant: Yes, git is installed.'
+    ].join('\n\n')
+    const ask = (prompt: string) =>
+      llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: `message-${prompt}`,
+        systemPrompt: 'You are Anodex.',
+        history: [],
+        prompt,
+        userPrompt: prompt,
+        turnContext,
+        onToken: () => {}
+      })
+
+    await ask('Is git installed?')
+    await ask('And node?')
+
+    expect(systemPrompts[0]).toContain('2026-10-15')
+    expect(systemPrompts[0]).not.toMatch(/Past chats|4:02/)
+    expect(prompts[0]).toContain('# Past chats')
+    expect(prompts[0]).toMatch(/Is git installed\?\n\n\(The local time is about 4:02 AM MDT\.\)$/)
+    expect(prompts[1]).toBe('And node?\n\n(The local time is about 4:02 AM MDT.)')
+  })
+
   it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {
     // node-llama-cpp does not expose a callback between accepting a function
     // result and beginning its next decoder pass. This fixture mirrors that
