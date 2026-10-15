@@ -375,6 +375,40 @@ export function environmentDateFromPrompt(prompt: string | null | undefined): st
 }
 
 /**
+ * The Environment section's time of day, taken out of `context` and returned on
+ * its own; the date stays where it was.
+ *
+ * For the local engine, which puts the turn's context in the system prompt,
+ * ahead of the tools' descriptions. The time is stated to the minute, so two
+ * conversations a minute apart disagreed there, and the model re-read
+ * everything after it: measured with Gemma 4 E4B on a laptop with integrated
+ * graphics, a new chat's computer question read about 2,600 prompt tokens and
+ * took 15 s to its first word, against 120 tokens and a fraction of that when
+ * the minute had not changed. With the time beside the person's message
+ * instead, every new chat that day opens on the same instructions. The date
+ * stays, for `environmentDateFromPrompt`.
+ *
+ * Returns the context unchanged, and no clock, when it has no Environment
+ * section or the section has no time in it.
+ */
+export function takeEnvironmentClock(context: string): { context: string; clock: string | null } {
+  const time = ENVIRONMENT_CLOCK.exec(context)
+  if (!time) return { context, clock: null }
+  return {
+    context: context.replace(ENVIRONMENT_CLOCK, '.').replace(` ${ENVIRONMENT_CLOCK_HEDGE}`, ''),
+    clock: `(The local time is about ${time[1]}.)`
+  }
+}
+
+/** The clause `renderEnvironmentSection` states the time in, with the time captured. */
+const ENVIRONMENT_CLOCK =
+  /, and the local time was about (.+?) when this conversation's context was built\./
+
+/** `renderEnvironmentSection`'s caution about the time, which goes with it. */
+const ENVIRONMENT_CLOCK_HEDGE =
+  'The time may have advanced since, so treat it as approximate rather than quoting it as the exact time.'
+
+/**
  * The same prompt with the Environment section's clock line swapped for a
  * placeholder, or `null` when it has no such section.
  *

@@ -7,6 +7,8 @@ import {
   coreAgentPrompt,
   environmentDateFromPrompt,
   NO_WORKSPACE_NOTE,
+  renderEnvironmentSection,
+  takeEnvironmentClock,
   READ_ONLY_WORKSPACE_NOTE,
   WORKSPACE_REFERENCE_NOTE,
   withEnvironmentClockMasked
@@ -332,6 +334,36 @@ describe('environmentDateFromPrompt', () => {
     expect(environmentDateFromPrompt('You are a helpful assistant.')).toBeNull()
     expect(environmentDateFromPrompt(undefined)).toBeNull()
     expect(environmentDateFromPrompt(null)).toBeNull()
+  })
+})
+
+describe('takeEnvironmentClock', () => {
+  const section = (iso: string): string =>
+    `${renderEnvironmentSection(new Date(iso), 'America/Denver')}\n\n# Commands for Windows PowerShell\n- Free space: check_computer`
+
+  it('takes the time out, leaving the date and the rest of the context', () => {
+    const { context, clock } = takeEnvironmentClock(section('2026-10-15T10:02:00Z'))
+
+    expect(clock).toBe('(The local time is about 4:02 AM MDT.)')
+    expect(context).not.toMatch(/4:02|local time|advanced since/)
+    expect(environmentDateFromPrompt(context)).toBe('2026-10-15')
+    expect(context).toContain('# Commands for Windows PowerShell')
+  })
+
+  // What the local engine's prompt cache needs: a minute later, the same text.
+  it('leaves the same context a minute later, and on any other time that day', () => {
+    const at = (iso: string): string => takeEnvironmentClock(section(iso)).context
+
+    expect(at('2026-10-15T10:03:00Z')).toBe(at('2026-10-15T10:02:00Z'))
+    expect(at('2026-10-15T21:40:00Z')).toBe(at('2026-10-15T10:02:00Z'))
+    expect(at('2026-10-16T10:02:00Z')).not.toBe(at('2026-10-15T10:02:00Z'))
+  })
+
+  it('changes nothing in a context with no time in it', () => {
+    expect(takeEnvironmentClock('# Commands\n- ls')).toEqual({
+      context: '# Commands\n- ls',
+      clock: null
+    })
   })
 })
 

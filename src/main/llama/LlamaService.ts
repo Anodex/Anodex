@@ -62,6 +62,7 @@ import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import {
   environmentDateFromPrompt,
+  takeEnvironmentClock,
   withEnvironmentClockMasked,
   type PromptSurface
 } from '@shared/prompts'
@@ -1149,11 +1150,14 @@ class LlamaService extends EventEmitter {
     // The node-llama-cpp session keeps its own history and prompt handling, and its
     // cache follows the session rather than a byte-identical request. It receives the
     // turn context in the system prompt, as before, and the user's words as the prompt.
+    // The time of day goes with the words instead: see `takeEnvironmentClock`.
     if (params.turnContext) {
+      const { context, clock } = takeEnvironmentClock(params.turnContext)
+      const words = params.userPrompt ?? params.prompt
       params = {
         ...params,
-        systemPrompt: [params.systemPrompt, params.turnContext].filter(Boolean).join('\n\n'),
-        prompt: params.userPrompt ?? params.prompt,
+        systemPrompt: [params.systemPrompt, context].filter(Boolean).join('\n\n'),
+        prompt: clock ? `${words}\n\n${clock}` : words,
         turnContext: undefined
       }
     }
