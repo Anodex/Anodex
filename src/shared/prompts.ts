@@ -400,6 +400,39 @@ export function takeEnvironmentClock(context: string): { context: string; clock:
   }
 }
 
+/**
+ * A turn context split three ways for the local engine: the date, which stays
+ * the same all day; the time of day; and everything chosen for this message.
+ *
+ * `composeCacheablePrompt` already keeps what changes per message out of the
+ * system prompt, so that a model's prompt cache can reuse it, and the cloud and
+ * vision transports send it with the message. The text engine put it back into
+ * the system prompt, ahead of the tools' descriptions, so whenever it differed
+ * the model re-read every tool after it. The time was one such difference
+ * (`takeEnvironmentClock`); the rest was past-chat excerpts, memory, workspace
+ * state and the command examples, which differ whenever the message does.
+ * Measured with Gemma 4 E4B, a new chat's question that matched an earlier one
+ * re-read about 2,000 prompt tokens and took 15 s to its first word, against
+ * 1.6 s when nothing above the tools had changed.
+ *
+ * `dated` is the Environment section with the date only, for the system
+ * prompt, where `environmentDateFromPrompt` reads it. `rest` is null when
+ * there is nothing else.
+ */
+export function splitTurnContext(turnContext: string): {
+  dated: string | null
+  clock: string | null
+  rest: string | null
+} {
+  const sections = turnContext.split('\n\n')
+  const at = sections.findIndex((section) => section.startsWith(ENVIRONMENT_HEADING))
+  const others = sections.filter((_, index) => index !== at)
+  const rest = others.join('\n\n').trim() || null
+  if (at < 0) return { dated: null, clock: null, rest }
+  const { context, clock } = takeEnvironmentClock(sections[at])
+  return { dated: context, clock, rest }
+}
+
 /** The clause `renderEnvironmentSection` states the time in, with the time captured. */
 const ENVIRONMENT_CLOCK =
   /, and the local time was about (.+?) when this conversation's context was built\./

@@ -3,11 +3,13 @@ import {
   CODING_AGENT_PROMPT,
   ISOLATED_WRITING_PROMPT,
   COMPACT_CODING_AGENT_PROMPT,
+  composeCacheablePrompt,
   composeSystemPrompt,
   coreAgentPrompt,
   environmentDateFromPrompt,
   NO_WORKSPACE_NOTE,
   renderEnvironmentSection,
+  splitTurnContext,
   takeEnvironmentClock,
   READ_ONLY_WORKSPACE_NOTE,
   WORKSPACE_REFERENCE_NOTE,
@@ -364,6 +366,45 @@ describe('takeEnvironmentClock', () => {
       context: '# Commands\n- ls',
       clock: null
     })
+  })
+})
+
+describe('splitTurnContext', () => {
+  const turnContext = (iso: string, pastChat: string): string =>
+    composeCacheablePrompt({
+      hasWorkspaceTools: true,
+      hasProject: false,
+      now: new Date(iso),
+      timeZone: 'America/Denver',
+      transcriptRecallContext: pastChat
+    }).turnContext ?? ''
+
+  it('keeps the date for the system prompt and sends the rest with the message', () => {
+    const { dated, clock, rest } = splitTurnContext(
+      turnContext('2026-10-15T10:02:00Z', '## "Check Git" (2026-10-15)\n- assistant: Yes.')
+    )
+
+    expect(environmentDateFromPrompt(dated)).toBe('2026-10-15')
+    expect(dated).not.toContain('Past chats')
+    expect(clock).toBe('(The local time is about 4:02 AM MDT.)')
+    expect(rest).toContain('# Past chats')
+    expect(rest).toContain('- assistant: Yes.')
+    expect(rest).not.toContain('# Environment')
+  })
+
+  // What the local engine's prompt cache needs: two messages that day, the same system prompt.
+  it('gives the same system part whatever the message and the minute', () => {
+    const first = splitTurnContext(turnContext('2026-10-15T10:02:00Z', '- assistant: Yes.'))
+    const second = splitTurnContext(turnContext('2026-10-15T15:47:00Z', '- assistant: No.'))
+
+    expect(second.dated).toBe(first.dated)
+    expect(second.rest).not.toBe(first.rest)
+  })
+
+  it('has no rest when only the environment was chosen', () => {
+    const { dated, rest } = splitTurnContext(turnContext('2026-10-15T10:02:00Z', ''))
+    expect(dated).toBeTruthy()
+    expect(rest).toBeNull()
   })
 })
 

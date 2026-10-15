@@ -62,8 +62,9 @@ import { pickRecommendedContextSize } from '@shared/contextRecommendation'
 import { planManualContextCompaction } from '@shared/contextProjection'
 import {
   environmentDateFromPrompt,
-  takeEnvironmentClock,
+  splitTurnContext,
   withEnvironmentClockMasked,
+  withTurnContext,
   type PromptSurface
 } from '@shared/prompts'
 import type { ToolFunction } from '../tools/types'
@@ -1149,14 +1150,18 @@ class LlamaService extends EventEmitter {
 
     // The node-llama-cpp session keeps its own history and prompt handling, and its
     // cache follows the session rather than a byte-identical request. It receives the
-    // turn context in the system prompt, as before, and the user's words as the prompt.
-    // The time of day goes with the words instead: see `takeEnvironmentClock`.
+    // turn context's date in the system prompt, and the user's words as the prompt.
+    // The time and everything chosen for this message go after the tools instead:
+    // see `splitTurnContext`. The chosen part opens a new session's first prompt,
+    // where the system prompt used to carry it; a reused session already has it.
+    let messageContext: string | null = null
     if (params.turnContext) {
-      const { context, clock } = takeEnvironmentClock(params.turnContext)
+      const { dated, clock, rest } = splitTurnContext(params.turnContext)
       const words = params.userPrompt ?? params.prompt
+      messageContext = rest
       params = {
         ...params,
-        systemPrompt: [params.systemPrompt, context].filter(Boolean).join('\n\n'),
+        systemPrompt: [params.systemPrompt, dated].filter(Boolean).join('\n\n'),
         prompt: clock ? `${words}\n\n${clock}` : words,
         turnContext: undefined
       }
@@ -1438,7 +1443,9 @@ class LlamaService extends EventEmitter {
     // abort, neither of which should get the loop-guard-specific stopReason.
     let loopGuardAborted = false
     const originalPrompt = params.prompt
-    let prompt = params.prompt
+    let prompt = this.sessionAwaitingFirstPrompt
+      ? withTurnContext(params.prompt, messageContext)
+      : params.prompt
     const hasEditTool = Boolean(
       functions &&
       ('write_file' in functions || 'edit_file' in functions || 'patch_file' in functions)
