@@ -272,6 +272,13 @@ export interface GenerateParams {
    */
   onPromptProgress?: (progress: PromptReadingProgress) => void
   signal?: AbortSignal
+  /**
+   * Why `signal` fired, when its owner knows. The turn's budget aborts the
+   * same signal for its time and context limits as for the person's Stop, so
+   * without this a 15-minute time limit reads as a Stop and its diagnostics
+   * are never logged.
+   */
+  whyStopped?: () => GenerationStopReason | undefined
   /** Provider tool-use round cap selected by the shared execution policy. */
   maxProviderRounds?: number
   /** Called after each local mid-turn context shift for shared budget accounting. */
@@ -1892,7 +1899,7 @@ class LlamaService extends EventEmitter {
         // 904 s, 1,199 tokens, nothing visible and no call completed, ended by
         // the time limit, and the log could not say whether those tokens were a
         // tool call that never closed or something else. Counts only.
-        const stopReason = currentStopReason()
+        const stopReason = params.whyStopped?.() ?? currentStopReason()
         if (stopReason && stopReason !== 'user') {
           log.warn('Generation stopped by an abort signal', {
             stopReason,

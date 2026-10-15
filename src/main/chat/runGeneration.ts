@@ -1044,6 +1044,7 @@ export async function runGeneration(
           }
         : undefined,
       signal: execution.signal,
+      whyStopped: () => execution?.stopReason,
       tools,
       onToken: (token) => io.onToken?.(token),
       onThinkingToken: (token) => io.onThinkingToken?.(token),
