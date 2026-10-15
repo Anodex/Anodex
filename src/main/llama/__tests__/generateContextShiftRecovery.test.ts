@@ -550,6 +550,75 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(outcome.generationDiagnostics?.completedToolCalls).toBe(0)
   })
 
+  // Measured with Gemma 4 E4B: `"name": "C:\"` never closed, and the model
+  // wrote its end-of-call marker, thoughts and answer into the argument for
+  // the full 15 minutes. See `RunawayToolCallWatch`.
+  it('stops a tool call that writes its own control tokens, and tries the turn once more', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    // Gemma reads its own `<tool_call|>` as one token, as the real one does.
+    access.model = {
+      tokenizer: () => [],
+      tokenize: (text: string) => (text === '<tool_call|>' ? [49] : Array.from(text, () => 1))
+    }
+    let attempts = 0
+    const session: NonNullable<LlamaServiceTestAccess['session']> = {
+      promptWithMeta: vi.fn(
+        (
+          _prompt: unknown,
+          options: {
+            signal?: AbortSignal
+            onResponseChunk?: (chunk: unknown) => void
+            onFunctionCallParamsChunk?: (chunk: {
+              callIndex: number
+              functionName: string
+              paramsChunk: string
+              done: boolean
+            }) => void
+          }
+        ) => {
+          attempts++
+          if (attempts === 1) {
+            options.onFunctionCallParamsChunk?.({
+              callIndex: 0,
+              functionName: 'web_search',
+              paramsChunk: '{"query": "C:\\", "count": 5}<tool_call|>',
+              done: false
+            })
+            expect(options.signal?.aborted).toBe(true)
+            throw new Error('aborted')
+          }
+          options.onResponseChunk?.({
+            type: undefined,
+            segmentType: undefined,
+            text: 'You have 599 GB free.',
+            tokens: [1]
+          })
+          return Promise.resolve({ response: [], responseText: '', stopReason: 'eogToken' })
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    access.session = session
+    vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+
+    const outcome = await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'How much free disk space do I have?',
+      onToken: () => {},
+      tools: webOnlyTools()
+    })
+
+    expect(attempts).toBe(2)
+    expect(session.dispose).toHaveBeenCalled()
+    expect(outcome.content).toBe('You have 599 GB free.')
+    expect(outcome.stopped).toBe(false)
+  })
+
   it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {
     // node-llama-cpp does not expose a callback between accepting a function
     // result and beginning its next decoder pass. This fixture mirrors that

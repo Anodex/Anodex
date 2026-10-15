@@ -110,6 +110,7 @@ import {
   GenerationDiagnosticsTracker,
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
+import { RunawayToolCallWatch } from './runawayToolCall'
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
@@ -272,6 +273,13 @@ export interface GenerateParams {
    */
   onPromptProgress?: (progress: PromptReadingProgress) => void
   signal?: AbortSignal
+  /**
+   * Why `signal` fired, when its owner knows. The turn's budget aborts the
+   * same signal for its time and context limits as for the person's Stop, so
+   * without this a 15-minute time limit reads as a Stop and its diagnostics
+   * are never logged.
+   */
+  whyStopped?: () => GenerationStopReason | undefined
   /** Provider tool-use round cap selected by the shared execution policy. */
   maxProviderRounds?: number
   /** Called after each local mid-turn context shift for shared budget accounting. */
@@ -1066,7 +1074,25 @@ class LlamaService extends EventEmitter {
     this.textWarmUp?.abort()
     const release = await this.acquireModelLock()
     try {
-      return await this.generateInternal(params)
+      const runaway = { seen: false }
+      const outcome = await this.generateInternal(params, runaway)
+      // A tool call that lost its own arguments is stopped as soon as it shows
+      // (see `RunawayToolCallWatch`), and tried once more from the start when
+      // nothing of it has reached the person or the computer yet. Measured on
+      // the disk-space question that went wrong 2 times in 8, the next try
+      // answered.
+      if (
+        runaway.seen &&
+        !params.signal?.aborted &&
+        !outcome.content &&
+        (outcome.generationDiagnostics?.visibleTokens ?? 0) === 0 &&
+        (outcome.generationDiagnostics?.completedToolCalls ?? 0) === 0
+      ) {
+        log.info('Trying the turn again after a tool call lost its arguments')
+        this.disposeSession()
+        return await this.generateInternal(params, { seen: false })
+      }
+      return outcome
     } finally {
       // The single authoritative reset. The lock is held for this entire call,
       // so by the time it returns — however it returns — nothing is generating.
@@ -1084,7 +1110,10 @@ class LlamaService extends EventEmitter {
     }
   }
 
-  private async generateInternal(params: GenerateParams): Promise<GenerateOutcome> {
+  private async generateInternal(
+    params: GenerateParams,
+    runaway: { seen: boolean }
+  ): Promise<GenerateOutcome> {
     if (this.status !== 'ready' || (!this.context && !this.visionService.active)) {
       throw new Error('No model is loaded. Load one in Settings → AI & Models first.')
     }
@@ -1181,6 +1210,16 @@ class LlamaService extends EventEmitter {
     // Bounded per-turn counters explaining where the output budget went at a
     // bounded stop — see `GenerationDiagnosticsTracker`'s doc comment.
     const diagnostics = new GenerationDiagnosticsTracker()
+    // A call whose arguments hold the model's own control tokens: see
+    // `RunawayToolCallWatch`. `generate` decides whether to try the turn again.
+    const runawayWatch = new RunawayToolCallWatch((marker) => {
+      try {
+        return this.model?.tokenize(marker, true).length === 1
+      } catch {
+        // Only a safety net: it must never be the reason a turn fails.
+        return false
+      }
+    })
     // Built BEFORE `ensureSession` (not after, as this used to be ordered) so
     // its measured schema cost can be reserved for by the mid-turn
     // context-shift strategy the session construction wires up — see
@@ -1622,6 +1661,18 @@ class LlamaService extends EventEmitter {
                 )
                 const update = pendingToolCalls.onParamsChunk(round, chunk)
                 if (update) params.tools?.onActivity(update)
+                if (
+                  !runaway.seen &&
+                  !genController.signal.aborted &&
+                  runawayWatch.observe(chunk.callIndex, chunk.paramsChunk)
+                ) {
+                  runaway.seen = true
+                  log.warn('A tool call wrote its own control tokens into its arguments', {
+                    functionName: chunk.functionName,
+                    ...diagnostics.snapshot()
+                  })
+                  abortBox.current?.()
+                }
               }
             : undefined
         }
@@ -1892,7 +1943,7 @@ class LlamaService extends EventEmitter {
         // 904 s, 1,199 tokens, nothing visible and no call completed, ended by
         // the time limit, and the log could not say whether those tokens were a
         // tool call that never closed or something else. Counts only.
-        const stopReason = currentStopReason()
+        const stopReason = params.whyStopped?.() ?? currentStopReason()
         if (stopReason && stopReason !== 'user') {
           log.warn('Generation stopped by an abort signal', {
             stopReason,
