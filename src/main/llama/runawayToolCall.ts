@@ -50,9 +50,43 @@ export class RunawayToolCallWatch {
     for (let match = MARKER_SHAPE.exec(text); match; match = MARKER_SHAPE.exec(text)) {
       if (this.isModelToken(match[0])) return text.slice(0, match.index)
     }
-    return null
+    return withoutRepeatingTail(text)
   }
 }
+
+/**
+ * The other sign, with no marker at all: one short piece written over and over.
+ *
+ * Measured with Llama 3.1 8B on "What does my todo list say?": `"path": "C:\\\\…`,
+ * a backslash pair 3,600 times over for 15 minutes. In JSON each pair is one
+ * backslash, so the string can never end. No argument a person means repeats
+ * a few characters hundreds of times running, so a tail of `REPEAT_RUN_CHARS`
+ * made of one unit of up to `MAX_REPEAT_UNIT` characters is the call gone wrong.
+ *
+ * Returns the text with that run cut back to a single unit, which is what the
+ * model was writing before it stuck (`C:\\`), or null when the tail is not a run.
+ */
+function withoutRepeatingTail(text: string): string | null {
+  if (text.length < REPEAT_RUN_CHARS) return null
+  const tail = text.slice(-REPEAT_RUN_CHARS)
+  for (let unit = 1; unit <= MAX_REPEAT_UNIT; unit++) {
+    let periodic = true
+    for (let i = unit; i < tail.length && periodic; i++) periodic = tail[i] === tail[i - unit]
+    if (!periodic) continue
+    // Walk back to where the run began, then keep one unit of it.
+    const piece = text.slice(-unit)
+    let start = text.length - REPEAT_RUN_CHARS
+    while (start >= unit && text.slice(start - unit, start) === piece) start -= unit
+    return text.slice(0, start) + text.slice(start, start + unit)
+  }
+  return null
+}
+
+/** How long a run of one repeated unit must be before it counts. */
+const REPEAT_RUN_CHARS = 512
+
+/** The longest unit counted as a run: `\\`, `ab`, `- ` and the like, not a repeated sentence. */
+const MAX_REPEAT_UNIT = 8
 
 /**
  * The arguments the model meant, from what it wrote before losing track, when
@@ -71,7 +105,8 @@ export function salvageArguments(written: string, schema: unknown): Record<strin
   const body = written.trimEnd().replace(/\}+$/, '').trimEnd()
   const literalBackslashes = body.replace(/(?<!\\)\\"(?=\s*(?:,|$))/g, '\\\\"')
   for (const base of [body, literalBackslashes]) {
-    for (const ending of ['}', '"}']) {
+    // The last ending is for a string the run left ending on a lone backslash.
+    for (const ending of ['}', '"}', '\\"}']) {
       const args = parseObject(base + ending)
       if (args && fitsSchema(args, schema)) return args
     }

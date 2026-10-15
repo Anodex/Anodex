@@ -42,6 +42,23 @@ describe('the runaway tool call watch', () => {
     expect(watch.observe(0, '{"q": "<|chan')).toBeNull()
     expect(watch.observe(1, 'nel>"}')).toBeNull()
   })
+
+  // Llama 3.1 8B on "What does my todo list say?", for 15 minutes.
+  it('flags a run of one short piece, with no marker at all, and keeps one piece of it', () => {
+    const watch = new RunawayToolCallWatch(oneTokenIn(LLAMA_3))
+    const start = '{"check": "disk", "name": "todo list", "port": 0, "path": "C:'
+    expect(watch.observe(0, start)).toBeNull()
+    let written: string | null = null
+    for (let i = 0; i < 400 && written === null; i++) written = watch.observe(0, '\\\\')
+    expect(written).toBe(`${start}\\`)
+  })
+
+  it('leaves a short run, and long text that does not repeat, alone', () => {
+    const watch = new RunawayToolCallWatch(oneTokenIn(LLAMA_3))
+    expect(watch.observe(0, `{"content": "${'='.repeat(200)}`)).toBeNull()
+    const prose = Array.from({ length: 80 }, (_, i) => `line ${i} of the notes`).join('\\n')
+    expect(watch.observe(1, `{"content": "${prose}`)).toBeNull()
+  })
 })
 
 const CHECK_COMPUTER = {
@@ -68,6 +85,15 @@ describe('reading back the call a runaway meant', () => {
     expect(
       salvageArguments('{"check": "disk", "name": "C:\\","port": 0,"path": "/}}', CHECK_COMPUTER)
     ).toEqual({ check: 'disk', name: 'C:\\', port: 0, path: '/' })
+  })
+
+  it('closes a string that a run left ending on a lone backslash', () => {
+    expect(
+      salvageArguments(
+        '{"check": "disk", "name": "todo list", "port": 0, "path": "C:\\',
+        CHECK_COMPUTER
+      )
+    ).toEqual({ check: 'disk', name: 'todo list', port: 0, path: 'C:\\' })
   })
 
   it('takes an object that was already whole', () => {
