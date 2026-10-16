@@ -113,6 +113,28 @@ describe('parseWhen', () => {
       expect(parseWhen('weekends at 10am', NOW)?.recurrence.weekdays).toEqual([0, 6])
     })
 
+    // A dentist appointment set for "next Monday at 8am" came back "Every Mon at
+    // 8:00 AM": every day name read as a weekly rule. NOW is Thursday 6:30pm.
+    it('reads one named day, said once, as that day once', () => {
+      const once = (text: string): number | undefined => {
+        const parsed = parseWhen(text, NOW)
+        expect(parsed?.recurrence.type, text).toBe('once')
+        return parsed?.recurrence.runAt
+      }
+      expect(once('next Monday at 8am')).toBe(new Date(2026, 6, 27, 8, 0).getTime())
+      expect(once('on Monday')).toBe(new Date(2026, 6, 27, 9, 0).getTime())
+      // Today still counts while the time is ahead; "next" means the one after.
+      expect(once('Thursday at 9pm')).toBe(new Date(2026, 6, 23, 21, 0).getTime())
+      expect(once('this Thursday at 9am')).toBe(new Date(2026, 6, 30, 9, 0).getTime())
+      expect(once('next Thursday at 9pm')).toBe(new Date(2026, 6, 30, 21, 0).getTime())
+    })
+
+    it('still repeats a day said with a repeat word or in the plural', () => {
+      expect(parseWhen('every Monday at 8am', NOW)?.recurrence.type).toBe('weekly')
+      expect(parseWhen('Mondays at 8am', NOW)?.recurrence.type).toBe('weekly')
+      expect(parseWhen('each friday', NOW)?.recurrence.type).toBe('weekly')
+    })
+
     it('parses a named day, however it is spelled', () => {
       expect(parseWhen('every friday at 4pm', NOW)?.recurrence.weekdays).toEqual([5])
       expect(parseWhen('mondays at 9am', NOW)?.recurrence.weekdays).toEqual([1])
