@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
+import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 
 const h = vi.hoisted(() => ({
   trashed: [] as string[],
@@ -124,6 +124,25 @@ describe('move_to_trash', () => {
       expect(prompts).toHaveLength(0)
       expect(result).not.toContain('Moved')
     }
+    expect(h.trashed).toEqual([])
+  })
+
+  // Llama 3.1 8B called this 23 times on a plain chat's Downloads; each was
+  // refused and each card read as a successful "Move to Trash".
+  it('records a refusal as a failed call, so no card says it moved anything', async () => {
+    const emitted: ToolCall[] = []
+    const ctx = {
+      ...createMockContext(workspace),
+      workspaceRoot: null,
+      permissionMode: 'untethered' as const,
+      emit: (call: ToolCall) => emitted.push(call)
+    }
+    const tool = moveToTrashTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { items: string[] }) => Promise<string>
+    }
+    const result = await tool.handler({ items: ['C:\\Users\\someone\\Downloads\\*.pdf'] })
+    expect(result).toContain('is not a cleanup id')
+    expect(emitted.at(-1)?.status).toBe('error')
     expect(h.trashed).toEqual([])
   })
 

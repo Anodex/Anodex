@@ -96,18 +96,18 @@ export const moveToTrashTool: ToolFactory = (define, ctx) =>
     handler: async (args: { items: string[] }) => {
       const wanted = [...new Set((args.items ?? []).map((item) => item.trim()).filter(Boolean))]
       const resolved = await resolveItems(wanted, ctx.workspaceRoot)
+      // A refusal fails the call rather than returning normally. Returned, it was
+      // recorded as a success: measured, Llama 3.1 8B asked "What files are in
+      // my Downloads folder?" called this 23 times with paths it may not move,
+      // and the transcript showed 23 ticked "Move to Trash" cards with nothing moved.
       if ('error' in resolved || resolved.items.length === 0) {
+        const reason = 'error' in resolved ? resolved.error : 'Nothing to move: no item was named.'
         return runReadTool(ctx, {
           name: 'move_to_trash',
           kind: 'read',
           title: 'Move to Trash',
           args,
-          run: () =>
-            Promise.resolve({
-              modelResult:
-                'error' in resolved ? resolved.error : 'Nothing to move: no item was named.',
-              madeProgress: false
-            })
+          run: () => Promise.reject(new Error(reason))
         })
       }
       const { items } = resolved
