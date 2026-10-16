@@ -64,7 +64,7 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   gateway call, and the gateway's dead ends then sent it searching again; #397
   answers those with "answer in your reply" on plain questions: 10/12 → 12/12
   over three launches, with no minutes-long replies.
-  **0.20.4:** on the 54-question battery the wrong tool had become the commonest
+  **0.21.0:** on the 54-question battery the wrong tool had become the commonest
   failure (9 of 15 across two runs). A local plain chat now sees the person's
   files as one tool, `my_files` (find, list, open, send; send and open take a
   name and find it), with the shell, `move_to_trash` and `request_folder_access`
