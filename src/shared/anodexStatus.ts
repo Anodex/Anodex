@@ -32,6 +32,8 @@ export const ANODEX_STATUS_SECTIONS: readonly AnodexStatusSection[] = [
 
 export interface ScheduledTaskStatus {
   name: string
+  /** A reminder only shows a message; anything else is a run that does work. */
+  kind?: 'reminder'
   enabled: boolean
   /** Human phrasing of the recurrence, from `describeRecurrence`. */
   schedule: string
@@ -128,7 +130,10 @@ function renderOverview(snapshot: AnodexStatusSnapshot): string {
     'Anodex status (read-only — this reports state, it cannot change it).',
     '',
     `Projects: ${snapshot.projects.length}${active ? `, active: ${active.name}` : ', none open'}`,
-    `Scheduler: ${count(snapshot.scheduler, 'task')}, ${enabled.length} enabled` +
+    `Scheduler: ${count(snapshot.scheduler, 'task')} (${count(
+      snapshot.scheduler.filter((task) => task.kind === 'reminder').length,
+      'reminder'
+    )}), ${enabled.length} enabled` +
       (nextUp
         ? ` — next is "${clip(nextUp.name)}" ${formatNextRun(nextUp.nextRunAt, snapshot.now).toLowerCase()}`
         : ''),
@@ -152,13 +157,21 @@ function renderScheduler(snapshot: AnodexStatusSnapshot): string {
   const sorted = [...snapshot.scheduler].sort(
     (a, b) => (a.nextRunAt ?? Number.MAX_SAFE_INTEGER) - (b.nextRunAt ?? Number.MAX_SAFE_INTEGER)
   )
-  return withHeader(`${count(snapshot.scheduler, 'scheduled task')}:`, sorted, (task) => {
+  // Reminders and runs named apart. Both are Scheduler tasks, and the list
+  // used to call them all that: measured, Llama 3.1 8B asked "What reminders
+  // do I have?" with four reminders set replied "You have no reminders set.
+  // However, you have 5 tasks scheduled in the Scheduler".
+  const reminders = snapshot.scheduler.filter((task) => task.kind === 'reminder').length
+  const runs = snapshot.scheduler.length - reminders
+  const heading = `${count(snapshot.scheduler, 'scheduled task')} (${count(reminders, 'reminder')}, ${count(runs, 'scheduled run')}):`
+  return withHeader(heading, sorted, (task) => {
     const when = task.enabled ? formatNextRun(task.nextRunAt, snapshot.now) : 'Paused'
     const last =
       task.lastRunAt === null
         ? 'never run'
         : `last run ${formatAgo(task.lastRunAt, snapshot.now)}${task.lastRunStatus ? ` (${task.lastRunStatus})` : ''}`
-    return `- "${clip(task.name)}" — ${task.schedule}. ${when}; ${last}.`
+    const what = task.kind === 'reminder' ? 'Reminder' : 'Scheduled run'
+    return `- ${what} "${clip(task.name)}" — ${task.schedule}. ${when}; ${last}.`
   })
 }
 
