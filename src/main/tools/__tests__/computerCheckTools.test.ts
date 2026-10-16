@@ -2,7 +2,14 @@ import { createServer, type Server } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkComputerTool, diskPath, findOnPath, programNames } from '../computerCheckTools'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  checkComputerTool,
+  diskPath,
+  findInstalled,
+  findOnPath,
+  programNames
+} from '../computerCheckTools'
 import { operatingSystemName } from '../../chat/thisComputer'
 import { createMockContext, createMockDefine } from './test-helpers'
 
@@ -146,5 +153,64 @@ describe('programNames', () => {
     expect(await check({ check: 'program', name: 'nodejs' })).toMatch(
       /node is installed at .+\. Version: v\d+/
     )
+  })
+})
+
+describe('findInstalled', () => {
+  const made: string[] = []
+  const scratch = (): string => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'anodex-installed-'))
+    made.push(dir)
+    return dir
+  }
+  const file = (where: string): string => {
+    mkdirSync(path.dirname(where), { recursive: true })
+    writeFileSync(where, '')
+    chmodSync(where, 0o755)
+    return where
+  }
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  // Python 3.12 from python.org, "Add to PATH" left unticked, as on the laptop
+  // where "Do I have Python installed?" was answered no five times in five.
+  it('finds a Windows program in its install folder, off the PATH, and says so', () => {
+    const local = scratch()
+    const exe = file(path.join(local, 'Programs', 'Python', 'Python312', 'anodexpy.exe'))
+    expect(findInstalled('anodexpy', { PATH: '', LOCALAPPDATA: local }, 'win32')).toEqual({
+      path: exe,
+      onPath: false
+    })
+  })
+
+  it('finds one in a bin or cmd folder too', () => {
+    const programFiles = scratch()
+    const exe = file(path.join(programFiles, 'Git', 'cmd', 'anodexgit.exe'))
+    expect(
+      findInstalled('anodexgit', { PATH: '', ProgramFiles: programFiles }, 'win32')?.path
+    ).toBe(exe)
+  })
+
+  // An app opened from the Dock starts with /usr/bin:/bin:/usr/sbin:/sbin.
+  it('looks where a Mac app’s PATH does not, such as ~/.local/bin', () => {
+    const home = scratch()
+    const tool = file(path.join(home, '.local', 'bin', 'anodex-tool'))
+    expect(findInstalled('anodex-tool', { PATH: '/usr/bin:/bin', HOME: home }, 'darwin')).toEqual({
+      path: tool,
+      onPath: false
+    })
+  })
+
+  it('prefers the PATH, and reports nothing for a program that is not there', () => {
+    const bin = scratch()
+    const exe = file(
+      path.join(bin, process.platform === 'win32' ? 'anodexonpath.exe' : 'anodexonpath')
+    )
+    expect(findInstalled('anodexonpath', { PATH: bin, PATHEXT: '.EXE' })).toEqual({
+      path: exe,
+      onPath: true
+    })
+    expect(findInstalled('anodex-not-a-program', { PATH: '', HOME: scratch() })).toBeNull()
   })
 })

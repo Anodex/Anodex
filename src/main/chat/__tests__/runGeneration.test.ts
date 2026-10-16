@@ -260,6 +260,20 @@ describe('runGeneration — tools a plain local chat keeps behind the gateway', 
     expect(deferred).not.toContain('my_files')
   })
 
+  it('gives a question about the assistant itself no tool', async () => {
+    await runGeneration(ask('Which AI model are you running on right now?'), chatIo)
+
+    expect(mocks.seenToolsOnRequest.at(-1)).toBe('all')
+  })
+
+  it('gives the newest release of something the web, not the shell', async () => {
+    await runGeneration(ask('Look up the latest Node.js release.'), chatIo)
+
+    const deferred = mocks.seenToolsOnRequest.at(-1)
+    expect(deferred).toEqual(expect.arrayContaining(['run_command', 'my_files']))
+    expect(deferred).not.toContain('web_search')
+  })
+
   it('keeps the shell, not my_files, for a question about the machine', async () => {
     await runGeneration(ask('Is git installed on this computer?'), chatIo)
 
