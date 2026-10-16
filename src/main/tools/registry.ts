@@ -30,7 +30,7 @@ import {
   moveFileTool
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
-import { findMyFilesTool, sendFileToMeTool } from './personalFileTools'
+import { findMyFilesTool, myFilesTool, sendFileToMeTool } from './personalFileTools'
 import { findCleanupTool, moveToTrashTool } from './cleanupTools'
 import { openItemTool } from './openItemTools'
 import { notifyMeWhenDoneTool } from './notifyTools'
@@ -377,6 +377,15 @@ export function buildTools(
   // in the person's own folders, then email it to their own address.
   if (isEnabled('find_my_files')) tools.find_my_files = findMyFilesTool(define, ctx)
   if (isEnabled('send_file_to_me')) tools.send_file_to_me = sendFileToMeTool(define, ctx)
+  // The same three as one tool, for a turn that asks for it; each action is
+  // available only while its own tool above is switched on.
+  if (ctx.myFiles && isEnabled('my_files') && tools.find_my_files) {
+    tools.my_files = myFilesTool(define, ctx, {
+      find: tools.find_my_files,
+      send: tools.send_file_to_me,
+      open: tools.open_item
+    })
+  }
 
   // "Let me know when it's done" is asked in any chat.
   if (isEnabled('notify_me_when_done')) {

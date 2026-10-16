@@ -358,7 +358,9 @@ const DIRECT_TOOL_PRIORITY = [
   // shell commands; a chat should not have to reach behind the gateway for it.
   'check_computer',
   // "Send me the budget" from the phone is a plain chat with no project, so
-  // these must be visible there without the gateway.
+  // these must be visible there without the gateway. my_files is all of them
+  // in one, on the turns that have it.
+  'my_files',
   'find_my_files',
   'send_file_to_me',
   // "My disk is full" is answered by these, or by guessing at deletions

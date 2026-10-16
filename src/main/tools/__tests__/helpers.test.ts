@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { join, resolve } from 'node:path'
 import type { FileTouchAction } from '@shared/projectMemory.types'
 import {
+  ANSWER_CUE,
   composeDenialMessage,
   runGuardedTool,
   runGuardedToolWithPrepare,
@@ -882,5 +883,31 @@ describe('truncated tool results', () => {
     const result = await resultFor('read_file', 80_000)
     expect(result).toContain(bigFile)
     expect(result).not.toContain('truncated')
+  })
+})
+
+describe('the answer cue on a tool result', () => {
+  const read = (answerCue: boolean, fail = false) =>
+    runReadTool(
+      { ...createMockContext(WORKSPACE_ROOT), answerCue },
+      {
+        name: 'anodex_status',
+        kind: 'read',
+        title: 'Status',
+        run: () =>
+          fail
+            ? Promise.reject(new Error('no such section'))
+            : Promise.resolve({ modelResult: 'No scheduled tasks.' })
+      }
+    )
+
+  // Llama 3.1 8B got "No scheduled tasks." and replied "This is a conversation."
+  it('asks for the answer in words, only where the turn asks for it', async () => {
+    expect(await read(true)).toBe(`No scheduled tasks.\n\n${ANSWER_CUE}`)
+    expect(await read(false)).toBe('No scheduled tasks.')
+  })
+
+  it('leaves a failed call as it was', async () => {
+    expect(await read(true, true)).toBe('Error: no such section')
   })
 })

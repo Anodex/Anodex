@@ -53,6 +53,25 @@ interface ToolOutcome {
   provesChange?: boolean
 }
 
+/**
+ * A tool's result with one line asking for the answer in words.
+ *
+ * For a local model's plain chat (`ToolRuntimeContext.answerCue`), which reads
+ * a result back as something to restate rather than something to answer from.
+ * Measured on 54 questions with Llama 3.1 8B: "What do I have scheduled this
+ * week?" got "No scheduled tasks." from anodex_status and replied "This is a
+ * conversation."; "What files are in my Downloads folder?" got the listing and
+ * replied that the folder "has 39 items, with the 25 newest being listed",
+ * listing none. With this line, 47 → 51 of 54, both of those answered; Gemma 4
+ * E4B 54 → 53, its one miss an empty reply on a question it answered without
+ * the line.
+ */
+export function withAnswerCue(result: string): string {
+  return `${result}\n\n${ANSWER_CUE}`
+}
+
+export const ANSWER_CUE = '(Answer the person from this, in plain words.)'
+
 function rememberResult(modelResult: string): string {
   return modelResult.length > MAX_REMEMBERED_RESULT
     ? `${modelResult.slice(0, MAX_REMEMBERED_RESULT)}…`
@@ -310,7 +329,7 @@ export async function runReadTool(ctx: ToolRuntimeContext, spec: ReadToolSpec): 
       result: rememberResult(modelResult),
       touchedPaths: touchedPaths.length ? touchedPaths : undefined
     })
-    return truncated
+    return ctx.answerCue ? withAnswerCue(truncated) : truncated
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     // An edit that failed because the file does not say what the model thought
@@ -660,7 +679,7 @@ export async function runGuardedTool(
       result: rememberResult(modelResult),
       touchedPaths: touchedPaths.length ? touchedPaths : undefined
     })
-    return truncated
+    return ctx.answerCue ? withAnswerCue(truncated) : truncated
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     // An edit that failed because the file does not say what the model thought

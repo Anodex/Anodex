@@ -1,12 +1,18 @@
 import { existsSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, relative } from 'node:path'
 import { app } from 'electron'
 import { formatBytes } from '@shared/format'
-import type { ToolFactory } from './types'
+import type {
+  DefineChatSessionFunction,
+  ToolFactory,
+  ToolFunction,
+  ToolRuntimeContext
+} from './types'
 import { runGuardedTool, runReadTool } from './helpers'
 import { resolveInWorkspace } from './workspace'
+import { expandHomeShorthand } from './homeShorthand'
 import { searchPersonalFiles } from '../files/personalFiles'
 import { settingsStore } from '../settings/SettingsStore'
 import { emailService } from '../email/EmailService'
@@ -38,8 +44,12 @@ function wasFound(conversationId: string, path: string): boolean {
   return at !== undefined && Date.now() - at <= FOUND_TTL_MS
 }
 
-/** The person's own folders, wherever this OS keeps them. */
-function personalRoots(): string[] {
+/** The folders `my_files` can list, by the names a person uses for them. */
+export const PERSONAL_FOLDERS = ['Downloads', 'Desktop', 'Documents', 'OneDrive'] as const
+export type PersonalFolder = (typeof PERSONAL_FOLDERS)[number]
+
+/** The person's own folders that exist on this computer, wherever this OS keeps them. */
+function personalFolders(): { name: PersonalFolder; root: string }[] {
   const read = (name: 'desktop' | 'documents' | 'downloads'): string | null => {
     try {
       return app.getPath(name)
@@ -47,14 +57,32 @@ function personalRoots(): string[] {
       return null
     }
   }
-  const roots = [
-    read('documents'),
-    read('desktop'),
-    read('downloads'),
-    process.env.OneDrive ?? null,
-    join(homedir(), 'OneDrive')
-  ].filter((root): root is string => Boolean(root) && existsSync(root as string))
-  return [...new Set(roots)]
+  const candidates: { name: PersonalFolder; root: string | null }[] = [
+    { name: 'Documents', root: read('documents') },
+    { name: 'Desktop', root: read('desktop') },
+    { name: 'Downloads', root: read('downloads') },
+    { name: 'OneDrive', root: process.env.OneDrive ?? null },
+    { name: 'OneDrive', root: join(homedir(), 'OneDrive') }
+  ]
+  const seen = new Set<string>()
+  const folders: { name: PersonalFolder; root: string }[] = []
+  for (const { name, root } of candidates) {
+    if (!root || seen.has(root) || !existsSync(root)) continue
+    seen.add(root)
+    folders.push({ name, root })
+  }
+  return folders
+}
+
+/** The person's own folders, wherever this OS keeps them. */
+function personalRoots(): string[] {
+  return personalFolders().map((folder) => folder.root)
+}
+
+/** Whether `path` is inside `root`, by the platform's own rules (case-insensitive on Windows). */
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 function shortPath(path: string): string {
@@ -289,3 +317,246 @@ export const sendFileToMeTool: ToolFactory = (define, ctx) =>
       })
     }
   })
+
+/** The most entries a folder listing shows. */
+const MAX_LISTED = 25
+/** The most entries a folder listing reads sizes and dates for. */
+const MAX_LIST_READS = 2_000
+
+interface ListedEntry {
+  name: string
+  path: string
+  isFolder: boolean
+  sizeBytes: number
+  modifiedAt: number
+}
+
+/** One personal folder's contents, newest or biggest first, hidden entries left out. */
+export async function listFolder(
+  root: string,
+  sort: 'newest' | 'biggest'
+): Promise<{ entries: ListedEntry[]; total: number }> {
+  const names = (await readdir(root, { withFileTypes: true })).filter(
+    (entry) => !entry.name.startsWith('.')
+  )
+  const entries: ListedEntry[] = []
+  for (const entry of names.slice(0, MAX_LIST_READS)) {
+    const path = join(root, entry.name)
+    try {
+      const stats = await stat(path)
+      entries.push({
+        name: entry.name,
+        path,
+        isFolder: stats.isDirectory(),
+        sizeBytes: stats.isDirectory() ? 0 : stats.size,
+        modifiedAt: stats.mtimeMs
+      })
+    } catch {
+      // Gone, or not ours to read: leave it out rather than fail the listing.
+    }
+  }
+  entries.sort((a, b) =>
+    sort === 'biggest' ? b.sizeBytes - a.sizeBytes : b.modifiedAt - a.modifiedAt
+  )
+  return { entries, total: names.length }
+}
+
+/**
+ * Where `file` is, among the person's own folders: a path the search or a
+ * listing gave, a full path inside one of those folders, or a file's exact
+ * name, looked up by name the way find_my_files would. A name that matches
+ * more than one file is an error that lists them, so the model can say which.
+ */
+async function locateMine(conversationId: string, file: string): Promise<string> {
+  const raw = file.trim()
+  const expanded = expandHomeShorthand(raw) ?? raw
+  const roots = personalRoots()
+  if (isAbsolute(expanded)) {
+    if (wasFound(conversationId, expanded)) return expanded
+    if (roots.some((root) => isInside(root, expanded)) && existsSync(expanded)) {
+      remember(conversationId, [expanded])
+      return expanded
+    }
+    throw new Error(
+      `${shortPath(expanded)} is not in Documents, Desktop, Downloads or OneDrive, so my_files cannot reach it.`
+    )
+  }
+  const name = basename(expanded.replace(/\\/g, '/')).toLowerCase()
+  // Only what is still there: a file found an hour ago may have been moved since.
+  const known = [...(found.get(conversationId)?.keys() ?? [])].filter(
+    (path) => basename(path).toLowerCase() === name && existsSync(path)
+  )
+  if (known.length === 1) return known[0]
+  const matches = (await searchPersonalFiles({ roots, words: [name] })).filter(
+    (result) => basename(result.path).toLowerCase() === name
+  )
+  if (matches.length === 1) {
+    remember(conversationId, [matches[0].path])
+    return matches[0].path
+  }
+  if (matches.length === 0) {
+    throw new Error(
+      `No file named "${basename(expanded)}" in Documents, Desktop, Downloads or OneDrive. Use action "find" with a word from its name.`
+    )
+  }
+  remember(
+    conversationId,
+    matches.map((result) => result.path)
+  )
+  throw new Error(
+    `More than one file is named "${basename(expanded)}":\n${matches.map((result) => `- ${result.path}`).join('\n')}\nGive the full path of the one meant.`
+  )
+}
+
+type MyFilesArgs = {
+  action: 'find' | 'list' | 'open' | 'send'
+  words?: string
+  folder?: PersonalFolder
+  sort?: 'newest' | 'biggest'
+  file?: string
+  to?: 'phone' | 'email'
+  within_days?: number
+}
+
+/**
+ * my_files — the person's own files, in one tool: find, list, open, send.
+ *
+ * Measured on 54 questions with Llama 3.1 8B, picking the wrong tool was the
+ * most common way a question went wrong, and most of those were here. "Send
+ * E2250044A.pdf from my Downloads folder to my phone." needed find_my_files and
+ * then send_file_to_me, and Llama called request_folder_access instead. "Do I
+ * have a maintenance sheet for the EX1200 anywhere?" and "Search my documents
+ * for anything about invoices." ran shell commands with find_my_files in view.
+ * And "What files are in my Downloads folder?" had no tool at all, so it was
+ * always a command, often a failing one.
+ *
+ * So the person's files are one name with an action, and `send` and `open`
+ * take a file's name as well as a path, finding it themselves. Each action is
+ * the existing tool underneath, with its own approval and limits: `send` still
+ * reaches only the person's own folders and the open project, and only when
+ * send_file_to_me is switched on. Shown to local models in a plain chat, which
+ * then see these four instead of the separate tools (see
+ * `localChatToolsOnRequest`); cloud models choose well among the separate ones
+ * and keep them.
+ */
+export function myFilesTool(
+  define: DefineChatSessionFunction,
+  ctx: ToolRuntimeContext,
+  parts: { find?: ToolFunction; send?: ToolFunction; open?: ToolFunction }
+): ToolFunction {
+  const refuse = (args: MyFilesArgs, reason: string): Promise<string> =>
+    runReadTool(ctx, {
+      name: 'my_files',
+      kind: 'read',
+      title: `My files: ${args.action}`,
+      args,
+      run: () => Promise.reject(new Error(reason))
+    })
+  return define({
+    description:
+      'The person\'s own files, in Documents, Desktop, Downloads and OneDrive. action "find": search by name and inside documents; give words. "list": what is in one folder, newest or biggest first; give folder. "open": open a file or folder in its usual app; give file. "send": send a file to their phone or by email; give file. A file can be a path from find or list, or its exact name.',
+    params: {
+      type: 'object',
+      properties: {
+        action: { enum: ['find', 'list', 'open', 'send'], description: 'What to do.' },
+        words: { type: 'string', description: 'For find: one to three words, e.g. "budget".' },
+        folder: { enum: [...PERSONAL_FOLDERS], description: 'For list: which folder.' },
+        sort: {
+          enum: ['newest', 'biggest'],
+          description: 'For list: newest first (the default) or biggest first.'
+        },
+        file: {
+          type: 'string',
+          description: 'For open and send: a path from find or list, or the exact file name.'
+        },
+        to: {
+          enum: ['phone', 'email'],
+          description: 'For send: leave out to use the phone when one is paired.'
+        },
+        within_days: {
+          type: 'number',
+          description: 'For find: only files changed in the last this-many days.'
+        }
+      },
+      required: ['action']
+    } as const,
+    handler: async (args: MyFilesArgs): Promise<unknown> => {
+      switch (args.action) {
+        case 'find':
+          if (!parts.find) return refuse(args, 'Finding files is switched off in Settings.')
+          if (!args.words?.trim()) return refuse(args, 'Give the words to look for.')
+          return parts.find.handler({ words: args.words, within_days: args.within_days })
+        case 'list':
+          return listMine(ctx, args)
+        case 'open':
+        case 'send': {
+          const tool = args.action === 'open' ? parts.open : parts.send
+          if (!tool) {
+            return refuse(
+              args,
+              `${args.action === 'open' ? 'Opening' : 'Sending'} files is switched off in Settings.`
+            )
+          }
+          if (!args.file?.trim()) return refuse(args, 'Give the file, by its name or path.')
+          // A web address is open_item's to open as it is.
+          if (args.action === 'open' && /^https?:\/\//i.test(args.file.trim())) {
+            return tool.handler({ target: args.file.trim() })
+          }
+          let path: string
+          try {
+            path = await locateMine(ctx.conversationId, args.file)
+          } catch (error) {
+            return refuse(args, error instanceof Error ? error.message : String(error))
+          }
+          return args.action === 'open'
+            ? tool.handler({ target: path })
+            : tool.handler({ path, ...(args.to ? { to: args.to } : {}) })
+        }
+        default:
+          return refuse(args, 'action must be find, list, open or send.')
+      }
+    }
+  })
+}
+
+function listMine(ctx: ToolRuntimeContext, args: MyFilesArgs): Promise<string> {
+  const sort = args.sort === 'biggest' ? 'biggest' : 'newest'
+  return runReadTool(ctx, {
+    name: 'my_files',
+    kind: 'read',
+    title: `List ${args.folder ?? 'a folder'}`,
+    args,
+    async run() {
+      const folders = personalFolders()
+      const folder = folders.find((candidate) => candidate.name === args.folder)
+      if (!folder) {
+        throw new Error(
+          `Give folder as one of: ${folders.map((candidate) => candidate.name).join(', ')}.`
+        )
+      }
+      const { entries, total } = await listFolder(folder.root, sort)
+      if (total === 0) return { modelResult: `${folder.name} is empty.`, madeProgress: false }
+      const shown = entries.slice(0, MAX_LISTED)
+      remember(
+        ctx.conversationId,
+        shown.filter((entry) => !entry.isFolder).map((entry) => entry.path)
+      )
+      const heading =
+        `${folder.name} (${shortPath(folder.root)}) has ${total} item${total === 1 ? '' : 's'}` +
+        (total > shown.length
+          ? `; the ${shown.length} ${sort === 'biggest' ? 'biggest' : 'newest'} are:`
+          : `, ${sort === 'biggest' ? 'biggest' : 'newest'} first:`)
+      return {
+        modelResult: [
+          heading,
+          ...shown.map((entry) =>
+            entry.isFolder
+              ? `- ${entry.name} (folder, changed ${new Date(entry.modifiedAt).toLocaleDateString()})`
+              : `- ${entry.name} (${formatBytes(entry.sizeBytes)}, changed ${new Date(entry.modifiedAt).toLocaleDateString()})`
+          )
+        ].join('\n'),
+        detail: `${total} items`
+      }
+    }
+  })
+}

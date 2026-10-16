@@ -64,11 +64,28 @@ up cold. Strike an item through, or move it to "Recently shipped", when it lands
   gateway call, and the gateway's dead ends then sent it searching again; #397
   answers those with "answer in your reply" on plain questions: 10/12 → 12/12
   over three launches, with no minutes-long replies.
-- **A local tool call that never closes runs to the 15-minute limit.** Llama 3.1
-  8B, "Search my notes for the word budget.": 904 s, 1,199 tokens, nothing
-  visible, no call completed. #397 logs the turn's diagnostics when a limit stops
-  it; read them the next time it happens before choosing a guard (a parameter
-  length cap, or a no-visible-progress deadline).
+  **0.20.4:** on the 54-question battery the wrong tool had become the commonest
+  failure (9 of 15 across two runs). A local plain chat now sees the person's
+  files as one tool, `my_files` (find, list, open, send; send and open take a
+  name and find it), with the shell, `move_to_trash` and `request_folder_access`
+  out of view on a message about only files; and a successful tool result ends
+  "(Answer the person from this, in plain words.)". Gemma 4 E4B 52 → 53 of 54,
+  Llama 3.1 8B 49 → 51, no turn at the time limit. Llama still runs a command for
+  "Which AI model are you running on right now?" ("running" is a machine word)
+  and for "latest Node.js version", a web question.
+- ~~**A local tool call that never closes runs to the 15-minute limit.**~~
+  Fixed in 0.20.2 and 0.20.3. #397's diagnostics never fired for it, because the
+  budget's time limit read as the person's Stop (#402 fixed that); with them,
+  Gemma 4 E4B on "How much free disk space do I have?" wrote `"name": "C:\"` (the
+  backslash escapes the closing quote) and then its own `<tool_call|>`,
+  thoughts and answer into one argument, 2 times in 8. The model's own turn
+  markers inside arguments now stop the call (#402), and the round reads it back
+  into the call it meant and runs it, 9 of 9 answered (#404). Also caught: a
+  run of one short piece (Llama writing `\\` 3,600 times, #404), and lookups
+  past six a turn (#404). **Still open:** one turn on "What files are in my
+  Downloads folder?" wrote a 12,337-character `run_command` with neither sign;
+  0 more in 30 tries. Local test builds log any argument past 3,000 characters,
+  so the next one shows its text.
 - ~~**"Fastest" ranks by file size, which misjudges per-layer-embedding models.**~~
   Fixed: `speedRankOf` reads the parameters a model computes with from its name
   (`E4B`, `30B-A3B`: `activeParametersB`), and on the Fastest card variety only

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { llamaService, type GenerateParams } from '../LlamaService'
+import { ANSWER_CUE } from '../../tools/helpers'
 import {
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
   NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT
@@ -693,6 +694,52 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(prompts[0]).toContain('# Past chats')
     expect(prompts[0]).toMatch(/Is git installed\?\n\n\(The local time is about 4:02 AM MDT\.\)$/)
     expect(prompts[1]).toBe('And node?\n\n(The local time is about 4:02 AM MDT.)')
+  })
+
+  // Dropped once in this transport's own copy of the tool context: my_files was
+  // never built, the separate file tools were still hidden, and Gemma said it
+  // could not list a folder while Llama tried move_to_trash on Downloads.
+  it('carries my_files and the answer cue through to the tools the model is given', async () => {
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const offered: string[][] = []
+    let checked: unknown
+    const session: NonNullable<LlamaServiceTestAccess['session']> = {
+      promptWithMeta: vi.fn(
+        async (
+          _prompt: unknown,
+          options: {
+            functions?: Record<string, { handler: (args: unknown) => unknown }>
+          }
+        ) => {
+          offered.push(Object.keys(options.functions ?? {}))
+          checked = await options.functions?.check_computer?.handler({ check: 'system' })
+          return { response: [], responseText: 'ok', stopReason: 'eogToken' }
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    access.session = session
+    vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+
+    await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'What files are in my Downloads folder?',
+      onToken: () => {},
+      tools: {
+        ...webOnlyTools(),
+        enabledTools: new Set(['find_my_files', 'my_files', 'check_computer']),
+        myFiles: true,
+        answerCue: true
+      }
+    })
+
+    expect(offered[0]).toContain('my_files')
+    expect(String(checked).endsWith(ANSWER_CUE)).toBe(true)
   })
 
   it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {
