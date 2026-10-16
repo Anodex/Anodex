@@ -25,7 +25,7 @@ import { settingsStore } from '../settings/SettingsStore'
 export const scheduleTaskTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Schedule a prompt for Anodex to run automatically later, once or on a repeat ("every weekday at 9am summarize my inbox"). For a plain reminder ("remind me at 3pm to call Sam") use set_reminder instead, which needs no run. The scheduled run happens with nobody watching, so it cannot send email — have it draft and notify instead.',
+      'Have Anodex do a job by itself later, once or on a repeat: it runs the prompt with nobody watching ("every weekday at 9am summarize my inbox"). Never for reminding the person of something, even on a repeat: "remind me every Friday to send the timesheet" is set_reminder. A run cannot send email; have it draft and notify instead.',
     params: {
       type: 'object',
       properties: {
@@ -135,10 +135,14 @@ export const scheduleTaskTool: ToolFactory = (define, ctx) =>
  * `trivial` risk: it runs nothing and changes nothing but a list the person
  * can see and edit, so it never asks in any mode.
  */
+/** A reminder message that is really a request to remove one: "Cancel the reminder about…". */
+const CANCEL_REQUEST =
+  /^\s*(?:cancel|delete|remove|stop|turn off|get rid of)\b[^.]*\b(?:reminders?|scheduled|task)\b/i
+
 export const setReminderTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Set a reminder: at the given time Anodex shows the message where the person asked: on this computer, on their paired phone, and/or by email to their own address. Nothing runs. Once or on a repeat ("in 20 minutes", "tomorrow at 9am", "every Monday at 8am").',
+      'Any "remind me", once or on a repeat ("in 20 minutes", "tomorrow at 9am", "every Friday at 5pm"): at that time Anodex shows the message where the person asked, on this computer, their paired phone and/or by email to their own address. Nothing runs; the person does the thing. Only when they ask to be reminded: a question about a reminder ("is it still set?") is anodex_status.',
     params: {
       type: 'object',
       properties: {
@@ -177,6 +181,14 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
         () => {
           const message = args.message.trim()
           if (!message) throw new Error('A reminder needs a message.')
+          // A reminder that says to cancel a reminder is never what was meant.
+          // Measured: Llama 3.1 8B asked "Cancel the reminder about the
+          // timesheet." set a new one and replied that it had been cancelled.
+          if (CANCEL_REQUEST.test(message)) {
+            throw new Error(
+              "That reads as cancelling a reminder, not setting one. Use delete_scheduled_task with the reminder's name (anodex_status lists them)."
+            )
+          }
           const asked = (args.via ?? []).filter((channel): channel is ReminderChannel =>
             ['desktop', 'phone', 'email'].includes(channel)
           )

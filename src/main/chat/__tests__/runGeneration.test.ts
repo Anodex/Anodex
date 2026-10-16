@@ -260,6 +260,18 @@ describe('runGeneration — tools a plain local chat keeps behind the gateway', 
     expect(deferred).not.toContain('my_files')
   })
 
+  // Llama 3.1 8B set a daily reminder for this, and called save_key and
+  // notify_me_when_done on other runs: "remember" reads as being about Anodex.
+  it('keeps the Scheduler, key and notify tools out of view unless the message is about them', async () => {
+    await runGeneration(ask("What's a good way to remember to drink more water?"), chatIo)
+    expect(mocks.seenToolsOnRequest.at(-1)).toEqual(
+      expect.arrayContaining(['set_reminder', 'save_key', 'notify_me_when_done'])
+    )
+
+    await runGeneration(ask('Remind me tomorrow at 9am to call Sam.'), chatIo)
+    expect(mocks.seenToolsOnRequest.at(-1)).not.toContain('set_reminder')
+  })
+
   it('gives a question about the assistant itself no tool', async () => {
     await runGeneration(ask('Which AI model are you running on right now?'), chatIo)
 
