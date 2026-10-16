@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, readdirSync, statfsSync, statSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import os from 'node:os'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -108,6 +108,91 @@ export function findOnPath(
 }
 
 /**
+ * Where `name` is installed, on the PATH or, failing that, where installers
+ * put programs that a PATH lookup does not see.
+ *
+ * Measured on Windows: "Do I have Python installed?" was answered "You do not
+ * have Python installed" five times in five, on a laptop with Python 3.12 in
+ * `AppData\Local\Programs\Python\Python312`. The python.org installer leaves
+ * "Add to PATH" unticked by default, and the only `python` on the PATH was the
+ * Microsoft Store alias, which is not Python. On macOS an app opened from the
+ * Dock starts with `/usr/bin:/bin:/usr/sbin:/sbin`, so nothing from Homebrew
+ * was on its PATH at all. `onPath` says which it was, since a program found
+ * only off the PATH will not run from a terminal by name.
+ */
+export function findInstalled(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): { path: string; onPath: boolean } | null {
+  const onPath = findOnPath(name, env, platform)
+  if (onPath) return { path: onPath, onPath: true }
+  const elsewhere =
+    platform === 'win32'
+      ? findInWindowsInstallFolders(name, env)
+      : findOnPath(name, { ...env, PATH: unixBinFolders(env, platform).join(delimiter) }, platform)
+  return elsewhere ? { path: elsewhere, onPath: false } : null
+}
+
+/** Where installers put programs on macOS and Linux that an app's PATH may lack. */
+function unixBinFolders(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
+  const home = env.HOME ?? os.homedir()
+  return [
+    ...(platform === 'darwin' ? ['/opt/homebrew/bin', '/opt/homebrew/sbin'] : ['/snap/bin']),
+    '/usr/local/bin',
+    join(home, '.local', 'bin'),
+    join(home, '.cargo', 'bin'),
+    join(home, '.volta', 'bin'),
+    join(home, '.bun', 'bin')
+  ]
+}
+
+/**
+ * `name`.exe in a program's own folder under `Program Files` or
+ * `AppData\Local\Programs`, one or two folders down, or in their `bin` or
+ * `cmd`: `Python\Python312\python.exe`, `nodejs\node.exe`, `Git\cmd\git.exe`,
+ * `Java\jdk-21\bin\java.exe`. Read from the folders, not a list of programs,
+ * so anything installed this way is found.
+ */
+function findInWindowsInstallFolders(name: string, env: NodeJS.ProcessEnv): string | null {
+  const exe = /\.exe$/i.test(name) ? name : `${name}.exe`
+  const bases = [
+    env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs'),
+    env.ProgramFiles,
+    env['ProgramFiles(x86)']
+  ].filter((base): base is string => Boolean(base))
+  const isFile = (path: string): boolean => {
+    try {
+      return statSync(path).isFile()
+    } catch {
+      return false
+    }
+  }
+  const folders = (dir: string): string[] => {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(dir, entry.name))
+    } catch {
+      return []
+    }
+  }
+  for (const base of bases) {
+    for (const program of folders(base)) {
+      for (const dir of [program, join(program, 'bin'), join(program, 'cmd')]) {
+        if (isFile(join(dir, exe))) return join(dir, exe)
+      }
+      for (const version of folders(program)) {
+        for (const dir of [version, join(version, 'bin')]) {
+          if (isFile(join(dir, exe))) return join(dir, exe)
+        }
+      }
+    }
+  }
+  return null
+}
+
+/**
  * Programs known by more than one name, the name that runs first.
  *
  * Measured: asked "Is Node.js installed, and which version?", Llama 3.1 8B
@@ -135,15 +220,31 @@ async function checkProgram(name: string): Promise<string> {
     return 'Give just a program name, such as "java" or "git", not a path or a command.'
   }
   let program = asked
-  let found: string | null = null
+  let install: { path: string; onPath: boolean } | null = null
+  // Every name on the PATH first, so a program that is set up properly is
+  // reported as such even when another of its names sits in an install folder.
   for (const candidate of programNames(asked)) {
-    found = findOnPath(candidate)
-    if (found) {
+    const onPath = findOnPath(candidate)
+    if (onPath) {
+      program = candidate
+      install = { path: onPath, onPath: true }
+      break
+    }
+  }
+  for (const candidate of install ? [] : programNames(asked)) {
+    install = findInstalled(candidate)
+    if (install) {
       program = candidate
       break
     }
   }
-  if (!found) return `${asked} is not installed (not found on PATH under any name it goes by).`
+  if (!install) {
+    return `${asked} is not installed (not found on PATH or in the usual install folders, under any name it goes by).`
+  }
+  const found = install.path
+  const where = install.onPath
+    ? `${program} is installed at ${found}`
+    : `${program} is installed at ${found}, but it is not on the PATH, so typing ${program} in a terminal will not find it`
   const flag = /^javac?$/i.test(program) ? '-version' : '--version'
   const version = await new Promise<string>((resolve) => {
     execFile(
@@ -156,9 +257,7 @@ async function checkProgram(name: string): Promise<string> {
       }
     )
   })
-  return version
-    ? `${program} is installed at ${found}. Version: ${version}`
-    : `${program} is installed at ${found} (it did not report a version).`
+  return version ? `${where}. Version: ${version}` : `${where} (it did not report a version).`
 }
 
 async function checkPort(port: number | undefined): Promise<string> {
