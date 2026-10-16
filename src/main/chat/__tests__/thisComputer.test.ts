@@ -6,6 +6,8 @@ import {
   NO_WORKSPACE_NOTE
 } from '@shared/prompts'
 import {
+  asksAboutTheAssistant,
+  asksForTheLatestRelease,
   describeComputer,
   mayConcernAnodex,
   mayConcernMyFiles,
@@ -484,5 +486,55 @@ describe('telling the person’s files from the machine', () => {
     expect(mayConcernThisComputer(['What files are in my Downloads folder?'])).toBe(true)
     expect(mayConcernThisComputer(['Is git installed on this computer?'])).toBe(true)
     expect(mayConcernThisComputer(['Name one fruit.'])).toBe(false)
+  })
+})
+
+describe('questions the computer cannot answer', () => {
+  // Llama 3.1 8B ran a command for this in every run, its own name in its prompt.
+  it('reads a question about the assistant itself as needing no tool', () => {
+    for (const question of [
+      'Which AI model are you running on right now?',
+      'What model are you?',
+      'Who are you?',
+      "What's your version?"
+    ]) {
+      expect(asksAboutTheAssistant([question]), question).toBe(true)
+    }
+  })
+
+  it('leaves a question about what the assistant can do with a tool alone', () => {
+    for (const question of [
+      'Can you search the web for me?',
+      'Can your AI read my files?',
+      'Are you able to check my disk space?',
+      'Is the model installed on my computer?'
+    ]) {
+      expect(asksAboutTheAssistant([question]), question).toBe(false)
+    }
+  })
+
+  it('reads only the latest message', () => {
+    expect(asksAboutTheAssistant(['Thanks!', 'Which model are you?'])).toBe(false)
+  })
+
+  // Llama 3.1 8B ran `node --version` on the laptop for this.
+  it('reads the newest release of something as the web’s question', () => {
+    for (const question of [
+      'Look up the latest Node.js release.',
+      'What is the newest version of Python?',
+      'Which version of Blender is the latest?'
+    ]) {
+      expect(asksForTheLatestRelease([question]), question).toBe(true)
+    }
+  })
+
+  it('leaves a question about the person’s own copy to the computer', () => {
+    for (const question of [
+      'Is my Node the latest version?',
+      'Update Node.js to the latest version.',
+      'Do I have the latest Python installed?'
+    ]) {
+      expect(asksForTheLatestRelease([question]), question).toBe(false)
+    }
   })
 })

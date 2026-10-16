@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
 import {
+  asksAboutTheAssistant,
+  asksForTheLatestRelease,
   describeComputer,
   liveComputerFacts,
   mayConcernAnodex,
@@ -784,7 +786,10 @@ export async function runGeneration(
     // previous message counts too, so "yes, do that" after "zip my photos"
     // keeps them. Agent and project turns are left as they were.
     commandExamples: plainChatTurn
-      ? mayConcernThisComputer(recentUserText) && !filesOnly
+      ? mayConcernThisComputer(recentUserText) &&
+        !filesOnly &&
+        !asksAboutTheAssistant(recentUserText) &&
+        !asksForTheLatestRelease(recentUserText)
       : undefined,
     runtime:
       effectiveProviderId === 'local'
@@ -1296,10 +1301,17 @@ export function localChatToolsOnRequest(
   messages: string[],
   { myFiles = false }: { myFiles?: boolean } = {}
 ): string[] | 'all' | undefined {
+  // A question about the assistant itself is answered from its prompt; see
+  // `asksAboutTheAssistant`.
+  if (asksAboutTheAssistant(messages)) return 'all'
+  // The newest release of something is the web's to answer, not this
+  // computer's, even where its name reads as a program or a file ("Node.js");
+  // see `asksForTheLatestRelease`.
+  const onlyOnline = asksForTheLatestRelease(messages)
   const web = mayNeedTheWeb(messages)
   const anodex = mayConcernAnodex(messages)
   if (!myFiles) {
-    const computer = mayConcernThisComputer(messages)
+    const computer = mayConcernThisComputer(messages) && !onlyOnline
     if (!computer && !web && !anodex) return 'all'
     const deferred = [...(computer ? [] : SHELL_TOOLS), ...(web ? [] : WEB_TOOLS)]
     return deferred.length > 0 ? deferred : undefined
@@ -1311,8 +1323,8 @@ export function localChatToolsOnRequest(
   // view, and request_folder_access for "Send E2250044A.pdf from my Downloads
   // folder to my phone." The separate file tools stay behind the gateway on
   // every such turn, since my_files does each of their jobs.
-  const files = mayConcernMyFiles(messages)
-  const machine = mayConcernTheMachine(messages)
+  const files = mayConcernMyFiles(messages) && !onlyOnline
+  const machine = mayConcernTheMachine(messages) && !onlyOnline
   if (!files && !machine && !web && !anodex) return 'all'
   return [
     ...MY_FILES_STANDS_IN_FOR,

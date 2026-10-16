@@ -321,6 +321,57 @@ export function mayConcernTheSchedule(messages: string[]): boolean {
 const SCHEDULE_WORDS =
   /\b(?:remind(?:er|ers)?|schedul(?:e|ed|es|ing)|alarm|every (?:day|morning|evening|night|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|in \d+ (?:minutes?|mins?|hours?|days?)|tomorrow at|at \d{1,2}(?::\d{2})?\s?(?:am|pm))\b/i
 
+/**
+ * Whether the latest message asks about the assistant itself — its model, its
+ * version, who made it — which its own prompt already answers, so the turn
+ * needs no tool at all.
+ *
+ * Measured on 54 questions with Llama 3.1 8B: "Which AI model are you running
+ * on right now?" matched the machine ("running") and the web ("right now"),
+ * saw the shell and the web tools, ran a command and answered nothing, in
+ * every run; the model's name was in its prompt the whole time. A message that
+ * also names the person's files, the web or the computer is left alone: "Can
+ * you search the web?" is a question about a tool.
+ */
+export function asksAboutTheAssistant(messages: string[]): boolean {
+  const latest = messages[0] ?? ''
+  return (
+    ASSISTANT_AS_SUBJECT.test(latest) &&
+    ABOUT_THE_ASSISTANT.test(latest) &&
+    !FILE_WORDS.test(latest) &&
+    !ANYTHING_ELSE.test(latest)
+  )
+}
+
+const ASSISTANT_AS_SUBJECT = /\b(?:are you|you are|you're|you running|are you running|your)\b/i
+const ABOUT_THE_ASSISTANT =
+  /\b(?:models?|llm|ai|version|running on|powered by|made you|built you|trained|who are you)\b/i
+/** Things a question about the assistant would name if it were really about a tool. */
+const ANYTHING_ELSE =
+  /\b(?:search|web|internet|online|weather|news|install(?:ed)?|computer|laptop|pc|disk|email|remind(?:er)?|schedule)\b/i
+
+/**
+ * Whether the latest message asks for the newest release of something, which
+ * the web answers and this computer cannot.
+ *
+ * Measured with Llama 3.1 8B: "What is the latest version of Node.js?" matched
+ * "node" and "version" as the machine, saw the shell, and ran `node --version`
+ * on the laptop, answering with the copy it had rather than the newest one. A
+ * message about the person's own copy — installed, updating it, "my" — still
+ * gets the shell: "Is my Node the latest version?" needs both.
+ */
+export function asksForTheLatestRelease(messages: string[]): boolean {
+  const latest = messages[0] ?? ''
+  return NEWEST_RELEASE.test(latest) && !OWN_COPY.test(latest)
+}
+
+// A dot does not end the phrase, since names carry them ("Node.js"); the
+// length cap keeps it inside one sentence.
+const NEWEST_RELEASE =
+  /\b(?:latest|newest|most recent|current)\b[^?!\n]{0,40}\b(?:versions?|releases?)\b|\b(?:versions?|releases?)\b[^?!\n]{0,40}\b(?:latest|newest)\b/i
+const OWN_COPY =
+  /\b(?:installed|install|update|upgrade|my|mine|this (?:computer|laptop|pc|machine)|do i have|have i got|i have)\b/i
+
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))
 }
