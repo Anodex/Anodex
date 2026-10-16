@@ -31,8 +31,12 @@ export function describeComputer(
     startsIn: string
     /** Whether `check_computer` is switched on this turn: see `everydayCommands`. */
     checkComputer?: boolean
-    /** Whether `find_my_files` is switched on this turn: see `everydayCommands`. */
-    findMyFiles?: boolean
+    /**
+     * The tool that finds the person's files this turn, if one is on:
+     * `find_my_files`, or `my_files` where that stands in for it. See
+     * `everydayCommands`.
+     */
+    findMyFiles?: boolean | 'my_files'
   } | null
 ): PromptComputer {
   const platform =
@@ -53,7 +57,7 @@ export function describeComputer(
       startsIn: shell.startsIn,
       howTo: everydayCommands(facts, name, {
         checkComputer: shell.checkComputer === true,
-        findMyFiles: shell.findMyFiles === true
+        findMyFiles: shell.findMyFiles ?? false
       })
     }
   }
@@ -81,127 +85,154 @@ export function mayConcernThisComputer(messages: string[]): boolean {
   return messages.some((message) => COMPUTER_WORDS.test(message) || PATH_LIKE.test(message))
 }
 
-const COMPUTER_WORDS = new RegExp(
-  '\\b(?:' +
-    [
-      'computer',
-      'laptop',
-      'pc',
-      'machine',
-      'desktop',
-      'downloads?',
-      'documents?',
-      'folders?',
-      'director(?:y|ies)',
-      'files?',
-      'paths?',
-      'drives?',
-      'disks?',
-      'storage',
-      'space',
-      'usb',
-      '(?:un)?install(?:ed|ing|s)?',
-      'programs?',
-      'apps?',
-      'applications?',
-      'software',
-      'versions?',
-      'updates?',
-      'open',
-      'launch',
-      'start',
-      'run(?:ning)?',
-      'clipboard',
-      'copy',
-      'paste',
-      'zip',
-      'unzip',
-      'compress',
-      'extract',
-      'rename',
-      'move',
-      'delete',
-      'remove',
-      'trash',
-      'recycle',
-      'tidy',
-      'clean',
-      'memory',
-      'ram',
-      'cpu',
-      'gpu',
-      'process(?:es)?',
-      'battery',
-      'wi-?fi',
-      'network',
-      'internet',
-      'ip',
-      'bluetooth',
-      'printer',
-      'screen(?:shot)?s?',
-      'photos?',
-      'pictures?',
-      'images?',
-      'videos?',
-      'music',
-      'pdfs?',
-      'resize',
-      'backups?',
-      'shell',
-      'terminal',
-      'command',
-      'powershell',
-      'bash',
-      'scripts?',
-      'python3?',
-      'node',
-      'java',
-      'git',
-      'npm',
-      'pip',
-      'winget',
-      'brew',
-      'apt',
-      // Everyday asks that name no file or program word, found once this list
-      // began deciding which tools a turn sees rather than only its examples.
-      'kill',
-      'close',
-      'quit',
-      'uptime',
-      '(?:un)?mute',
-      'volume',
-      'sound',
-      'brightness',
-      'shut ?down',
-      'restart',
-      'reboot',
-      // The person's own documents by what they are, and asks about where
-      // something is. Measured: "Do I have a maintenance sheet for the EX1200
-      // anywhere?" named none of the words above, so the file tools stayed
-      // behind the gateway and Llama 3.1 8B said it was not aware of one
-      // while the PDF sat in Downloads. "list" is left out on purpose: "List
-      // three primary colours" is a plain question.
-      'anywhere',
-      'saved',
-      'where did i (?:put|save|leave)',
-      'sheets?',
-      'spreadsheets?',
-      'manuals?',
-      'invoices?',
-      'receipts?',
-      'statements?',
-      'contracts?',
-      'resumes?',
-      'cv',
-      'excel',
-      'word docs?',
-      'powerpoint',
-      'slides?',
-      'to-?dos?'
-    ].join('|') +
-    ')\\b',
-  'i'
-)
+/**
+ * Whether a message may be about the person's own files: finding, listing,
+ * opening or sending one. Part of `mayConcernThisComputer`, kept apart so a
+ * turn about only files can show `my_files` without the shell beside it; see
+ * `localChatToolsOnRequest`.
+ */
+export function mayConcernMyFiles(messages: string[]): boolean {
+  return messages.some((message) => FILE_WORDS.test(message) || PATH_LIKE.test(message))
+}
+
+/**
+ * Whether a message may be about the machine itself: programs, the disk,
+ * memory, the network, or changing files (moving, zipping, deleting), which
+ * takes the shell. The rest of `mayConcernThisComputer`.
+ */
+export function mayConcernTheMachine(messages: string[]): boolean {
+  return messages.some((message) => MACHINE_WORDS.test(message))
+}
+
+/** The person's files by where they are and what they are. */
+const FILE_WORD_LIST = [
+  'desktop',
+  'downloads?',
+  'documents?',
+  'folders?',
+  'director(?:y|ies)',
+  'files?',
+  'paths?',
+  'open',
+  'photos?',
+  'pictures?',
+  'images?',
+  'videos?',
+  'music',
+  'pdfs?',
+  // The person's own documents by what they are, and asks about where
+  // something is. Measured: "Do I have a maintenance sheet for the EX1200
+  // anywhere?" named none of the other words, so the file tools stayed
+  // behind the gateway and Llama 3.1 8B said it was not aware of one
+  // while the PDF sat in Downloads. "list" is left out on purpose: "List
+  // three primary colours" is a plain question.
+  'anywhere',
+  'saved',
+  'where did i (?:put|save|leave)',
+  'sheets?',
+  'spreadsheets?',
+  'manuals?',
+  'invoices?',
+  'receipts?',
+  'statements?',
+  'contracts?',
+  'resumes?',
+  'cv',
+  'excel',
+  'word docs?',
+  'powerpoint',
+  'slides?',
+  'to-?dos?'
+]
+
+/** The machine, its programs, and doing things to files, which takes the shell. */
+const MACHINE_WORD_LIST = [
+  'computer',
+  'laptop',
+  'pc',
+  'machine',
+  'drives?',
+  'disks?',
+  'storage',
+  'space',
+  'usb',
+  '(?:un)?install(?:ed|ing|s)?',
+  'programs?',
+  'apps?',
+  'applications?',
+  'software',
+  'versions?',
+  'updates?',
+  'launch',
+  'start',
+  'run(?:ning)?',
+  'clipboard',
+  'copy',
+  'paste',
+  'zip',
+  'unzip',
+  'compress',
+  'extract',
+  'rename',
+  'move',
+  'delete',
+  'remove',
+  'trash',
+  'recycle',
+  'tidy',
+  'clean',
+  'memory',
+  'ram',
+  'cpu',
+  'gpu',
+  'process(?:es)?',
+  'battery',
+  'wi-?fi',
+  'network',
+  'internet',
+  'ip',
+  'bluetooth',
+  'printer',
+  'screen(?:shot)?s?',
+  'resize',
+  'backups?',
+  'shell',
+  'terminal',
+  'command',
+  'powershell',
+  'bash',
+  'scripts?',
+  'python3?',
+  'node',
+  'java',
+  'git',
+  'npm',
+  'pip',
+  'winget',
+  'brew',
+  'apt',
+  // Everyday asks that name no file or program word, found once this list
+  // began deciding which tools a turn sees rather than only its examples.
+  'kill',
+  'close',
+  'quit',
+  'uptime',
+  '(?:un)?mute',
+  'volume',
+  'sound',
+  'brightness',
+  'shut ?down',
+  'restart',
+  'reboot'
+]
+
+function wordPattern(words: string[]): RegExp {
+  return new RegExp(`\\b(?:${words.join('|')})\\b`, 'i')
+}
+
+const FILE_WORDS = wordPattern(FILE_WORD_LIST)
+const MACHINE_WORDS = wordPattern(MACHINE_WORD_LIST)
+const COMPUTER_WORDS = wordPattern([...FILE_WORD_LIST, ...MACHINE_WORD_LIST])
 
 /**
  * Whether a chat message may need something from the web — a page, a search,
@@ -374,6 +405,10 @@ function isPowerShell(name: string): boolean {
 const FIND_MY_FILES_FIRST =
   "A file of the person's, by its name or words in it, in Documents, Desktop, Downloads or OneDrive: find_my_files, which never needs approval. The command below is for anywhere else."
 
+/** The same, where `my_files` stands in for find_my_files. */
+const MY_FILES_FIRST =
+  "A file of the person's in Documents, Desktop, Downloads or OneDrive, to find, list, open or send: my_files, which never needs approval to find or list. The commands below are for anywhere else."
+
 /** Said instead of the free-space and installed-program examples when check_computer is on. */
 const CHECK_COMPUTER_FIRST =
   'Free space, whether a program is installed and which version, whether a port is free, and what this computer is: check_computer, not a command. It never needs the person to approve it.'
@@ -384,13 +419,14 @@ function everydayCommands(
   {
     checkComputer = false,
     findMyFiles = false
-  }: { checkComputer?: boolean; findMyFiles?: boolean } = {}
+  }: { checkComputer?: boolean; findMyFiles?: boolean | 'my_files' } = {}
 ): string[] {
   // Likewise a file of the person's: "Find the file E2260028 in my Downloads."
   // went through two approved Get-ChildItem commands and 139 s with Gemma 4
   // E4B, where find_my_files needs no approval. The command stays for anywhere
   // find_my_files does not look.
-  const findFirst = findMyFiles ? [FIND_MY_FILES_FIRST] : []
+  const findFirst =
+    findMyFiles === 'my_files' ? [MY_FILES_FIRST] : findMyFiles ? [FIND_MY_FILES_FIRST] : []
   // With `check_computer` on, free space and "is it installed, which version"
   // are its job and never a command's. Measured: "Is Node.js installed, and
   // which version?" sent Llama 3.1 8B and Gemma 4 E4B alike to run_command,

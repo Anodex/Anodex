@@ -41,7 +41,8 @@ vi.mock('../../email/EmailService', () => ({
   }
 }))
 
-const { findMyFilesTool, foundHeading, sendFileToMeTool } = await import('../personalFileTools')
+const { findMyFilesTool, foundHeading, myFilesTool, sendFileToMeTool } =
+  await import('../personalFileTools')
 const { createMockContext, createMockDefine } = await import('./test-helpers')
 
 let budget: string
@@ -197,5 +198,128 @@ describe('foundHeading', () => {
     const heading = foundHeading('todo list', [{ matched: 'contents: "…a todo…"' }])
     expect(heading).toContain('No file is named for "todo list"')
     expect(heading).toContain('rather than calling it theirs')
+  })
+})
+
+type MyFilesHandler = { handler: (a: Record<string, unknown>) => Promise<string> }
+
+/** my_files over the same find and send tools, as the registry builds it. */
+function myFiles(mode: 'ask' | 'untethered', parts: { send?: boolean; open?: boolean } = {}) {
+  const prompts: ToolConfirmRequest[] = []
+  const emitted: ToolCall[] = []
+  const opened: string[] = []
+  const ctx = {
+    ...createMockContext(h.root),
+    emit: (call: ToolCall) => emitted.push(call),
+    workspaceRoot: null,
+    conversationId: 'conv-1',
+    permissionMode: mode,
+    confirm: (request: ToolConfirmRequest) => {
+      prompts.push(request)
+      return Promise.resolve({ approved: true })
+    }
+  }
+  const define = createMockDefine()
+  const open = {
+    handler: (a: { target: string }) => {
+      opened.push(a.target)
+      return Promise.resolve(`Opened ${a.target}.`)
+    }
+  }
+  const tool = myFilesTool(define, ctx, {
+    find: findMyFilesTool(define, ctx),
+    send: parts.send === false ? undefined : sendFileToMeTool(define, ctx),
+    open: parts.open === false ? undefined : open
+  }) as unknown as MyFilesHandler
+  return { tool, prompts, emitted, opened }
+}
+
+describe('my_files', () => {
+  beforeEach(() => {
+    const downloads = join(h.root, 'downloads')
+    mkdirSync(downloads)
+    writeFileSync(join(downloads, 'E2250044A.pdf'), 'x'.repeat(5_000))
+    writeFileSync(join(downloads, 'notes.txt'), 'short')
+    writeFileSync(join(downloads, '.hidden'), 'secret')
+    mkdirSync(join(downloads, 'old photos'))
+  })
+
+  it('finds, the same as find_my_files', async () => {
+    const { tool } = myFiles('untethered')
+    expect(await tool.handler({ action: 'find', words: 'budget' })).toContain(budget)
+  })
+
+  it('lists a folder biggest first, leaving hidden files out', async () => {
+    // "What files are in my Downloads folder?" had no tool but the shell.
+    const { tool } = myFiles('untethered')
+    const listed = await tool.handler({ action: 'list', folder: 'Downloads', sort: 'biggest' })
+    expect(listed).toMatch(/^Downloads \(.*\) has 3 items, biggest first:/)
+    expect(listed.indexOf('E2250044A.pdf')).toBeLessThan(listed.indexOf('notes.txt'))
+    expect(listed).toContain('old photos (folder')
+    expect(listed).not.toContain('.hidden')
+  })
+
+  it('sends a file by its name alone, finding it first', async () => {
+    // "Send E2250044A.pdf from my Downloads folder to my phone." needed two
+    // tools in order, and Llama 3.1 8B asked for folder access instead.
+    h.paired = 1
+    h.connected = 1
+    const { tool } = myFiles('untethered')
+    const result = await tool.handler({ action: 'send', file: 'E2250044A.pdf' })
+    expect(result).toContain('Sent E2250044A.pdf')
+    expect(h.shared.map((share) => share.name)).toEqual(['E2250044A.pdf'])
+  })
+
+  it('still asks in Ask mode, through send_file_to_me', async () => {
+    h.paired = 1
+    const { tool, prompts } = myFiles('ask')
+    await tool.handler({ action: 'send', file: 'E2250044A.pdf' })
+    expect(prompts[0].detail).toContain('paired phone')
+  })
+
+  it('sends a file a listing showed, by the name it showed', async () => {
+    const { tool } = myFiles('untethered')
+    await tool.handler({ action: 'list', folder: 'Downloads' })
+    expect(await tool.handler({ action: 'send', file: 'notes.txt', to: 'email' })).toContain(
+      'Emailed notes.txt'
+    )
+  })
+
+  it('opens a file by name, and a web address as it is', async () => {
+    const { tool, opened } = myFiles('untethered')
+    await tool.handler({ action: 'open', file: 'notes.txt' })
+    await tool.handler({ action: 'open', file: 'https://example.com' })
+    expect(opened).toEqual([join(h.root, 'downloads', 'notes.txt'), 'https://example.com'])
+  })
+
+  it('reaches nothing outside the person’s own folders', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'anodex-outside-'))
+    writeFileSync(join(outside, 'keys.txt'), 'secret')
+    try {
+      const { tool } = myFiles('untethered')
+      const result = await tool.handler({ action: 'send', file: join(outside, 'keys.txt') })
+      expect(result).toContain('is not in Documents, Desktop, Downloads or OneDrive')
+      expect(h.sent).toEqual([])
+      expect(h.shared).toEqual([])
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('says an action is off when its tool is switched off', async () => {
+    const { tool, emitted } = myFiles('untethered', { send: false })
+    expect(await tool.handler({ action: 'send', file: 'notes.txt' })).toContain(
+      'switched off in Settings'
+    )
+    expect(emitted.at(-1)?.status).toBe('error')
+  })
+
+  it('asks which file when a name matches more than one', async () => {
+    writeFileSync(join(h.root, 'Documents', 'notes.txt'), 'other')
+    const { tool } = myFiles('untethered')
+    expect(await tool.handler({ action: 'send', file: 'notes.txt' })).toContain(
+      'More than one file is named "notes.txt"'
+    )
+    expect(h.sent).toEqual([])
   })
 })

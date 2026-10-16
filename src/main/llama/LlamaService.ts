@@ -320,6 +320,14 @@ export interface GenerateParams {
     delegate?: DelegateCapability
     /** See `ToolRuntimeContext.switchProject`. A transport that drops it silently disables folder access. */
     switchProject?: (projectId: string) => void
+    /**
+     * See `ToolRuntimeContext.myFiles`. A transport that drops it hides the
+     * separate file tools with nothing in their place: measured, Gemma said it
+     * could not list a folder and Llama tried move_to_trash on Downloads.
+     */
+    myFiles?: boolean
+    /** See `ToolRuntimeContext.answerCue`. */
+    answerCue?: boolean
     /** See `ToolRuntimeContext.userProvided`. */
     userProvided?: (text: string) => boolean
     /** See `ToolRuntimeContext.onSecretSaved`. */
@@ -3084,6 +3092,8 @@ Continue the task using this result. If the task is complete, answer instead of 
       enabledTools: params.tools.enabledTools ?? null,
       delegate: params.tools.delegate,
       switchProject: params.tools.switchProject,
+      myFiles: params.tools.myFiles,
+      answerCue: params.tools.answerCue,
       userProvided: params.tools.userProvided,
       onSecretSaved: params.tools.onSecretSaved,
       disabledTools: params.tools.disabledTools,

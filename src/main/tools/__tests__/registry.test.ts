@@ -100,6 +100,7 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'open_item',
   'find_my_files',
   'send_file_to_me',
+  'my_files',
   'notify_me_when_done'
 ]
 
@@ -267,6 +268,26 @@ describe('buildTools', () => {
 
     expect(tools).not.toHaveProperty('remember_fact')
     expect(tools).toHaveProperty('update_project_notes')
+  })
+
+  it('registers my_files only for a turn that asks for it, over find_my_files', () => {
+    const base = createMockContext('/workspace')
+    expect(buildTools(createMockDefine(), base)).not.toHaveProperty('my_files')
+    expect(buildTools(createMockDefine(), { ...base, myFiles: true })).toHaveProperty('my_files')
+    expect(
+      buildTools(createMockDefine(), {
+        ...base,
+        myFiles: true,
+        disabledTools: new Set(['find_my_files'])
+      })
+    ).not.toHaveProperty('my_files')
+    expect(
+      buildTools(createMockDefine(), {
+        ...base,
+        myFiles: true,
+        disabledTools: new Set(['my_files'])
+      })
+    ).not.toHaveProperty('my_files')
   })
 
   it('never registers finish_goal in an unrestricted (interactive chat) generation', () => {

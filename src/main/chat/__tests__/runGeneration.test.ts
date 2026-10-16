@@ -36,7 +36,9 @@ const mocks = vi.hoisted(() => ({
   /** What `TokenActivityStore` reports has been spent today. */
   todayTokens: 0,
   /** `toolsOnRequest` as the provider actually received it, per call. */
-  seenToolsOnRequest: [] as Array<string[] | 'all' | undefined>
+  seenToolsOnRequest: [] as Array<string[] | 'all' | undefined>,
+  /** Whether each turn's tool context asked for my_files. */
+  seenMyFiles: [] as Array<boolean | undefined>
 }))
 
 vi.mock('../../settings/SettingsStore', () => ({
@@ -110,6 +112,7 @@ vi.mock('../../llm/ProviderRegistry', () => ({
     generate: (params: GenerateParams) => {
       mocks.seenOptions.push(params.options)
       mocks.seenToolsOnRequest.push(params.toolsOnRequest)
+      mocks.seenMyFiles.push((params.tools as { myFiles?: boolean } | undefined)?.myFiles)
       // Tool activity has to land *during* the turn, the way a real provider
       // reports it — the recording under test reads what those callbacks
       // accumulated, so firing them afterwards would prove nothing.
@@ -198,6 +201,7 @@ beforeEach(() => {
   mocks.todayTokens = 0
   mocks.seenOptions.length = 0
   mocks.seenToolsOnRequest.length = 0
+  mocks.seenMyFiles.length = 0
 })
 
 describe('runGeneration — tools a plain local chat keeps behind the gateway', () => {
@@ -244,12 +248,41 @@ describe('runGeneration — tools a plain local chat keeps behind the gateway', 
     expect(mocks.seenToolsOnRequest.at(-1) ?? []).not.toContain('run_command')
   })
 
-  it('leaves a cloud model its whole surface', async () => {
+  // Llama 3.1 8B ran shell commands for both with find_my_files in view.
+  it('shows my_files alone for a question about only the person’s files', async () => {
+    await runGeneration(ask('Do I have a maintenance sheet for the EX1200 anywhere?'), chatIo)
+
+    const deferred = mocks.seenToolsOnRequest.at(-1)
+    expect(mocks.seenMyFiles.at(-1)).toBe(true)
+    expect(deferred).toEqual(
+      expect.arrayContaining(['run_command', 'find_my_files', 'send_file_to_me', 'open_item'])
+    )
+    expect(deferred).not.toContain('my_files')
+  })
+
+  it('keeps the shell, not my_files, for a question about the machine', async () => {
+    await runGeneration(ask('Is git installed on this computer?'), chatIo)
+
+    const deferred = mocks.seenToolsOnRequest.at(-1)
+    expect(deferred).toEqual(expect.arrayContaining(['my_files', 'find_my_files']))
+    expect(deferred).not.toContain('run_command')
+  })
+
+  it('shows both for moving a file, which takes the shell', async () => {
+    await runGeneration(ask('Move the report in my Downloads to the Desktop.'), chatIo)
+
+    const deferred = mocks.seenToolsOnRequest.at(-1)
+    expect(deferred).not.toContain('my_files')
+    expect(deferred).not.toContain('run_command')
+  })
+
+  it('leaves a cloud model its whole surface, with the separate file tools', async () => {
     mocks.providerActive = 'anthropic'
 
     await runGeneration(ask('What is the capital of Australia?'), chatIo)
 
     expect(mocks.seenToolsOnRequest.at(-1)).toBeUndefined()
+    expect(mocks.seenMyFiles.at(-1)).toBe(false)
   })
 
   it('leaves project and agent turns alone', async () => {

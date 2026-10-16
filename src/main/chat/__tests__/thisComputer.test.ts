@@ -8,6 +8,8 @@ import {
 import {
   describeComputer,
   mayConcernAnodex,
+  mayConcernMyFiles,
+  mayConcernTheMachine,
   mayConcernTheSchedule,
   mayConcernThisComputer,
   mayNeedTheWeb,
@@ -451,5 +453,36 @@ describe('a message about the schedule puts the Scheduler first', () => {
     ]) {
       expect(mayConcernTheSchedule([question]), question).toBe(false)
     }
+  })
+})
+
+describe('telling the person’s files from the machine', () => {
+  it('reads finding, listing and sending as only files', () => {
+    for (const message of [
+      'Do I have a maintenance sheet for the EX1200 anywhere?',
+      'What files are in my Downloads folder?',
+      'Send E2250044A.pdf from my Downloads folder to my phone.',
+      'Search my documents for anything about invoices.'
+    ]) {
+      expect(mayConcernMyFiles([message]), message).toBe(true)
+      expect(mayConcernTheMachine([message]), message).toBe(false)
+    }
+  })
+
+  it('reads programs, the disk and changing files as the machine', () => {
+    for (const message of [
+      'Is git installed on this computer?',
+      'How much free disk space do I have?',
+      'Zip up my Pictures folder.',
+      'Move the report in my Downloads to the Desktop.'
+    ]) {
+      expect(mayConcernTheMachine([message]), message).toBe(true)
+    }
+  })
+
+  it('still reads either as the computer, as before', () => {
+    expect(mayConcernThisComputer(['What files are in my Downloads folder?'])).toBe(true)
+    expect(mayConcernThisComputer(['Is git installed on this computer?'])).toBe(true)
+    expect(mayConcernThisComputer(['Name one fruit.'])).toBe(false)
   })
 })

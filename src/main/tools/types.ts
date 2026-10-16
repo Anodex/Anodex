@@ -197,6 +197,17 @@ export interface ToolRuntimeContext {
    */
   switchProject?: (projectId: string) => void
   /**
+   * Whether this turn shows `my_files`, the person's files as one tool with
+   * find, list, open and send. Set for a local model's plain chat, which then
+   * keeps the separate file tools behind the gateway; see `myFilesTool`.
+   */
+  myFiles?: boolean
+  /**
+   * Whether a successful tool result ends by asking for the answer in words.
+   * Set for a local model's plain chat; see `withAnswerCue`.
+   */
+  answerCue?: boolean
+  /**
    * Whether `text` appears in something the person typed in this chat. How
    * `save_key` tells a key the person pasted from one the model found in a
    * web page or a file, which it must never store. Absent on runs with no

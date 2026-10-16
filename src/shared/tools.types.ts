@@ -470,6 +470,12 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Send a file the search found, or one from the open project, to the person's paired phone (saved to its Downloads) or by email to their own address. The phone asks only in Ask mode; email asks except in Untethered mode."
   },
   {
+    name: 'my_files',
+    kind: 'read',
+    description:
+      "Find, list, open or send the person's own files in one tool, for local models in a plain chat. Each action is the matching tool above and follows its setting and approval."
+  },
+  {
     name: 'notify_me_when_done',
     kind: 'write',
     description:

@@ -6,6 +6,8 @@ import {
   describeComputer,
   liveComputerFacts,
   mayConcernAnodex,
+  mayConcernMyFiles,
+  mayConcernTheMachine,
   mayConcernTheSchedule,
   mayConcernThisComputer,
   mayNeedTheWeb
@@ -528,6 +530,15 @@ export async function runGeneration(
   const failedToolsThisTurn: string[] = []
   const changedFilesThisTurn = new Set<string>()
   const verificationThisTurn: VerificationResult[] = []
+  // What kind of turn this is, resolved once by the rule the prompt uses, so
+  // the prompt's example commands and the transport's tool surface can never
+  // disagree about it.
+  const promptSurface = resolvePromptSurface(io.surface, Boolean(activeProject))
+  const plainChatTurn = promptSurface === 'chat'
+  // The provider that ends up serving the turn, a per-run override included.
+  const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
+  // A local model's plain chat sees the person's files as one tool: see `myFilesTool`.
+  const localPlainChat = plainChatTurn && effectiveProviderId === 'local'
   const tools = settings.tools.enabled
     ? {
         workspaceRoot,
@@ -559,6 +570,8 @@ export async function runGeneration(
         enabledTools: io.enabledTools ?? null,
         delegate: io.delegate,
         switchProject: io.switchProject,
+        myFiles: localPlainChat,
+        answerCue: localPlainChat,
         // Only what the person typed: this request's own prompt and the user
         // turns of its history, never tool output.
         userProvided: (text: string) =>
@@ -636,7 +649,6 @@ export async function runGeneration(
   // (after) — a cloud provider's turn must attribute to its own configured
   // model, not whatever's loaded locally.
   const modelDescriptor = activeModelDescriptor(settings.provider, io.providerOverride)
-  const effectiveProviderId = io.providerOverride?.provider ?? settings.provider.active
   const contextWindowTokens = activeContextWindowTokens(effectiveProviderId, modelDescriptor?.id)
 
   // Before anything is spent. The cap is a warning threshold unless the user
@@ -709,25 +721,24 @@ export async function runGeneration(
   // carries the user-file, email and web surfaces, and so still pays for them.
   const bounding = resolveHistoryBounding(effectiveProviderId, modelDescriptor, io, tools != null)
 
-  // What kind of turn this is, resolved once by the rule the prompt uses, so
-  // the prompt's example commands and the transport's tool surface can never
-  // disagree about it. A plain chat reads the person's message and their one
-  // before it, so "yes, do that" after "zip my photos" is read as the request
-  // it confirms: see `mayConcernThisComputer` and `localChatToolsOnRequest`.
-  const promptSurface = resolvePromptSurface(io.surface, Boolean(activeProject))
-  const plainChatTurn = promptSurface === 'chat'
+  // A plain chat reads the person's message and their one before it, so "yes,
+  // do that" after "zip my photos" is read as the request it confirms: see
+  // `mayConcernThisComputer` and `localChatToolsOnRequest`.
   const recentUserText = [
     request.prompt,
     request.history.filter((turn) => turn.role === 'user').at(-1)?.content
   ].filter((text): text is string => typeof text === 'string')
-  const toolsOnRequest =
-    plainChatTurn && effectiveProviderId === 'local'
-      ? localChatToolsOnRequest(recentUserText)
-      : undefined
-  const toolsUpFront =
-    plainChatTurn && effectiveProviderId === 'local'
-      ? localChatToolsUpFront(recentUserText)
-      : undefined
+  // `my_files` exists only where the registry builds it: switched on, with
+  // find_my_files under it (see `buildTools`).
+  const myFilesShown = localPlainChat && toolOn('my_files') && toolOn('find_my_files')
+  const toolsOnRequest = localPlainChat
+    ? localChatToolsOnRequest(recentUserText, { myFiles: myFilesShown })
+    : undefined
+  const toolsUpFront = localPlainChat ? localChatToolsUpFront(recentUserText) : undefined
+  // A message about only the person's files, with my_files to do it, gets no
+  // shell examples: they would teach Get-ChildItem in place of the tool.
+  const filesOnly =
+    myFilesShown && mayConcernMyFiles(recentUserText) && !mayConcernTheMachine(recentUserText)
 
   // Two passes over the same composer. The first prices everything the user
   // chose — rules, style, skills, plan, the request itself, and the protected
@@ -764,7 +775,7 @@ export async function runGeneration(
             command: resolveCommandShell(settings.general.defaultShell),
             startsIn: shellStartsIn,
             checkComputer: toolOn('check_computer'),
-            findMyFiles: toolOn('find_my_files')
+            findMyFiles: myFilesShown ? 'my_files' : toolOn('find_my_files')
           }
         : null
     ),
@@ -772,7 +783,9 @@ export async function runGeneration(
     // may be about the computer — see `mayConcernThisComputer`. The person's
     // previous message counts too, so "yes, do that" after "zip my photos"
     // keeps them. Agent and project turns are left as they were.
-    commandExamples: plainChatTurn ? mayConcernThisComputer(recentUserText) : undefined,
+    commandExamples: plainChatTurn
+      ? mayConcernThisComputer(recentUserText) && !filesOnly
+      : undefined,
     runtime:
       effectiveProviderId === 'local'
         ? ({ kind: 'local', modelName: modelDescriptor?.name } as const)
@@ -1279,14 +1292,41 @@ export function localChatToolsUpFront(messages: string[]): string[] | undefined 
     : undefined
 }
 
-export function localChatToolsOnRequest(messages: string[]): string[] | 'all' | undefined {
-  const computer = mayConcernThisComputer(messages)
+export function localChatToolsOnRequest(
+  messages: string[],
+  { myFiles = false }: { myFiles?: boolean } = {}
+): string[] | 'all' | undefined {
   const web = mayNeedTheWeb(messages)
   const anodex = mayConcernAnodex(messages)
-  if (!computer && !web && !anodex) return 'all'
-  const deferred = [
-    ...(computer ? [] : ['run_command', 'start_process', 'check_computer', 'find_cleanup']),
-    ...(web ? [] : ['fetch_url', 'web_search', 'download_file'])
+  if (!myFiles) {
+    const computer = mayConcernThisComputer(messages)
+    if (!computer && !web && !anodex) return 'all'
+    const deferred = [...(computer ? [] : SHELL_TOOLS), ...(web ? [] : WEB_TOOLS)]
+    return deferred.length > 0 ? deferred : undefined
+  }
+  // With my_files, a message about the person's files sees it alone, and one
+  // about the machine sees the shell. Measured with Llama 3.1 8B: shell
+  // commands for "Do I have a maintenance sheet for the EX1200 anywhere?" and
+  // "Search my documents for anything about invoices." with find_my_files in
+  // view, and request_folder_access for "Send E2250044A.pdf from my Downloads
+  // folder to my phone." The separate file tools stay behind the gateway on
+  // every such turn, since my_files does each of their jobs.
+  const files = mayConcernMyFiles(messages)
+  const machine = mayConcernTheMachine(messages)
+  if (!files && !machine && !web && !anodex) return 'all'
+  return [
+    ...MY_FILES_STANDS_IN_FOR,
+    ...(files ? [] : ['my_files']),
+    // move_to_trash too: with the shell out of view, Llama 3.1 8B asked to list
+    // Downloads reached for it instead, 23 times, every one refused.
+    ...(machine ? [] : [...SHELL_TOOLS, 'move_to_trash', 'request_folder_access']),
+    ...(web ? [] : WEB_TOOLS)
   ]
-  return deferred.length > 0 ? deferred : undefined
 }
+
+/** What a plain chat keeps behind the gateway when nothing asks for the shell. */
+const SHELL_TOOLS = ['run_command', 'start_process', 'check_computer', 'find_cleanup']
+/** What a plain chat keeps behind the gateway when nothing asks for the web. */
+const WEB_TOOLS = ['fetch_url', 'web_search', 'download_file']
+/** The separate tools `my_files` does the jobs of: see `myFilesTool`. */
+const MY_FILES_STANDS_IN_FOR = ['find_my_files', 'send_file_to_me', 'open_item']
