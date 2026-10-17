@@ -388,6 +388,18 @@ const TELL_ME_WHEN =
   /\b(?:let me know|tell me when|notify me|ping me|alert me|message me when|when (?:it'?s|you'?re|that'?s|this is|it is) (?:done|finished|ready|complete))\b/i
 
 /**
+ * Whether a message asks Anodex to keep or drop something it should remember,
+ * the only thing `remember_fact` is for. Asking what it remembers is not one:
+ * that is answered from the memory already in the prompt.
+ */
+export function asksToRemember(messages: string[]): boolean {
+  return messages.some((message) => KEEP_THIS.test(message))
+}
+
+const KEEP_THIS =
+  /\b(?:remember (?:that|this|my|me)|don'?t forget|make a note|note (?:that|down)|save (?:that|this)|keep in mind|forget (?:that|this|my|about)|call me)\b/i
+
+/**
  * Whether a message mentions an API key, token or password, the only thing
  * `request_key` and `save_key` are for. Setting a service up ("here is my
  * Tavily key") says so; a question that only mentions remembering does not.

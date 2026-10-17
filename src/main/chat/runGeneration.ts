@@ -5,6 +5,7 @@ import { resolveCommandShell } from '../tools/commandShell'
 import {
   asksAboutTheAssistant,
   asksToBeTold,
+  asksToRemember,
   mayConcernEmail,
   mentionsAKey,
   asksForTheLatestRelease,
@@ -1350,6 +1351,10 @@ export function localChatToolsOnRequest(
   // The key tools likewise: Llama 3.1 8B, with notify_me_when_done out of view,
   // called save_key for "What's a good way to remember to drink more water?".
   const aboutAKey = mentionsAKey(messages)
+  // remember_fact only when asked to keep something: Llama 3.1 8B called it
+  // for "What is my name?" (a question about memory, answered from the
+  // prompt) and for a shop discount sum.
+  const toSave = asksToRemember(messages)
   // The Scheduler tools only for a message about the schedule: Llama 3.1 8B,
   // with the key and notify tools out of view, answered the water question by
   // setting a daily reminder nobody asked for.
@@ -1368,7 +1373,8 @@ export function localChatToolsOnRequest(
       ...(aboutAKey ? [] : KEY_TOOLS),
       ...(schedule ? [] : SCHEDULER_TOOLS),
       ...(email ? FILE_CLEANUP_TOOLS : []),
-      ...PLAN_TOOLS
+      ...PLAN_TOOLS,
+      ...(toSave ? [] : ['remember_fact'])
     ]
     return deferred.length > 0 ? deferred : undefined
   }
@@ -1393,7 +1399,8 @@ export function localChatToolsOnRequest(
     ...(aboutAKey ? [] : KEY_TOOLS),
     ...(schedule ? [] : SCHEDULER_TOOLS),
     ...(email ? FILE_CLEANUP_TOOLS : []),
-    ...PLAN_TOOLS
+    ...PLAN_TOOLS,
+    ...(toSave ? [] : ['remember_fact'])
   ]
 }
 

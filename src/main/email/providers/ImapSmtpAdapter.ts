@@ -110,7 +110,14 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
     account: EmailAccount,
     options: ListThreadsOptions
   ): Promise<EmailThreadSummary[]> {
-    const mailbox = options.mailbox ?? 'INBOX'
+    // A named folder through the same reading as a move, so "sent" or "trash"
+    // finds the folder and a name that is no folder lists the ones there are.
+    // Opened as given, a wrong name came back from the server as "Command
+    // failed", five times in a row for Gemma 4 E4B on one question.
+    const mailbox =
+      options.mailbox && options.mailbox.trim().toUpperCase() !== 'INBOX'
+        ? await this.resolveMailboxPath(account, options.mailbox)
+        : 'INBOX'
     return this.withMailbox(account, mailbox, async (client) => {
       const uids = options.query
         ? await client.search({ or: searchTerms(options.query) }, { uid: true })

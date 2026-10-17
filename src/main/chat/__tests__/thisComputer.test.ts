@@ -9,6 +9,7 @@ import {
   asksAboutTheAssistant,
   asksForTheLatestRelease,
   asksToBeTold,
+  asksToRemember,
   mentionsAKey,
   describeComputer,
   mayConcernAnodex,
@@ -557,5 +558,15 @@ describe('mentionsAKey', () => {
     expect(mentionsAKey(['Here is my Tavily key: tvly-123'])).toBe(true)
     expect(mentionsAKey(['Set up web search with my Brave API key.'])).toBe(true)
     expect(mentionsAKey(["What's a good way to remember to drink more water?"])).toBe(false)
+  })
+})
+
+describe('asksToRemember', () => {
+  // Llama 3.1 8B called remember_fact for "What is my name?".
+  it('reads a request to keep something, not a question about memory', () => {
+    expect(asksToRemember(['Remember that my wife is called Jo.'])).toBe(true)
+    expect(asksToRemember(['Call me Alex from now on.'])).toBe(true)
+    expect(asksToRemember(['What is my name?'])).toBe(false)
+    expect(asksToRemember(["What's a good way to remember to drink more water?"])).toBe(false)
   })
 })

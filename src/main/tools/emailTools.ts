@@ -1249,8 +1249,18 @@ function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string; accoun
 } {
   if (!args.draftId) return { message: args, accountId: args.account }
   const draft = emailService.getDraft(args.draftId)
-  if (!draft) throw new Error(`Email draft not found: ${args.draftId}`)
-  return { message: draft, accountId: args.account ?? draft.accountId }
+  if (draft) return { message: draft, accountId: args.account ?? draft.accountId }
+  // An id that names no draft, with the whole email written out beside it, is
+  // a model that skipped draft_email and filled the field anyway: measured,
+  // "none" and "d12345" each failed a send whose to, subject and body were all
+  // there. What goes is what the approval card shows, so sending what was
+  // written is the email that was asked for.
+  if (args.to?.length && args.subject?.trim() && args.body?.trim()) {
+    // Without the id, which the service would read as "send that draft".
+    const { draftId: _unknown, ...written } = args
+    return { message: written, accountId: args.account }
+  }
+  throw new Error(`Email draft not found: ${args.draftId}`)
 }
 
 /**

@@ -848,16 +848,41 @@ describe('email tools', () => {
       handler: (args: EmailSendRequest) => Promise<string>
     }
 
+    // Nothing written beside the id: there is no email to fall back on.
     const result = await tool.handler({
       draftId: 'missing-draft',
       to: ['person@example.com'],
       subject: 'Hello',
-      body: 'Send body'
+      body: ''
     })
 
     expect(result).toContain('Email draft not found: missing-draft')
     expect(requests).toHaveLength(0)
     expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  // Gemma 4 E4B and Llama 3.1 8B skipped draft_email and passed "none" and
+  // "d12345" as the draft id, with the whole email written out beside it.
+  it('confirms and sends the written email when the draft id names no draft', async () => {
+    getDraftMock.mockReturnValue(undefined)
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    await tool.handler({
+      draftId: 'none',
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Send body'
+    })
+
+    expect(requests).toHaveLength(1)
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ['person@example.com'], subject: 'Hello', body: 'Send body' })
+    )
+    expect(sendMock.mock.calls[0][0]).not.toHaveProperty('draftId')
   })
 
   it('confirms a reply against the resolved recipients, not the model arguments', async () => {
