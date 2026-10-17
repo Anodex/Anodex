@@ -1307,8 +1307,30 @@ export function localChatToolsUpFront(messages: string[]): string[] | undefined 
   ) {
     return ['list_mailboxes', 'move_email']
   }
+  // The email tool the message asks for, then search to find the email. Only
+  // the reading tools were in full view, and the rest behind the gateway:
+  // measured on 17 email questions, Gemma 4 E4B replied "An email has been sent"
+  // and "All Instagram emails have been marked as read" having called neither
+  // tool, and Llama 3.1 8B left forward, mark-read and trash with no reply.
+  const asked = emailActionTools(messages[0] ?? '')
+  if (asked.length > 0) return [...asked, 'search_email', 'read_email']
   return undefined
 }
+
+/** The email tools a message's own verbs name: "send", "reply", "forward", "mark read"… */
+function emailActionTools(message: string): string[] {
+  if (!mayConcernEmail([message]) && !/\b(?:send|reply|forward)\b.*@/i.test(message)) return []
+  return EMAIL_ACTIONS.filter(([words]) => words.test(message)).flatMap(([, tools]) => tools)
+}
+
+const EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
+  [/\bforward/i, ['forward_email']],
+  [/\brepl(?:y|ies)\b/i, ['reply_email', 'draft_email']],
+  [/\bdraft/i, ['draft_email', 'save_email_draft']],
+  [/\b(?:send|write|compose|e-?mail (?:to|someone))\b/i, ['send_email', 'draft_email']],
+  [/\b(?:mark|star|unstar|flag|unread|archive|unarchive)\b/i, ['manage_email', 'batch_email']],
+  [/\b(?:trash|delete|remove|move|bin)\b/i, ['move_email', 'batch_email']]
+]
 
 export function localChatToolsOnRequest(
   messages: string[],
@@ -1345,7 +1367,8 @@ export function localChatToolsOnRequest(
       ...(toldWhenDone ? [] : ['notify_me_when_done']),
       ...(aboutAKey ? [] : KEY_TOOLS),
       ...(schedule ? [] : SCHEDULER_TOOLS),
-      ...(email ? FILE_CLEANUP_TOOLS : [])
+      ...(email ? FILE_CLEANUP_TOOLS : []),
+      ...PLAN_TOOLS
     ]
     return deferred.length > 0 ? deferred : undefined
   }
@@ -1369,7 +1392,8 @@ export function localChatToolsOnRequest(
     ...(toldWhenDone ? [] : ['notify_me_when_done']),
     ...(aboutAKey ? [] : KEY_TOOLS),
     ...(schedule ? [] : SCHEDULER_TOOLS),
-    ...(email ? FILE_CLEANUP_TOOLS : [])
+    ...(email ? FILE_CLEANUP_TOOLS : []),
+    ...PLAN_TOOLS
   ]
 }
 
@@ -1379,6 +1403,12 @@ const SHELL_TOOLS = ['run_command', 'start_process', 'check_computer', 'find_cle
 const WEB_TOOLS = ['fetch_url', 'web_search', 'download_file']
 /** Kept behind the gateway unless a message mentions a key: see `mentionsAKey`. */
 const KEY_TOOLS = ['request_key', 'save_key']
+/**
+ * A plan is for work in a project. In a plain chat Gemma 4 E4B opened one to
+ * send a one-line email and then claimed it was sent, and Llama 3.1 8B opened
+ * one to draft a reply and spent seven minutes on it.
+ */
+const PLAN_TOOLS = ['write_plan', 'update_plan_step']
 /** Kept behind the gateway unless a message is about the schedule: see `mayConcernTheSchedule`. */
 const SCHEDULER_TOOLS = ['set_reminder', 'schedule_task', 'delete_scheduled_task']
 /** Kept behind the gateway on a message about email: see `mayConcernEmail`. */
