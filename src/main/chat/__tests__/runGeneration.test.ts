@@ -272,6 +272,17 @@ describe('runGeneration — tools a plain local chat keeps behind the gateway', 
     expect(mocks.seenToolsOnRequest.at(-1)).not.toContain('set_reminder')
   })
 
+  // Both models called move_to_trash, the disk cleanup tool, for this.
+  it('keeps the file cleanup tools out of a message about email', async () => {
+    await runGeneration(ask('Move the Reddit email titled "Wtf." to the trash.'), chatIo)
+    expect(mocks.seenToolsOnRequest.at(-1)).toEqual(
+      expect.arrayContaining(['move_to_trash', 'find_cleanup'])
+    )
+
+    await runGeneration(ask('Free up some space by emptying old downloads.'), chatIo)
+    expect(mocks.seenToolsOnRequest.at(-1) ?? []).not.toContain('find_cleanup')
+  })
+
   it('gives a question about the assistant itself no tool', async () => {
     await runGeneration(ask('Which AI model are you running on right now?'), chatIo)
 

@@ -56,6 +56,13 @@ const sendMock = vi.fn<(request: EmailSendRequest) => void>()
 const getDraftMock = vi.fn<(draftId: string) => EmailDraft | undefined>()
 const getAttachmentMock = vi.fn<() => Promise<EmailAttachmentSummary & { data: Buffer }>>()
 const readMessageMock = vi.fn<(id: string) => Promise<EmailMessage>>()
+/** A thread's messages, for the target lookup; one message by default. */
+const getThreadMessagesMock =
+  vi.fn<(id: string) => Promise<Array<{ subject: string; from: string }>>>()
+const searchMock =
+  vi.fn<
+    (request: { query: string }) => Promise<Array<{ id: string; subject: string; from: string }>>
+  >()
 const listAttachmentsMock = vi.fn<(id: string) => Promise<EmailAttachmentSummary[]>>()
 const prepareReplyMock = vi.fn<(request: unknown) => Promise<unknown>>()
 const prepareForwardMock = vi.fn<(request: unknown) => Promise<unknown>>()
@@ -73,6 +80,8 @@ vi.mock('../../email/EmailService', () => ({
     getDraft: (draftId: string) => getDraftMock(draftId),
     getAttachment: () => getAttachmentMock(),
     readMessage: (id: string) => readMessageMock(id),
+    getThreadMessages: (id: string) => getThreadMessagesMock(id),
+    search: (request: { query: string }) => searchMock(request),
     listAttachments: (id: string) => listAttachmentsMock(id),
     prepareReply: (request: unknown) => prepareReplyMock(request),
     prepareForward: (request: unknown) => prepareForwardMock(request),
@@ -116,6 +125,12 @@ describe('email tools', () => {
     getDraftMock.mockReset()
     getAttachmentMock.mockReset()
     readMessageMock.mockReset()
+    getThreadMessagesMock.mockReset()
+    getThreadMessagesMock.mockResolvedValue([
+      { subject: 'Quarterly numbers', from: 'Sam <sam@example.com>' }
+    ])
+    searchMock.mockReset()
+    searchMock.mockResolvedValue([])
     listAttachmentsMock.mockReset()
     prepareReplyMock.mockReset()
     prepareForwardMock.mockReset()

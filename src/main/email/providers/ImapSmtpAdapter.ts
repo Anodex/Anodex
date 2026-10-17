@@ -24,6 +24,7 @@ import { buildMimeMessage, htmlToPlainText } from '../mime'
 import { sanitizeEmailHtml, type InlineImage } from '../htmlBody'
 import { emailAuthStore } from '../EmailAuthStore'
 import { createLogger } from '../../utils/logger'
+import { folderPurpose, IMAP_SPECIAL_USE } from '../folderNames'
 
 // The mail libraries are about 35MB once loaded, and most launches never open
 // a mailbox. They are read when an account first connects or sends.
@@ -699,7 +700,8 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
         id: mailbox.path,
         name: mailbox.path,
         // `specialUse` marks server-designated folders (\Sent, \Archive, …).
-        system: Boolean(mailbox.specialUse) || mailbox.path.toUpperCase() === 'INBOX'
+        system: Boolean(mailbox.specialUse) || mailbox.path.toUpperCase() === 'INBOX',
+        ...(mailbox.specialUse ? { specialUse: mailbox.specialUse } : {})
       }))
     })
   }
@@ -763,6 +765,21 @@ export class ImapSmtpAdapter implements EmailProviderAdapter {
       candidate.name.toLowerCase().endsWith(`.${wanted.toLowerCase()}`)
     )
     if (suffix) return suffix.name
+
+    // The last part of the name, and then what the folder is for. Measured:
+    // asked to trash or archive an email, Gemma 4 E4B and Llama 3.1 8B passed
+    // "trash" and "Archive", and Gmail's folders are "[Gmail]/Trash" and
+    // "[Gmail]/All Mail"; Outlook's are "Deleted Items" and "Archive".
+    const lastPart = (name: string): string => name.split(/[/.]/).at(-1)?.toLowerCase() ?? ''
+    const segment = mailboxes.find((candidate) => lastPart(candidate.name) === wanted.toLowerCase())
+    if (segment) return segment.name
+    const purpose = folderPurpose(wanted)
+    const byUse = purpose
+      ? IMAP_SPECIAL_USE[purpose]
+          .map((use) => mailboxes.find((candidate) => candidate.specialUse === use))
+          .find(Boolean)
+      : undefined
+    if (byUse) return byUse.name
     throw new Error(
       `No IMAP folder named "${mailbox}". Available: ${mailboxes.map((m) => m.name).join(', ')}`
     )

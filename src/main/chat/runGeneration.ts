@@ -5,6 +5,7 @@ import { resolveCommandShell } from '../tools/commandShell'
 import {
   asksAboutTheAssistant,
   asksToBeTold,
+  mayConcernEmail,
   mentionsAKey,
   asksForTheLatestRelease,
   describeComputer,
@@ -1294,9 +1295,19 @@ function unlessEmpty<T>(list: T[]): T[] | undefined {
  * the file and phone tools ranked ahead of it filled the direct surface.
  */
 export function localChatToolsUpFront(messages: string[]): string[] | undefined {
-  return mayConcernTheSchedule(messages)
-    ? ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
-    : undefined
+  if (mayConcernTheSchedule(messages)) {
+    return ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
+  }
+  // "List my email folders": Gemma 4 E4B and Llama 3.1 8B listed the accounts
+  // instead, list_mailboxes being behind the gateway, and Gemma said it had no
+  // tool for folders.
+  if (
+    mayConcernEmail(messages) &&
+    /\b(?:folders?|mailbox(?:es)?|labels?)\b/i.test(messages[0] ?? '')
+  ) {
+    return ['list_mailboxes', 'move_email']
+  }
+  return undefined
 }
 
 export function localChatToolsOnRequest(
@@ -1321,6 +1332,10 @@ export function localChatToolsOnRequest(
   // with the key and notify tools out of view, answered the water question by
   // setting a daily reminder nobody asked for.
   const schedule = mayConcernTheSchedule(messages)
+  // Moving an email to the trash is not freeing disk space: Gemma 4 E4B and
+  // Llama 3.1 8B both called move_to_trash for "Move the Reddit email titled
+  // Wtf. to the trash.", "move" and "trash" reading as the machine.
+  const email = mayConcernEmail(messages)
   if (!myFiles) {
     const computer = mayConcernThisComputer(messages) && !onlyOnline
     if (!computer && !web && !anodex) return 'all'
@@ -1329,7 +1344,8 @@ export function localChatToolsOnRequest(
       ...(web ? [] : WEB_TOOLS),
       ...(toldWhenDone ? [] : ['notify_me_when_done']),
       ...(aboutAKey ? [] : KEY_TOOLS),
-      ...(schedule ? [] : SCHEDULER_TOOLS)
+      ...(schedule ? [] : SCHEDULER_TOOLS),
+      ...(email ? FILE_CLEANUP_TOOLS : [])
     ]
     return deferred.length > 0 ? deferred : undefined
   }
@@ -1352,7 +1368,8 @@ export function localChatToolsOnRequest(
     ...(web ? [] : WEB_TOOLS),
     ...(toldWhenDone ? [] : ['notify_me_when_done']),
     ...(aboutAKey ? [] : KEY_TOOLS),
-    ...(schedule ? [] : SCHEDULER_TOOLS)
+    ...(schedule ? [] : SCHEDULER_TOOLS),
+    ...(email ? FILE_CLEANUP_TOOLS : [])
   ]
 }
 
@@ -1364,5 +1381,7 @@ const WEB_TOOLS = ['fetch_url', 'web_search', 'download_file']
 const KEY_TOOLS = ['request_key', 'save_key']
 /** Kept behind the gateway unless a message is about the schedule: see `mayConcernTheSchedule`. */
 const SCHEDULER_TOOLS = ['set_reminder', 'schedule_task', 'delete_scheduled_task']
+/** Kept behind the gateway on a message about email: see `mayConcernEmail`. */
+const FILE_CLEANUP_TOOLS = ['move_to_trash', 'find_cleanup']
 /** The separate tools `my_files` does the jobs of: see `myFilesTool`. */
 const MY_FILES_STANDS_IN_FOR = ['find_my_files', 'send_file_to_me', 'open_item']

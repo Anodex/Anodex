@@ -399,6 +399,17 @@ export function mentionsAKey(messages: string[]): boolean {
 const KEY_WORDS =
   /\b(?:api[ -]?keys?|keys?|tokens?|secrets?|passwords?|credentials?|tavily|brave|serper)\b/i
 
+/**
+ * Whether a message is about email. Narrower than `mayConcernAnodex`, which
+ * also counts it: used to keep the file-cleanup tools out of an email turn,
+ * where "move it to the trash" means the mailbox's Trash, not the disk's.
+ */
+export function mayConcernEmail(messages: string[]): boolean {
+  return messages.some((message) => EMAIL_WORDS.test(message))
+}
+
+const EMAIL_WORDS = /\b(?:e-?mails?|inbox|mailbox(?:es)?|gmail|outlook|newsletters?)\b/i
+
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))
 }
