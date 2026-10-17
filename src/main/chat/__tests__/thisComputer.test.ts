@@ -12,6 +12,7 @@ import {
   asksToRemember,
   mentionsAKey,
   describeComputer,
+  mayConcernEmail,
   mayConcernAnodex,
   mayConcernMyFiles,
   mayConcernTheMachine,
@@ -568,5 +569,14 @@ describe('asksToRemember', () => {
     expect(asksToRemember(['Call me Alex from now on.'])).toBe(true)
     expect(asksToRemember(['What is my name?'])).toBe(false)
     expect(asksToRemember(["What's a good way to remember to drink more water?"])).toBe(false)
+  })
+})
+
+describe('mayConcernEmail', () => {
+  // Both models said they could not read a sender's messages for this.
+  it('reads a reply someone sent as email, even without the word', () => {
+    expect(mayConcernEmail(['What did Sinistercraftnetwork say in their reply?'])).toBe(true)
+    expect(mayConcernEmail(['Has Sam written back yet?'])).toBe(true)
+    expect(mayConcernEmail(['Move the report in my Downloads to the Desktop.'])).toBe(false)
   })
 })

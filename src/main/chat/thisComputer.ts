@@ -420,7 +420,11 @@ export function mayConcernEmail(messages: string[]): boolean {
   return messages.some((message) => EMAIL_WORDS.test(message))
 }
 
-const EMAIL_WORDS = /\b(?:e-?mails?|inbox|mailbox(?:es)?|gmail|outlook|newsletters?)\b/i
+// "replied", "wrote back": both models answered "What did Sinistercraftnetwork
+// say in their reply?" with "I cannot read messages from specific senders",
+// the email tools out of view because the message never said "email".
+const EMAIL_WORDS =
+  /\b(?:e-?mails?|e-?mailed|inbox|mailbox(?:es)?|gmail|outlook|newsletters?|repl(?:y|ies|ied)|wrote back|written back|sent me|cc'?d|forwarded)\b/i
 
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))

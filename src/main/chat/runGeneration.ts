@@ -1325,8 +1325,13 @@ function emailActionTools(message: string): string[] {
 }
 
 const EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
-  [/\bforward/i, ['forward_email']],
-  [/\brepl(?:y|ies)\b/i, ['reply_email', 'draft_email']],
+  // The verbs as instructions, not as nouns: "their reply" is a question about
+  // an email, and putting reply_email first for it would invite a reply.
+  [/\bforward\b(?!ed)/i, ['forward_email']],
+  [
+    /\b(?:reply (?:to|saying|with|back|that)|respond to|write back to)\b/i,
+    ['reply_email', 'draft_email']
+  ],
   [/\bdraft/i, ['draft_email', 'save_email_draft']],
   [/\b(?:send|write|compose|e-?mail (?:to|someone))\b/i, ['send_email', 'draft_email']],
   [/\b(?:mark|star|unstar|flag|unread|archive|unarchive)\b/i, ['manage_email', 'batch_email']],

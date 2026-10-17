@@ -25,6 +25,15 @@ describe('localChatToolsUpFront for email', () => {
     )
   })
 
+  it('reads "their reply" as a question, and "reply to" as the action', () => {
+    expect(
+      localChatToolsUpFront(['What did Sinistercraftnetwork say in their reply?'])
+    ).toBeUndefined()
+    expect(
+      localChatToolsUpFront(["Reply to Sinistercraftnetwork's email saying: Got it, thanks!"])?.[0]
+    ).toBe('reply_email')
+  })
+
   it('leaves a message that is not about email alone', () => {
     expect(
       localChatToolsUpFront(['Move the report in my Downloads to the Desktop.'])
