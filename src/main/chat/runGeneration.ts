@@ -5,6 +5,8 @@ import { resolveCommandShell } from '../tools/commandShell'
 import {
   asksAboutTheAssistant,
   asksToBeTold,
+  asksToRemember,
+  mayConcernEmail,
   mentionsAKey,
   asksForTheLatestRelease,
   describeComputer,
@@ -1294,10 +1296,47 @@ function unlessEmpty<T>(list: T[]): T[] | undefined {
  * the file and phone tools ranked ahead of it filled the direct surface.
  */
 export function localChatToolsUpFront(messages: string[]): string[] | undefined {
-  return mayConcernTheSchedule(messages)
-    ? ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
-    : undefined
+  if (mayConcernTheSchedule(messages)) {
+    return ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
+  }
+  // "List my email folders": Gemma 4 E4B and Llama 3.1 8B listed the accounts
+  // instead, list_mailboxes being behind the gateway, and Gemma said it had no
+  // tool for folders.
+  if (
+    mayConcernEmail(messages) &&
+    /\b(?:folders?|mailbox(?:es)?|labels?)\b/i.test(messages[0] ?? '')
+  ) {
+    return ['list_mailboxes', 'move_email']
+  }
+  // The email tool the message asks for, then search to find the email. Only
+  // the reading tools were in full view, and the rest behind the gateway:
+  // measured on 17 email questions, Gemma 4 E4B replied "An email has been sent"
+  // and "All Instagram emails have been marked as read" having called neither
+  // tool, and Llama 3.1 8B left forward, mark-read and trash with no reply.
+  const asked = emailActionTools(messages[0] ?? '')
+  if (asked.length > 0) return [...asked, 'search_email', 'read_email']
+  return undefined
 }
+
+/** The email tools a message's own verbs name: "send", "reply", "forward", "mark read"… */
+function emailActionTools(message: string): string[] {
+  if (!mayConcernEmail([message]) && !/\b(?:send|reply|forward)\b.*@/i.test(message)) return []
+  return EMAIL_ACTIONS.filter(([words]) => words.test(message)).flatMap(([, tools]) => tools)
+}
+
+const EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
+  // The verbs as instructions, not as nouns: "their reply" is a question about
+  // an email, and putting reply_email first for it would invite a reply.
+  [/\bforward\b(?!ed)/i, ['forward_email']],
+  [
+    /\b(?:reply (?:to|saying|with|back|that)|respond to|write back to)\b/i,
+    ['reply_email', 'draft_email']
+  ],
+  [/\bdraft/i, ['draft_email', 'save_email_draft']],
+  [/\b(?:send|write|compose|e-?mail (?:to|someone))\b/i, ['send_email', 'draft_email']],
+  [/\b(?:mark|star|unstar|flag|unread|archive|unarchive)\b/i, ['manage_email', 'batch_email']],
+  [/\b(?:trash|delete|remove|move|bin)\b/i, ['move_email', 'batch_email']]
+]
 
 export function localChatToolsOnRequest(
   messages: string[],
@@ -1311,16 +1350,26 @@ export function localChatToolsOnRequest(
   // see `asksForTheLatestRelease`.
   const onlyOnline = asksForTheLatestRelease(messages)
   const web = mayNeedTheWeb(messages)
-  const anodex = mayConcernAnodex(messages)
+  // Email counts: "What did Sam say in their reply?" names no Anodex word, and
+  // with nothing in view Gemma 4 E4B said it could not read a sender's messages.
+  const anodex = mayConcernAnodex(messages) || mayConcernEmail(messages)
   // notify_me_when_done only when asked for: see `asksToBeTold`.
   const toldWhenDone = asksToBeTold(messages)
   // The key tools likewise: Llama 3.1 8B, with notify_me_when_done out of view,
   // called save_key for "What's a good way to remember to drink more water?".
   const aboutAKey = mentionsAKey(messages)
+  // remember_fact only when asked to keep something: Llama 3.1 8B called it
+  // for "What is my name?" (a question about memory, answered from the
+  // prompt) and for a shop discount sum.
+  const toSave = asksToRemember(messages)
   // The Scheduler tools only for a message about the schedule: Llama 3.1 8B,
   // with the key and notify tools out of view, answered the water question by
   // setting a daily reminder nobody asked for.
   const schedule = mayConcernTheSchedule(messages)
+  // Moving an email to the trash is not freeing disk space: Gemma 4 E4B and
+  // Llama 3.1 8B both called move_to_trash for "Move the Reddit email titled
+  // Wtf. to the trash.", "move" and "trash" reading as the machine.
+  const email = mayConcernEmail(messages)
   if (!myFiles) {
     const computer = mayConcernThisComputer(messages) && !onlyOnline
     if (!computer && !web && !anodex) return 'all'
@@ -1329,7 +1378,10 @@ export function localChatToolsOnRequest(
       ...(web ? [] : WEB_TOOLS),
       ...(toldWhenDone ? [] : ['notify_me_when_done']),
       ...(aboutAKey ? [] : KEY_TOOLS),
-      ...(schedule ? [] : SCHEDULER_TOOLS)
+      ...(schedule ? [] : SCHEDULER_TOOLS),
+      ...(email ? FILE_CLEANUP_TOOLS : []),
+      ...PLAN_TOOLS,
+      ...(toSave ? [] : ['remember_fact'])
     ]
     return deferred.length > 0 ? deferred : undefined
   }
@@ -1352,7 +1404,10 @@ export function localChatToolsOnRequest(
     ...(web ? [] : WEB_TOOLS),
     ...(toldWhenDone ? [] : ['notify_me_when_done']),
     ...(aboutAKey ? [] : KEY_TOOLS),
-    ...(schedule ? [] : SCHEDULER_TOOLS)
+    ...(schedule ? [] : SCHEDULER_TOOLS),
+    ...(email ? FILE_CLEANUP_TOOLS : []),
+    ...PLAN_TOOLS,
+    ...(toSave ? [] : ['remember_fact'])
   ]
 }
 
@@ -1362,7 +1417,15 @@ const SHELL_TOOLS = ['run_command', 'start_process', 'check_computer', 'find_cle
 const WEB_TOOLS = ['fetch_url', 'web_search', 'download_file']
 /** Kept behind the gateway unless a message mentions a key: see `mentionsAKey`. */
 const KEY_TOOLS = ['request_key', 'save_key']
+/**
+ * A plan is for work in a project. In a plain chat Gemma 4 E4B opened one to
+ * send a one-line email and then claimed it was sent, and Llama 3.1 8B opened
+ * one to draft a reply and spent seven minutes on it.
+ */
+const PLAN_TOOLS = ['write_plan', 'update_plan_step']
 /** Kept behind the gateway unless a message is about the schedule: see `mayConcernTheSchedule`. */
 const SCHEDULER_TOOLS = ['set_reminder', 'schedule_task', 'delete_scheduled_task']
+/** Kept behind the gateway on a message about email: see `mayConcernEmail`. */
+const FILE_CLEANUP_TOOLS = ['move_to_trash', 'find_cleanup']
 /** The separate tools `my_files` does the jobs of: see `myFilesTool`. */
 const MY_FILES_STANDS_IN_FOR = ['find_my_files', 'send_file_to_me', 'open_item']

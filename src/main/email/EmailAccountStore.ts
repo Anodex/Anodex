@@ -63,6 +63,20 @@ class EmailAccountStore {
     )
     if (byAddress) return byAddress
 
+    // Models fill the field with anything: measured on 17 email questions,
+    // "default", "default account", "MSN", "Alex Morgan", "Runpod newsletter"
+    // and the field's own description, about a dozen dead-end errors before
+    // the call that worked. With one account linked there is nothing else it
+    // could mean; with several, a value that names no address and no id means
+    // the primary. An address that is not linked still fails, so a choice
+    // between real accounts is never guessed.
+    const linked = this.list()
+    if (linked.length === 1) return linked[0]
+    if (!trimmed.includes('@') && !linked.some((account) => account.id === trimmed)) {
+      const primary = this.primary()
+      if (primary) return primary
+    }
+
     const known = this.list()
       .map((account) => `${account.address} (${account.id})`)
       .join(', ')

@@ -17,6 +17,7 @@ import type { OutgoingMessage } from '../mime'
 import { buildReferences, htmlToPlainText } from '../mime'
 import { sanitizeEmailHtml, type InlineImage } from '../htmlBody'
 import { accessTokenFor } from './oauthClients'
+import { folderPurpose, GRAPH_WELL_KNOWN } from '../folderNames'
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0/me'
 
@@ -335,6 +336,11 @@ export class MicrosoftAdapter implements EmailProviderAdapter {
 
     const folders = await this.listMailboxes(account)
     const match = folders.find((folder) => folder.name.toLowerCase() === wanted)
+    // "trash", "spam", "sent": the everyday name for a folder Graph knows by
+    // its own well-known name. See `folderNames.ts`.
+    const purpose = folderPurpose(wanted)
+    const wellKnown = purpose ? GRAPH_WELL_KNOWN[purpose] : undefined
+    if (!match && wellKnown) return wellKnown
     if (!match) {
       throw new Error(
         `No Outlook folder named "${mailbox}". Available: ${folders.map((f) => f.name).join(', ')}`

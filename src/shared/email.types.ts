@@ -315,6 +315,8 @@ export interface EmailMailbox {
   name: string
   /** True for provider-managed mailboxes (INBOX, Sent) that can't be removed. */
   system: boolean
+  /** What the server says the folder is for (`\Trash`, `\Sent`, `\All`, …), when it says. */
+  specialUse?: string
 }
 
 export interface EmailMoveRequest extends EmailAccountScoped {

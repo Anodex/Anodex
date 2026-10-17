@@ -41,8 +41,12 @@ export function confirmCardPresentation(request: ToolConfirmRequest): ConfirmCar
   if (draft) {
     return {
       ...DRAFT_CONFIG,
+      // A forward carries the subject it forwards in the same field a reply
+      // does, and its card used to ask "Send this reply to …?".
       title: draft.inReplyToSubject
-        ? `Send this reply to "${draft.inReplyToSubject}"?`
+        ? request.toolName === 'forward_email'
+          ? `Forward "${draft.inReplyToSubject}"?`
+          : `Send this reply to "${draft.inReplyToSubject}"?`
         : 'Send this email?'
     }
   }

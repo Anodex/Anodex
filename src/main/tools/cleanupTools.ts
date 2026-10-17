@@ -196,7 +196,7 @@ async function resolveItems(
     }
     if (!workspaceRoot) {
       return {
-        error: `"${name}" is not a cleanup id, and only files inside an open project can be moved by path.`
+        error: `"${name}" is not a cleanup id, and only files inside an open project can be moved by path. This is for files on the disk; an email goes to its mailbox's Trash with move_email.`
       }
     }
     let path: string

@@ -56,6 +56,13 @@ const sendMock = vi.fn<(request: EmailSendRequest) => void>()
 const getDraftMock = vi.fn<(draftId: string) => EmailDraft | undefined>()
 const getAttachmentMock = vi.fn<() => Promise<EmailAttachmentSummary & { data: Buffer }>>()
 const readMessageMock = vi.fn<(id: string) => Promise<EmailMessage>>()
+/** A thread's messages, for the target lookup; one message by default. */
+const getThreadMessagesMock =
+  vi.fn<(id: string) => Promise<Array<{ subject: string; from: string }>>>()
+const searchMock =
+  vi.fn<
+    (request: { query: string }) => Promise<Array<{ id: string; subject: string; from: string }>>
+  >()
 const listAttachmentsMock = vi.fn<(id: string) => Promise<EmailAttachmentSummary[]>>()
 const prepareReplyMock = vi.fn<(request: unknown) => Promise<unknown>>()
 const prepareForwardMock = vi.fn<(request: unknown) => Promise<unknown>>()
@@ -73,6 +80,8 @@ vi.mock('../../email/EmailService', () => ({
     getDraft: (draftId: string) => getDraftMock(draftId),
     getAttachment: () => getAttachmentMock(),
     readMessage: (id: string) => readMessageMock(id),
+    getThreadMessages: (id: string) => getThreadMessagesMock(id),
+    search: (request: { query: string }) => searchMock(request),
     listAttachments: (id: string) => listAttachmentsMock(id),
     prepareReply: (request: unknown) => prepareReplyMock(request),
     prepareForward: (request: unknown) => prepareForwardMock(request),
@@ -116,6 +125,12 @@ describe('email tools', () => {
     getDraftMock.mockReset()
     getAttachmentMock.mockReset()
     readMessageMock.mockReset()
+    getThreadMessagesMock.mockReset()
+    getThreadMessagesMock.mockResolvedValue([
+      { subject: 'Quarterly numbers', from: 'Sam <sam@example.com>' }
+    ])
+    searchMock.mockReset()
+    searchMock.mockResolvedValue([])
     listAttachmentsMock.mockReset()
     prepareReplyMock.mockReset()
     prepareForwardMock.mockReset()
@@ -833,16 +848,41 @@ describe('email tools', () => {
       handler: (args: EmailSendRequest) => Promise<string>
     }
 
+    // Nothing written beside the id: there is no email to fall back on.
     const result = await tool.handler({
       draftId: 'missing-draft',
       to: ['person@example.com'],
       subject: 'Hello',
-      body: 'Send body'
+      body: ''
     })
 
     expect(result).toContain('Email draft not found: missing-draft')
     expect(requests).toHaveLength(0)
     expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  // Gemma 4 E4B and Llama 3.1 8B skipped draft_email and passed "none" and
+  // "d12345" as the draft id, with the whole email written out beside it.
+  it('confirms and sends the written email when the draft id names no draft', async () => {
+    getDraftMock.mockReturnValue(undefined)
+    const { requests, confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = sendEmailTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: EmailSendRequest) => Promise<string>
+    }
+
+    await tool.handler({
+      draftId: 'none',
+      to: ['person@example.com'],
+      subject: 'Hello',
+      body: 'Send body'
+    })
+
+    expect(requests).toHaveLength(1)
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ['person@example.com'], subject: 'Hello', body: 'Send body' })
+    )
+    expect(sendMock.mock.calls[0][0]).not.toHaveProperty('draftId')
   })
 
   it('confirms a reply against the resolved recipients, not the model arguments', async () => {

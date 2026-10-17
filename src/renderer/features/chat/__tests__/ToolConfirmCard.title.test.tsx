@@ -103,4 +103,20 @@ describe('confirmCardPresentation', () => {
     expect(withDraft.title).toBe('Send this reply to "hello"?')
     expect(withDraft.approveLabel).toBe('Send')
   })
+
+  it('calls a forward a forward, not a reply', () => {
+    const forward = confirmCardPresentation(
+      requestFor({
+        toolName: 'forward_email',
+        emailDraft: {
+          to: ['a@b.c'],
+          subject: 'Fwd: Runpod Weekly',
+          body: '---------- Forwarded message ----------',
+          inReplyToSubject: 'Runpod Weekly'
+        }
+      })
+    )
+
+    expect(forward.title).toBe('Forward "Runpod Weekly"?')
+  })
 })

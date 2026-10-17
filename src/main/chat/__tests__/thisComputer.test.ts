@@ -9,8 +9,10 @@ import {
   asksAboutTheAssistant,
   asksForTheLatestRelease,
   asksToBeTold,
+  asksToRemember,
   mentionsAKey,
   describeComputer,
+  mayConcernEmail,
   mayConcernAnodex,
   mayConcernMyFiles,
   mayConcernTheMachine,
@@ -557,5 +559,24 @@ describe('mentionsAKey', () => {
     expect(mentionsAKey(['Here is my Tavily key: tvly-123'])).toBe(true)
     expect(mentionsAKey(['Set up web search with my Brave API key.'])).toBe(true)
     expect(mentionsAKey(["What's a good way to remember to drink more water?"])).toBe(false)
+  })
+})
+
+describe('asksToRemember', () => {
+  // Llama 3.1 8B called remember_fact for "What is my name?".
+  it('reads a request to keep something, not a question about memory', () => {
+    expect(asksToRemember(['Remember that my wife is called Jo.'])).toBe(true)
+    expect(asksToRemember(['Call me Alex from now on.'])).toBe(true)
+    expect(asksToRemember(['What is my name?'])).toBe(false)
+    expect(asksToRemember(["What's a good way to remember to drink more water?"])).toBe(false)
+  })
+})
+
+describe('mayConcernEmail', () => {
+  // Both models said they could not read a sender's messages for this.
+  it('reads a reply someone sent as email, even without the word', () => {
+    expect(mayConcernEmail(['What did Sinistercraftnetwork say in their reply?'])).toBe(true)
+    expect(mayConcernEmail(['Has Sam written back yet?'])).toBe(true)
+    expect(mayConcernEmail(['Move the report in my Downloads to the Desktop.'])).toBe(false)
   })
 })

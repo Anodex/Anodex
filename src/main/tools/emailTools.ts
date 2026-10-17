@@ -9,7 +9,7 @@ import type {
 } from '@shared/email.types'
 import type { EmailDraftPreview } from '@shared/tools.types'
 import type { ToolFactory, ToolRuntimeContext, WorkspaceToolFactory } from './types'
-import { runGuardedTool, runGuardedToolWithPrepare, runReadTool } from './helpers'
+import { runGuardedToolWithPrepare, runReadTool } from './helpers'
 import { resolveInWorkspace, toWorkspaceRelative } from './workspace'
 import { assertFileStateUnchanged } from './fileState'
 import { emailService, type PreparedOutgoing } from '../email/EmailService'
@@ -23,6 +23,7 @@ import { saveVisualPreviewAsset } from './visualPreviewAssets'
 import { describeDuplicateSend } from '@shared/sendDeduplication'
 import { EMAIL_CONTENT_NOTE } from '@shared/prompts'
 import { findRecentDuplicateSend, recordSentEmail } from './sentEmailLog'
+import { resolveEmailTarget, type EmailTarget } from './emailTarget'
 
 const MAX_BODY_PREVIEW = 700
 
@@ -825,27 +826,32 @@ export const manageEmailTool: ToolFactory = (define, ctx) =>
       messageId?: string
       account?: string
     }) =>
-      runGuardedTool(ctx, {
-        name: 'manage_email',
-        kind: 'write',
-        title: `${FLAG_TITLES[args.action]} ${truncate(args.threadId ?? args.messageId ?? '', 24)}`,
-        args,
-        confirmDetail: `${FLAG_TITLES[args.action]} ${
-          args.threadId ? `thread ${args.threadId}` : `message ${args.messageId}`
-        }`,
-        // Reversible and non-destructive — every action here has an inverse in
-        // the same tool, so it sits below the confirmation bar that send does.
-        risk: 'safe',
-        async run() {
+      runGuardedToolWithPrepare<EmailTarget>(
+        ctx,
+        {
+          name: 'manage_email',
+          kind: 'write',
+          title: `${FLAG_TITLES[args.action]} ${truncate(args.threadId ?? args.messageId ?? '', 24)}`,
+          args,
+          // Reversible and non-destructive — every action here has an inverse in
+          // the same tool, so it sits below the confirmation bar that send does.
+          risk: 'safe'
+        },
+        // The email found first, so the card names it: see `resolveEmailTarget`.
+        async () => {
+          const target = await resolveEmailTarget(args)
+          return { confirmDetail: `${FLAG_TITLES[args.action]} ${target.label}`, data: target }
+        },
+        async (target) => {
           const result = await emailService.applyFlag({
             action: args.action,
-            threadId: args.threadId,
-            messageId: args.messageId,
+            threadId: target.threadId,
+            messageId: target.messageId,
             accountId: args.account
           })
           return { modelResult: result, detail: FLAG_TITLES[args.action] }
         }
-      })
+      )
   })
 
 /** How many threads one sweep may touch, whatever limit the model asks for. */
@@ -967,25 +973,30 @@ export const moveEmailTool: ToolFactory = (define, ctx) =>
       required: ['mailbox']
     } as const,
     handler: (args: { mailbox: string; threadId?: string; messageId?: string; account?: string }) =>
-      runGuardedTool(ctx, {
-        name: 'move_email',
-        kind: 'write',
-        title: `Move email to ${args.mailbox}`,
-        args,
-        confirmDetail: `Move ${
-          args.threadId ? `thread ${args.threadId}` : `message ${args.messageId}`
-        } to ${args.mailbox}`,
-        risk: 'safe',
-        async run() {
+      runGuardedToolWithPrepare<EmailTarget>(
+        ctx,
+        {
+          name: 'move_email',
+          kind: 'write',
+          title: `Move email to ${args.mailbox}`,
+          args,
+          risk: 'safe'
+        },
+        // The email found first, so the card names it: see `resolveEmailTarget`.
+        async () => {
+          const target = await resolveEmailTarget(args)
+          return { confirmDetail: `Move ${target.label} to ${args.mailbox}`, data: target }
+        },
+        async (target) => {
           const result = await emailService.move({
             mailbox: args.mailbox,
-            threadId: args.threadId,
-            messageId: args.messageId,
+            threadId: target.threadId,
+            messageId: target.messageId,
             accountId: args.account
           })
           return { modelResult: result, detail: args.mailbox }
         }
-      })
+      )
   })
 
 export const saveEmailAttachmentTool: WorkspaceToolFactory = (define, ctx) =>
@@ -1238,8 +1249,18 @@ function resolveEmailToSend(args: EmailDraftRequest & { draftId?: string; accoun
 } {
   if (!args.draftId) return { message: args, accountId: args.account }
   const draft = emailService.getDraft(args.draftId)
-  if (!draft) throw new Error(`Email draft not found: ${args.draftId}`)
-  return { message: draft, accountId: args.account ?? draft.accountId }
+  if (draft) return { message: draft, accountId: args.account ?? draft.accountId }
+  // An id that names no draft, with the whole email written out beside it, is
+  // a model that skipped draft_email and filled the field anyway: measured,
+  // "none" and "d12345" each failed a send whose to, subject and body were all
+  // there. What goes is what the approval card shows, so sending what was
+  // written is the email that was asked for.
+  if (args.to?.length && args.subject?.trim() && args.body?.trim()) {
+    // Without the id, which the service would read as "send that draft".
+    const { draftId: _unknown, ...written } = args
+    return { message: written, accountId: args.account }
+  }
+  throw new Error(`Email draft not found: ${args.draftId}`)
 }
 
 /**

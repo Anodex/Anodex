@@ -25,6 +25,7 @@ import {
 } from '../mime'
 import { sanitizeEmailHtml, type InlineImage } from '../htmlBody'
 import { accessTokenFor } from './oauthClients'
+import { folderPurpose, GMAIL_SYSTEM_LABEL } from '../folderNames'
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
@@ -307,9 +308,14 @@ export class GmailAdapter implements EmailProviderAdapter {
     const wanted = mailbox.trim()
     if (!wanted) throw new Error('A mailbox name is required.')
     const labels = await this.listMailboxes(account)
+    // "trash", "drafts", "starred": the everyday name for a system label whose
+    // id differs ("DRAFT", "STARRED"). See `folderNames.ts`.
+    const purpose = folderPurpose(wanted)
+    const systemId = purpose ? GMAIL_SYSTEM_LABEL[purpose] : undefined
     const match =
       labels.find((label) => label.id.toLowerCase() === wanted.toLowerCase()) ??
-      labels.find((label) => label.name.toLowerCase() === wanted.toLowerCase())
+      labels.find((label) => label.name.toLowerCase() === wanted.toLowerCase()) ??
+      (systemId ? labels.find((label) => label.id === systemId) : undefined)
     if (!match) {
       throw new Error(
         `No Gmail label named "${mailbox}". Available: ${labels.map((l) => l.name).join(', ')}`
