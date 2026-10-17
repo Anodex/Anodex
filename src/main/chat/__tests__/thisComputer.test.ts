@@ -8,6 +8,8 @@ import {
 import {
   asksAboutTheAssistant,
   asksForTheLatestRelease,
+  asksToBeTold,
+  mentionsAKey,
   describeComputer,
   mayConcernAnodex,
   mayConcernMyFiles,
@@ -536,5 +538,24 @@ describe('questions the computer cannot answer', () => {
     ]) {
       expect(asksForTheLatestRelease([question]), question).toBe(false)
     }
+  })
+})
+
+describe('asksToBeTold', () => {
+  // Llama 3.1 8B called notify_me_when_done for the water question, twice.
+  it('reads only a request to hear when something finishes', () => {
+    expect(asksToBeTold(['Let me know when the download is done.'])).toBe(true)
+    expect(asksToBeTold(['Tell me when it’s finished.'.replace('’', "'")])).toBe(true)
+    expect(asksToBeTold(["What's a good way to remember to drink more water?"])).toBe(false)
+    expect(asksToBeTold(['Remind me tomorrow at 9am to call Sam.'])).toBe(false)
+  })
+})
+
+describe('mentionsAKey', () => {
+  // Llama 3.1 8B called save_key for the water question.
+  it('reads a key, a token or a search service, and nothing else', () => {
+    expect(mentionsAKey(['Here is my Tavily key: tvly-123'])).toBe(true)
+    expect(mentionsAKey(['Set up web search with my Brave API key.'])).toBe(true)
+    expect(mentionsAKey(["What's a good way to remember to drink more water?"])).toBe(false)
   })
 })

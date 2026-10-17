@@ -4,6 +4,8 @@ import { app } from 'electron'
 import { resolveCommandShell } from '../tools/commandShell'
 import {
   asksAboutTheAssistant,
+  asksToBeTold,
+  mentionsAKey,
   asksForTheLatestRelease,
   describeComputer,
   liveComputerFacts,
@@ -1310,10 +1312,25 @@ export function localChatToolsOnRequest(
   const onlyOnline = asksForTheLatestRelease(messages)
   const web = mayNeedTheWeb(messages)
   const anodex = mayConcernAnodex(messages)
+  // notify_me_when_done only when asked for: see `asksToBeTold`.
+  const toldWhenDone = asksToBeTold(messages)
+  // The key tools likewise: Llama 3.1 8B, with notify_me_when_done out of view,
+  // called save_key for "What's a good way to remember to drink more water?".
+  const aboutAKey = mentionsAKey(messages)
+  // The Scheduler tools only for a message about the schedule: Llama 3.1 8B,
+  // with the key and notify tools out of view, answered the water question by
+  // setting a daily reminder nobody asked for.
+  const schedule = mayConcernTheSchedule(messages)
   if (!myFiles) {
     const computer = mayConcernThisComputer(messages) && !onlyOnline
     if (!computer && !web && !anodex) return 'all'
-    const deferred = [...(computer ? [] : SHELL_TOOLS), ...(web ? [] : WEB_TOOLS)]
+    const deferred = [
+      ...(computer ? [] : SHELL_TOOLS),
+      ...(web ? [] : WEB_TOOLS),
+      ...(toldWhenDone ? [] : ['notify_me_when_done']),
+      ...(aboutAKey ? [] : KEY_TOOLS),
+      ...(schedule ? [] : SCHEDULER_TOOLS)
+    ]
     return deferred.length > 0 ? deferred : undefined
   }
   // With my_files, a message about the person's files sees it alone, and one
@@ -1332,7 +1349,10 @@ export function localChatToolsOnRequest(
     // move_to_trash too: with the shell out of view, Llama 3.1 8B asked to list
     // Downloads reached for it instead, 23 times, every one refused.
     ...(machine ? [] : [...SHELL_TOOLS, 'move_to_trash', 'request_folder_access']),
-    ...(web ? [] : WEB_TOOLS)
+    ...(web ? [] : WEB_TOOLS),
+    ...(toldWhenDone ? [] : ['notify_me_when_done']),
+    ...(aboutAKey ? [] : KEY_TOOLS),
+    ...(schedule ? [] : SCHEDULER_TOOLS)
   ]
 }
 
@@ -1340,5 +1360,9 @@ export function localChatToolsOnRequest(
 const SHELL_TOOLS = ['run_command', 'start_process', 'check_computer', 'find_cleanup']
 /** What a plain chat keeps behind the gateway when nothing asks for the web. */
 const WEB_TOOLS = ['fetch_url', 'web_search', 'download_file']
+/** Kept behind the gateway unless a message mentions a key: see `mentionsAKey`. */
+const KEY_TOOLS = ['request_key', 'save_key']
+/** Kept behind the gateway unless a message is about the schedule: see `mayConcernTheSchedule`. */
+const SCHEDULER_TOOLS = ['set_reminder', 'schedule_task', 'delete_scheduled_task']
 /** The separate tools `my_files` does the jobs of: see `myFilesTool`. */
 const MY_FILES_STANDS_IN_FOR = ['find_my_files', 'send_file_to_me', 'open_item']

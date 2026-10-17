@@ -316,6 +316,24 @@ describe('set_reminder', () => {
     expect(result).toContain('Reminder set: "Call Sam"')
   })
 
+  // Llama 3.1 8B, "Cancel the reminder about the timesheet.": set a new one,
+  // then said it had been cancelled.
+  it('refuses a "reminder" that asks to cancel one, and points to deleting it', async () => {
+    const ctx = createMockContext('/workspace')
+    const tool = setReminderTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { when: string; message: string }) => Promise<string>
+    }
+    const result = await tool.handler({
+      when: 'now',
+      message: 'Cancel the reminder about the timesheet'
+    })
+    expect(result).toContain('delete_scheduled_task')
+    expect(createMock).not.toHaveBeenCalled()
+    // A reminder that only begins with the word is still a reminder.
+    await tool.handler({ when: 'in 20 minutes', message: 'Cancel the dentist appointment' })
+    expect(createMock).toHaveBeenCalled()
+  })
+
   it('says how to phrase a time it cannot read', async () => {
     const ctx = createMockContext('/workspace')
     const tool = setReminderTool(createMockDefine(), ctx) as unknown as {

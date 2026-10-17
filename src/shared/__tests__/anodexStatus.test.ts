@@ -80,7 +80,7 @@ describe('renderAnodexStatus', () => {
       )
 
       expect(text).toContain('active: Universe Sandbox')
-      expect(text).toContain('2 tasks, 1 enabled')
+      expect(text).toContain('2 tasks (0 reminders), 1 enabled')
       expect(text).toContain('1 running now')
       expect(text).toContain('Email accounts linked: 1')
       // Short enough to be worth asking for casually.
@@ -171,7 +171,26 @@ describe('renderAnodexStatus', () => {
       const text = renderAnodexStatus(snapshot({ scheduler: many }), 'scheduler')
       expect(text).toContain('20 scheduled tasks')
       expect(text).toContain('…and 12 more not shown.')
-      expect(text.split('\n').filter((line) => line.startsWith('- "')).length).toBe(8)
+      expect(
+        text.split('\n').filter((line) => /^- (?:Reminder|Scheduled run) "/.test(line)).length
+      ).toBe(8)
+    })
+
+    // Llama 3.1 8B, four reminders set: "You have no reminders set. However,
+    // you have 5 tasks scheduled in the Scheduler".
+    it('names reminders and scheduled runs apart', () => {
+      const text = renderAnodexStatus(
+        snapshot({
+          scheduler: [
+            task({ name: 'Call Sam', kind: 'reminder', nextRunAt: NOW + HOUR }),
+            task({ name: 'News summary', nextRunAt: NOW + 2 * HOUR })
+          ]
+        }),
+        'scheduler'
+      )
+      expect(text).toContain('2 scheduled tasks (1 reminder, 1 scheduled run):')
+      expect(text).toContain('- Reminder "Call Sam"')
+      expect(text).toContain('- Scheduled run "News summary"')
     })
   })
 

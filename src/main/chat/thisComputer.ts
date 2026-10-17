@@ -372,6 +372,33 @@ const NEWEST_RELEASE =
 const OWN_COPY =
   /\b(?:installed|install|update|upgrade|my|mine|this (?:computer|laptop|pc|machine)|do i have|have i got|i have)\b/i
 
+/**
+ * Whether a message asks to be told when something finishes, the one thing
+ * `notify_me_when_done` is for.
+ *
+ * Measured with Llama 3.1 8B: "What's a good way to remember to drink more
+ * water?" read as being about Anodex ("remember"), which put the tool in view,
+ * and Llama called it on 2 runs of 2.
+ */
+export function asksToBeTold(messages: string[]): boolean {
+  return messages.some((message) => TELL_ME_WHEN.test(message))
+}
+
+const TELL_ME_WHEN =
+  /\b(?:let me know|tell me when|notify me|ping me|alert me|message me when|when (?:it'?s|you'?re|that'?s|this is|it is) (?:done|finished|ready|complete))\b/i
+
+/**
+ * Whether a message mentions an API key, token or password, the only thing
+ * `request_key` and `save_key` are for. Setting a service up ("here is my
+ * Tavily key") says so; a question that only mentions remembering does not.
+ */
+export function mentionsAKey(messages: string[]): boolean {
+  return messages.some((message) => KEY_WORDS.test(message))
+}
+
+const KEY_WORDS =
+  /\b(?:api[ -]?keys?|keys?|tokens?|secrets?|passwords?|credentials?|tavily|brave|serper)\b/i
+
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))
 }

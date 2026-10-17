@@ -159,6 +159,36 @@ function matchWeekday(text: string): number | null {
   return null
 }
 
+/** A day named in the plural, "Mondays", which is a repeat by itself. */
+const PLURAL_DAY = /\b(?:sun|mon|tues|wednes|thurs|fri|satur)days\b/
+
+/**
+ * The next `weekday` at `at`, from `now`. Today counts while that time is still
+ * ahead, except after "next", which means the one after today: "next Monday"
+ * said on a Monday is a week away.
+ */
+function nextWeekday(
+  now: number,
+  weekday: number,
+  at: { hour: number; minute: number },
+  next: boolean
+): number {
+  const today = new Date(now)
+  let ahead = (weekday - today.getDay() + 7) % 7
+  const candidate = (days: number): number =>
+    new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() + days,
+      at.hour,
+      at.minute,
+      0,
+      0
+    ).getTime()
+  if (ahead === 0 && (next || candidate(0) <= now)) ahead = 7
+  return candidate(ahead)
+}
+
 /** Text naming a month-long cadence: "monthly", "every month", "of the month". */
 const MONTHLY_WORDS = /\bmonthly\b|\b(?:every|each)\s+month\b|\bof\s+(?:the|every|each)\s+month\b/
 
@@ -419,6 +449,26 @@ export function parseWhen(input: string, now: number = Date.now()): ParsedWhen |
         recurrence: { type: 'once', hour: at.hour, minute: at.minute, runAt },
         // Not `describeRecurrence`: it can only describe a rule, so it renders
         // this as "Once, at 9:00 AM" and hides the very thing that was wrong.
+        label: describeDatedOnce(runAt, at.hour, at.minute),
+        note: null
+      }
+    }
+  }
+
+  // One named day, said once: "next Monday at 8am", "on Friday", "this Sunday".
+  // Every day name used to fall through to the weekly rule below, so a
+  // dentist appointment set for "next Monday at 8am" came back "Every Mon at
+  // 8:00 AM" and would have reminded the person every week. A day repeats only
+  // when the person says so: a repeat word ("every Friday") or the plural
+  // ("Fridays").
+  if (!REPEAT_WORDS.test(text) && !MONTHLY_WORDS.test(text)) {
+    const weekday = matchWeekday(text)
+    // "the 2nd Tuesday" is a place in a month, read by the monthly forms below.
+    if (weekday !== null && !PLURAL_DAY.test(text) && matchOrdinalWeekday(text) === null) {
+      const at = time ?? { hour: DEFAULT_HOUR, minute: 0 }
+      const runAt = nextWeekday(now, weekday, at, /\bnext\b/.test(text))
+      return {
+        recurrence: { type: 'once', hour: at.hour, minute: at.minute, runAt },
         label: describeDatedOnce(runAt, at.hour, at.minute),
         note: null
       }

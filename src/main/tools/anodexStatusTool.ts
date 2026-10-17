@@ -107,6 +107,7 @@ export function gatherStatusSnapshot(): AnodexStatusSnapshot {
     now: Date.now(),
     scheduler: schedulerStore.list().map((task) => ({
       name: task.name,
+      ...(task.kind === 'reminder' ? { kind: 'reminder' as const } : {}),
       enabled: task.enabled,
       // The same phrasing the Scheduler's own When field produces, so the two
       // surfaces never describe one schedule two different ways.
