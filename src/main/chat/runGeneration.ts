@@ -1350,7 +1350,9 @@ export function localChatToolsOnRequest(
   // see `asksForTheLatestRelease`.
   const onlyOnline = asksForTheLatestRelease(messages)
   const web = mayNeedTheWeb(messages)
-  const anodex = mayConcernAnodex(messages)
+  // Email counts: "What did Sam say in their reply?" names no Anodex word, and
+  // with nothing in view Gemma 4 E4B said it could not read a sender's messages.
+  const anodex = mayConcernAnodex(messages) || mayConcernEmail(messages)
   // notify_me_when_done only when asked for: see `asksToBeTold`.
   const toldWhenDone = asksToBeTold(messages)
   // The key tools likewise: Llama 3.1 8B, with notify_me_when_done out of view,
