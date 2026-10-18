@@ -1202,6 +1202,43 @@ describe('runBoundedChatGeneration', () => {
     expect(outcome.content).toContain('Continued and verified the change.')
   })
 
+  it('does not start a third cycle when the guard stops the same call again', async () => {
+    // Llama 3.1 8B forwarding an email fetched the same link until the guard
+    // stopped it, was continued, fetched it again, was continued again, and
+    // ended 23 minutes later. Its searches made every cycle look like progress.
+    mockedRunGeneration.mockReset()
+    const loopingCycle =
+      (cycle: number) =>
+      (_request: unknown, io: RunGenerationIo): Promise<RunGenerationResult> => {
+        io.onActivity?.({
+          id: `search-${cycle}`,
+          name: 'search_email',
+          kind: 'read',
+          title: `Search email ${cycle}`,
+          status: 'success',
+          result: `Found the Runpod email (${cycle}).`
+        })
+        io.onActivity?.({
+          id: `fetch-${cycle}`,
+          name: 'fetch_url',
+          kind: 'web',
+          title: 'Fetch https://resources.runpod.io/e3t/Ctc/DP+113',
+          status: 'error',
+          detail: 'Blocked: repeated identical call'
+        })
+        return Promise.resolve(result({ content: '', stopped: true, stopReason: 'loop-guard' }))
+      }
+    mockedRunGeneration
+      .mockImplementationOnce(loopingCycle(1))
+      .mockImplementationOnce(loopingCycle(2))
+      .mockResolvedValueOnce(result({ content: 'Should never run.' }))
+
+    const outcome = await runBoundedChatGeneration(baseRequest(), baseIo())
+
+    expect(cycleCallCount()).toBe(2)
+    expect(outcome.content).not.toContain('Should never run.')
+  })
+
   it('keeps a loop guard terminal when the cycle only produced errors and prose', async () => {
     mockedRunGeneration.mockReset()
     mockedRunGeneration.mockImplementationOnce((_request, io: RunGenerationIo) => {

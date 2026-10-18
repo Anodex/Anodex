@@ -377,6 +377,8 @@ async function runBounded(request: ChatRequest, io: RunGenerationIo): Promise<Ru
   const repeatedCallCounts = new Map<string, number>()
   const seenReadActivity = new Set<string>()
   const seenCycleContent = new Set<string>()
+  /** Calls the loop guard has refused this turn — see `isLoopGuardRefusal`. */
+  const loopGuardRefusals = new Set<string>()
   const completedToolCalls = new Map<string, ToolCall>()
   let latestCycleToolCalls: ToolCall[] | undefined
 
@@ -592,7 +594,29 @@ async function runBounded(request: ChatRequest, io: RunGenerationIo): Promise<Ru
     // reason to discard the task. Starting another provider round in the same
     // generation was the bug; a compact outer continuation may resume from
     // the next action. Error/no-op-only loops remain terminal.
-    const loopGuardRecovery = result.stopReason === 'loop-guard' && novelToolActivityThisCycle
+    //
+    // Once per loop, though. The fresh cycle deliberately forgets the guard's
+    // repeat history (`TaskLedger.noteContextEpoch`), so a model that is
+    // genuinely stuck walks back into the same refused call and the guard has
+    // to catch it all over again. Measured with Llama 3.1 8B: "Forward the
+    // latest Runpod email" fetched the same link until the guard stopped it,
+    // continued, fetched it again until the guard stopped it again, continued
+    // again, and ended 23 minutes later at the context limit. The other cycle
+    // work (searches, reads) made each cycle look like progress.
+    const refusedThisCycle = (cycleToolCalls ?? [])
+      .filter(isLoopGuardRefusal)
+      .map(refusedCallIdentity)
+    const sameLoopAgain =
+      result.stopReason === 'loop-guard' &&
+      refusedThisCycle.some((identity) => loopGuardRefusals.has(identity))
+    for (const identity of refusedThisCycle) loopGuardRefusals.add(identity)
+    if (sameLoopAgain) {
+      log.info('The loop guard stopped the same call again; not starting another cycle', {
+        cycle
+      })
+    }
+    const loopGuardRecovery =
+      result.stopReason === 'loop-guard' && novelToolActivityThisCycle && !sameLoopAgain
     const recoveredStop =
       result.stopped &&
       isRecoverableGenerationStop(result.stopReason) &&
@@ -1062,6 +1086,16 @@ function goalStillOpenFor(result: RunGenerationResult, goal: string | null): boo
  * workspace tools; the short result suffix distinguishes a real changed read
  * from a repeated read after a mutation.
  */
+/** A call the loop guard refused rather than ran — see `reviewRepeat` in `tools/helpers.ts`. */
+function isLoopGuardRefusal(call: ToolCall): boolean {
+  return call.status === 'error' && (call.detail?.startsWith('Blocked:') ?? false)
+}
+
+/** Which call was refused: its tool and what it was asked to do. */
+function refusedCallIdentity(call: ToolCall): string {
+  return JSON.stringify({ name: call.name, title: call.title })
+}
+
 function toolActivityKey(call: ToolCall, epoch: number): string {
   return JSON.stringify({
     // A context epoch drops evidence the model still needs, and the handoff
