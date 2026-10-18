@@ -161,11 +161,17 @@ export function replyRecipients(options: {
   selfAddress: string
   replyAll: boolean
 }): { to: string[]; cc: string[] } {
-  const primary = options.replyTo?.trim() || options.from.trim()
-  if (!options.replyAll) return { to: primary ? [primary] : [], cc: [] }
-
   const isSelf = (address: string): boolean =>
     extractAddress(address).toLowerCase() === options.selfAddress.trim().toLowerCase()
+
+  const sender = options.replyTo?.trim() || options.from.trim()
+  // A reply to a message the person sent goes on to the people they sent it to,
+  // as Gmail and Outlook do. Addressed to the sender, it went back to the
+  // person: measured, "Got it, thanks!" on a thread whose newest message was
+  // the account's own came out addressed to the account.
+  const theirs = options.to.filter((address) => address.trim() && !isSelf(address))
+  const primary = sender && isSelf(sender) && theirs.length > 0 ? theirs[0] : sender
+  if (!options.replyAll) return { to: primary ? [primary] : [], cc: [] }
 
   const seen = new Set<string>()
   const dedupe = (addresses: readonly string[]): string[] =>

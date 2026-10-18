@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 // runGeneration pulls in the whole engine; the routing under test is pure.
 vi.mock('electron', () => ({ app: { getPath: () => '' } }))
 
-const { localChatToolsUpFront } = await import('../runGeneration')
+const { localChatToolsOnRequest, localChatToolsUpFront } = await import('../runGeneration')
 
 describe('localChatToolsUpFront for email', () => {
   // Gemma 4 E4B said "An email has been sent" and "marked as read" having
@@ -39,5 +39,37 @@ describe('localChatToolsUpFront for email', () => {
       localChatToolsUpFront(['Move the report in my Downloads to the Desktop.'])
     ).toBeUndefined()
     expect(localChatToolsUpFront(['What is an email newsletter?'])).toBeUndefined()
+  })
+})
+
+describe('the combined email tools', () => {
+  const combined = { combinedEmail: true }
+
+  it('shows the one the message asks for, then finding and reading', () => {
+    expect(
+      localChatToolsUpFront(['Forward the latest Runpod email to sam@example.com.'], combined)
+    ).toEqual(['write_email', 'find_email', 'open_email'])
+    expect(localChatToolsUpFront(['Mark all my Instagram emails as read.'], combined)?.[0]).toBe(
+      'organize_email'
+    )
+    expect(
+      localChatToolsUpFront(['Did Google send me a security alert?'], combined)
+    ).toBeUndefined()
+    expect(localChatToolsUpFront(['What is an email newsletter?'], combined)).toBeUndefined()
+    expect(localChatToolsUpFront(['List my email folders.'], combined)).toEqual([
+      'list_mailboxes',
+      'organize_email'
+    ])
+  })
+
+  it('keeps the separate tools behind the gateway, and the combined ones off other turns', () => {
+    const email = localChatToolsOnRequest(['Did Google send me a security alert?'], combined)
+    expect(email).toEqual(expect.arrayContaining(['send_email', 'draft_email', 'list_threads']))
+    expect(email).not.toContain('find_email')
+
+    const machine = localChatToolsOnRequest(['How much free disk space do I have?'], combined)
+    expect(machine).toEqual(expect.arrayContaining(['find_email', 'write_email', 'send_email']))
+
+    expect(localChatToolsOnRequest(['Name a planet.'], combined)).toBe('all')
   })
 })

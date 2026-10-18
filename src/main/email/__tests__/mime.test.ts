@@ -116,6 +116,19 @@ describe('reply helpers', () => {
     expect(recipients).toEqual({ to: ['Sender <sender@example.com>'], cc: [] })
   })
 
+  it("replies to a message of the person's own to the people it went to", () => {
+    // Addressed to the sender, the reply went back to the person themselves.
+    const recipients = replyRecipients({
+      from: 'Me <me@example.com>',
+      to: ['James <james@example.com>'],
+      cc: [],
+      selfAddress: 'me@example.com',
+      replyAll: false
+    })
+
+    expect(recipients).toEqual({ to: ['James <james@example.com>'], cc: [] })
+  })
+
   it('keeps every participant but the account itself on reply-all', () => {
     const recipients = replyRecipients({
       from: 'sender@example.com',

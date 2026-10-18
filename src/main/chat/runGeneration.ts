@@ -32,6 +32,7 @@ import type {
 import type { ToolCall, ToolConfirmRequest, ToolConfirmResponse } from '@shared/tools.types'
 import type { MemoryEntry } from '@shared/memory.types'
 import type { WebSource } from '@shared/webSources.types'
+import { COMBINED_EMAIL_STANDS_IN_FOR } from '../tools/combinedEmailTools'
 import { WebSourceRegistry } from '../tools/WebSourceRegistry'
 import type { VerificationResult } from '@shared/projectMemory.types'
 import type { TranscriptRecallResult } from '@shared/transcriptRecall.types'
@@ -578,6 +579,7 @@ export async function runGeneration(
         switchProject: io.switchProject,
         myFiles: localPlainChat,
         answerCue: localPlainChat,
+        combinedEmail: localPlainChat,
         // Only what the person typed: this request's own prompt and the user
         // turns of its history, never tool output.
         userProvided: (text: string) =>
@@ -737,10 +739,18 @@ export async function runGeneration(
   // `my_files` exists only where the registry builds it: switched on, with
   // find_my_files under it (see `buildTools`).
   const myFilesShown = localPlainChat && toolOn('my_files') && toolOn('find_my_files')
+  // Likewise the combined email tools, each of which the registry builds only
+  // with the separate tool under it: see `combinedEmailTools`.
+  const combinedEmailShown = localPlainChat && COMBINED_EMAIL_TOOLS.some(toolOn)
   const toolsOnRequest = localPlainChat
-    ? localChatToolsOnRequest(recentUserText, { myFiles: myFilesShown })
+    ? localChatToolsOnRequest(recentUserText, {
+        myFiles: myFilesShown,
+        combinedEmail: combinedEmailShown
+      })
     : undefined
-  const toolsUpFront = localPlainChat ? localChatToolsUpFront(recentUserText) : undefined
+  const toolsUpFront = localPlainChat
+    ? localChatToolsUpFront(recentUserText, { combinedEmail: combinedEmailShown })
+    : undefined
   // A message about only the person's files, with my_files to do it, gets no
   // shell examples: they would teach Get-ChildItem in place of the tool.
   const filesOnly =
@@ -1295,10 +1305,14 @@ function unlessEmpty<T>(list: T[]): T[] | undefined {
  * `mayConcernTheSchedule` for the turn that could not set a reminder because
  * the file and phone tools ranked ahead of it filled the direct surface.
  */
-export function localChatToolsUpFront(messages: string[]): string[] | undefined {
+export function localChatToolsUpFront(
+  messages: string[],
+  { combinedEmail = false }: { combinedEmail?: boolean } = {}
+): string[] | undefined {
   if (mayConcernTheSchedule(messages)) {
     return ['set_reminder', 'schedule_task', 'anodex_status', 'delete_scheduled_task']
   }
+  if (combinedEmail) return combinedEmailUpFront(messages)
   // "List my email folders": Gemma 4 E4B and Llama 3.1 8B listed the accounts
   // instead, list_mailboxes being behind the gateway, and Gemma said it had no
   // tool for folders.
@@ -1319,10 +1333,44 @@ export function localChatToolsUpFront(messages: string[]): string[] | undefined 
 }
 
 /** The email tools a message's own verbs name: "send", "reply", "forward", "mark read"… */
-function emailActionTools(message: string): string[] {
+function emailActionTools(
+  message: string,
+  actions: ReadonlyArray<readonly [RegExp, readonly string[]]> = EMAIL_ACTIONS
+): string[] {
   if (!mayConcernEmail([message]) && !/\b(?:send|reply|forward)\b.*@/i.test(message)) return []
-  return EMAIL_ACTIONS.filter(([words]) => words.test(message)).flatMap(([, tools]) => tools)
+  // "Did Google send me a security alert?" asks about an email, not for one.
+  const request = message.replace(/\b(?:did|has|have)\b[^.?!]{1,40}\b(?:send|sent) me\b/gi, ' ')
+  const named = actions.filter(([words]) => words.test(request)).flatMap(([, tools]) => tools)
+  return [...new Set(named)]
 }
+
+/**
+ * `localChatToolsUpFront`'s email half, where the combined tools stand in for
+ * the separate ones: the one the message asks for, then finding and reading.
+ */
+function combinedEmailUpFront(messages: string[]): string[] | undefined {
+  const message = messages[0] ?? ''
+  if (mayConcernEmail(messages) && /\b(?:folders?|mailbox(?:es)?|labels?)\b/i.test(message)) {
+    return ['list_mailboxes', 'organize_email']
+  }
+  const asked = emailActionTools(message, COMBINED_EMAIL_ACTIONS)
+  if (asked.length > 0) return [...asked, 'find_email', 'open_email']
+  // A question about email with nothing to do keeps the ordinary ranking, which
+  // already puts finding and reading first. Putting them up front as well made
+  // Llama 3.1 8B search the inbox for "What is an email newsletter?".
+  return undefined
+}
+
+/** `EMAIL_ACTIONS` with each verb naming the combined tool that does it. */
+const COMBINED_EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
+  [/\bforward\b(?!ed)/i, ['write_email']],
+  [/\b(?:reply (?:to|saying|with|back|that)|respond to|write back to)\b/i, ['write_email']],
+  [/\bdraft/i, ['write_email']],
+  [/\b(?:send|write|compose|e-?mail (?:to|someone))\b/i, ['write_email']],
+  [/\b(?:mark|star|unstar|flag|unread|archive|unarchive)\b/i, ['organize_email']],
+  [/\b(?:trash|delete|remove|move|bin)\b/i, ['organize_email']],
+  [/\battach(?:ed|ments?)?\b/i, ['email_attachments']]
+]
 
 const EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
   // The verbs as instructions, not as nouns: "their reply" is a question about
@@ -1340,8 +1388,20 @@ const EMAIL_ACTIONS: ReadonlyArray<readonly [RegExp, readonly string[]]> = [
 
 export function localChatToolsOnRequest(
   messages: string[],
-  { myFiles = false }: { myFiles?: boolean } = {}
+  { myFiles = false, combinedEmail = false }: { myFiles?: boolean; combinedEmail?: boolean } = {}
 ): string[] | 'all' | undefined {
+  const deferred = localChatDeferrals(messages, myFiles)
+  if (!combinedEmail || deferred === 'all') return deferred
+  // The combined email tools do every job of the separate ones, so those stay
+  // behind the gateway; the combined ones are shown on a message about email.
+  return [
+    ...(deferred ?? []),
+    ...COMBINED_EMAIL_STANDS_IN_FOR,
+    ...(mayConcernEmail(messages) ? [] : COMBINED_EMAIL_TOOLS)
+  ]
+}
+
+function localChatDeferrals(messages: string[], myFiles: boolean): string[] | 'all' | undefined {
   // A question about the assistant itself is answered from its prompt; see
   // `asksAboutTheAssistant`.
   if (asksAboutTheAssistant(messages)) return 'all'
@@ -1427,5 +1487,13 @@ const PLAN_TOOLS = ['write_plan', 'update_plan_step']
 const SCHEDULER_TOOLS = ['set_reminder', 'schedule_task', 'delete_scheduled_task']
 /** Kept behind the gateway on a message about email: see `mayConcernEmail`. */
 const FILE_CLEANUP_TOOLS = ['move_to_trash', 'find_cleanup']
+/** The tools `combinedEmailTools` builds. */
+const COMBINED_EMAIL_TOOLS = [
+  'find_email',
+  'open_email',
+  'write_email',
+  'email_attachments',
+  'organize_email'
+]
 /** The separate tools `my_files` does the jobs of: see `myFilesTool`. */
 const MY_FILES_STANDS_IN_FOR = ['find_my_files', 'send_file_to_me', 'open_item']

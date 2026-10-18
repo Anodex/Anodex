@@ -38,6 +38,11 @@ const KIND_CONFIG: Record<
 
 export function confirmCardPresentation(request: ToolConfirmRequest): ConfirmCardPresentation {
   const draft = request.emailDraft
+  // Saving a draft sends nothing, and its card used to ask "Send this email?"
+  // over a Send button: the one approval that most needs to say it is not a send.
+  if (draft && request.toolName === 'save_email_draft') {
+    return { ...DRAFT_CONFIG, title: 'Save this draft?', approveLabel: 'Save draft' }
+  }
   if (draft) {
     return {
       ...DRAFT_CONFIG,
