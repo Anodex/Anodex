@@ -287,17 +287,51 @@ export const setReminderTool: ToolFactory = (define, ctx) =>
  *   never picks one of several matches: deleting the wrong standing task is
  *   silent until the thing it did stops happening.
  */
+/** Words that say what kind of thing is meant rather than which one. */
+const NOT_A_NAME = new Set([
+  'the',
+  'my',
+  'a',
+  'an',
+  'about',
+  'for',
+  'to',
+  'reminder',
+  'reminders',
+  'task',
+  'tasks',
+  'scheduled',
+  'one'
+])
+
+/**
+ * Tasks whose name holds every word the model passed that could be part of a
+ * name, for a description such as "timesheet reminder" or "the one about the
+ * timesheet" against a reminder named "send the timesheet".
+ */
+function matchingByWords<T extends { name: string }>(tasks: T[], wanted: string): T[] {
+  const words = wanted
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 0 && !NOT_A_NAME.has(word))
+  if (words.length === 0) return []
+  return tasks.filter((task) => {
+    const name = task.name.toLowerCase()
+    return words.every((word) => name.includes(word))
+  })
+}
+
 export const deleteScheduledTaskTool: ToolFactory = (define, ctx) =>
   define({
     description:
-      'Delete a Scheduler task the user asks to remove or cancel. The user confirms the exact task before anything is deleted. Identify the task by its name as shown in the Scheduler; call anodex_status first if you do not know it.',
+      'Delete a Scheduler task or reminder the user asks to remove or cancel. Call it straight away with the words the user used for it, such as "timesheet"; never ask them for the exact name. If nothing or several tasks match, the reply lists the tasks so you can pick. The user confirms the exact task before anything is deleted. Not for checking whether one is still set: anodex_status shows that.',
     params: {
       type: 'object',
       properties: {
         name: {
           type: 'string',
           description:
-            'The task to delete, by name as shown in the Scheduler. Enough of the name to identify exactly one task; the call is refused rather than guessing if it matches several.'
+            'The task to delete: its name, part of it, or the words the user used for it. The call is refused rather than guessing if it matches several.'
         }
       },
       required: ['name']
@@ -324,10 +358,11 @@ export const deleteScheduledTaskTool: ToolFactory = (define, ctx) =>
           // Exact name first, so a task called "Test" is reachable even when
           // "Test run" also exists.
           const exact = tasks.filter((task) => task.name.toLowerCase() === wanted.toLowerCase())
-          const matches =
+          const partial =
             exact.length > 0
               ? exact
               : tasks.filter((task) => task.name.toLowerCase().includes(wanted.toLowerCase()))
+          const matches = partial.length > 0 ? partial : matchingByWords(tasks, wanted)
 
           if (matches.length === 0) {
             throw new Error(

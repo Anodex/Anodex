@@ -142,7 +142,12 @@ const FILE_WORD_LIST = [
   'word docs?',
   'powerpoint',
   'slides?',
-  'to-?dos?'
+  'to-?dos?',
+  // Only as "my notes": "Search my notes for the word budget." named nothing
+  // else, so Gemma 4 E4B said it had no tool to search notes while `my_files`
+  // sat behind the gateway. Plain "notes" is left out, because "Give me notes
+  // on the French Revolution" is a plain question.
+  'my notes?'
 ]
 
 /** The machine, its programs, and doing things to files, which takes the shell. */

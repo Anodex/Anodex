@@ -475,6 +475,11 @@ describe('telling the person’s files from the machine', () => {
     }
   })
 
+  it('reads "my notes" as the person’s files, and notes on a subject as a plain question', () => {
+    expect(mayConcernMyFiles(['Search my notes for the word budget.'])).toBe(true)
+    expect(mayConcernMyFiles(['Give me notes on the French Revolution.'])).toBe(false)
+  })
+
   it('reads programs, the disk and changing files as the machine', () => {
     for (const message of [
       'Is git installed on this computer?',
