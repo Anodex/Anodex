@@ -29,6 +29,8 @@ import { createLogger } from '../utils/logger'
 import { describeStall, SILENCE_LIMIT_MS, watchForStall } from './streamStall'
 import { toStopDetail } from '@shared/stopDetail'
 import { appendRoundText } from '@shared/roundText'
+import { withTurnContextAfter } from '@shared/prompts'
+import { lineFromToolResult, SAY_WHAT_HAPPENED } from './silentAfterTool'
 import { LlamaServerRuntime } from './LlamaServerRuntime'
 import { promptProgressOf } from './promptProgress'
 import { describeRoundTimings, roundTimingsOf, type RoundTimings } from './roundTimings'
@@ -422,6 +424,13 @@ export class LlamaVisionService {
   }
 
   async generate(params: GenerateParams): Promise<GenerateOutcome> {
+    // The person's words first and Anodex's context after them: with the
+    // context first, a small model on this transport answered from its own
+    // head while the tool for the question sat in view. See
+    // `withTurnContextAfter` for the measurements.
+    if (params.turnContext && params.userPrompt !== undefined) {
+      params = { ...params, prompt: withTurnContextAfter(params.userPrompt, params.turnContext) }
+    }
     const connection = this.runtime.activeConnection
     if (!connection) throw new Error('The local vision model is not loaded.')
 
@@ -507,6 +516,8 @@ export class LlamaVisionService {
     let fallbackRounds = 0
     /** Rounds whose reasoning was cut off at its budget — see `reasoningOverrun.ts`. */
     let reasoningOverruns = 0
+    /** Set once the model has been asked to say what it did — see `silentAfterTool.ts`. */
+    let askedWhatHappened = false
     /**
      * Count one reasoning overrun and queue the corrective prompt, carrying the
      * tail of the reasoning back so the next round continues instead of
@@ -1095,6 +1106,31 @@ export class LlamaVisionService {
         // The model asked for nothing more. If it also said nothing this round,
         // its last act was the previous round's tool call and it never came
         // back to comment on the result — see `GenerateOutcome.endedOnToolCall`.
+        const silentAfterTool = hadAnyToolAttempt && roundContent.trim().length === 0
+        // Asked once, in the model's own words, before anything else stands in
+        // for them. A round cut off at its limit is not silence, and neither is
+        // one the person stopped.
+        if (
+          silentAfterTool &&
+          !askedWhatHappened &&
+          finishReason === 'stop' &&
+          round < maxToolRounds - 1 &&
+          !params.signal?.aborted
+        ) {
+          askedWhatHappened = true
+          log.info('The model said nothing after its tool call; asking it once what happened', {
+            round
+          })
+          messages.push({ role: 'user', content: SAY_WHAT_HAPPENED })
+          continue
+        }
+        if (silentAfterTool && askedWhatHappened) {
+          const line = lineFromToolResult(lastToolResult(messages))
+          if (line) {
+            roundContent = line
+            params.onToken(line)
+          }
+        }
         endedOnToolCall = hadAnyToolAttempt && roundContent.trim().length === 0
         break
       }
@@ -1787,6 +1823,15 @@ function toOpenAiTools(toolFunctions: Record<string, ToolFunction>): ChatComplet
       }
     }
   })
+}
+
+/** The newest tool result in the request, as the model was given it. */
+function lastToolResult(messages: ChatCompletionMessageParam[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message.role === 'tool') return typeof message.content === 'string' ? message.content : null
+  }
+  return null
 }
 
 async function runTool(

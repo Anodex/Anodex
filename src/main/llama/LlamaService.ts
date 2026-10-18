@@ -113,6 +113,7 @@ import {
   type LocalGenerationDiagnostics
 } from './generationDiagnostics'
 import { RunawayToolCallWatch, salvageArguments } from './runawayToolCall'
+import { lineFromToolResult, SAY_WHAT_HAPPENED } from './silentAfterTool'
 import {
   boundToolSurface,
   COMPLETE_BUILDER_LOOP,
@@ -1197,6 +1198,10 @@ class LlamaService extends EventEmitter {
      */
     let toolSinceLastText = false
     let hadAnyToolAttempt = false
+    /** The newest settled tool result, for when the model never speaks to it. */
+    let lastToolResult: string | null = null
+    /** Set once the model has been asked to say what it did — see `silentAfterTool.ts`. */
+    let askedWhatHappened = false
     // Running count of tool activity, so a single round can tell whether it
     // produced any of its own — see the thinking-promotion decision below,
     // which must not fire for a round whose visible artifact is a tool card.
@@ -1258,6 +1263,7 @@ class LlamaService extends EventEmitter {
         if (call.status !== 'running') {
           spokeSinceLastTool = false
           toolSinceLastText = true
+          lastToolResult = call.result ?? null
         }
         toolActivityCount++
         if (call.status !== 'running') nativeToolCheckpoint.pending = true
@@ -1979,6 +1985,28 @@ Continue the task using this result. If the task is complete, answer instead of 
           // this turn is already recorded in settled tool calls, which is what
           // `finish_goal`'s evidence gate and the bounded runner's verification
           // notes read instead.
+          //
+          // The one re-prompt left is not about wording at all: the model said
+          // nothing after its last tool result, so the person would see a tool
+          // card and no reply. Asked once, as the vision engine does.
+          const silentAfterTool =
+            hadAnyToolAttempt && !spokeSinceLastTool && roundContent.trim().length === 0
+          if (silentAfterTool && !askedWhatHappened && round < MAX_FALLBACK_ROUNDS) {
+            askedWhatHappened = true
+            prompt = SAY_WHAT_HAPPENED
+            log.info('The model said nothing after its tool call; asking it once what happened', {
+              round
+            })
+            continue
+          }
+          if (silentAfterTool && askedWhatHappened) {
+            const line = lineFromToolResult(lastToolResult)
+            if (line) {
+              roundContent = line
+              spokeSinceLastTool = true
+              params.onToken(line)
+            }
+          }
           visibleContent = appendRoundText(visibleContent, roundContent)
           break
         }

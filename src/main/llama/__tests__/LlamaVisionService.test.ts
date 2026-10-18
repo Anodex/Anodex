@@ -171,6 +171,7 @@ vi.mock('../../models/ModelReliabilityStore', () => ({
 
 import { MAX_REASONING_OVERRUNS } from '../reasoningOverrun'
 import { FILE_WRITE_CHUNK_TARGET_CHARS } from '../../tools/mutationTools'
+import { SAY_WHAT_HAPPENED } from '../silentAfterTool'
 
 const {
   LlamaVisionService,
@@ -349,6 +350,96 @@ describe('LlamaVisionService.generate', () => {
     expect(outcome.content).toBe('Done.')
     const followUp = mocks.requests[1].messages as Array<Record<string, unknown>>
     expect(followUp.at(-1)).toMatchObject({ role: 'tool', content: 'wrote 42 bytes' })
+  })
+
+  describe('a model that goes quiet after its tool call', () => {
+    // Gemma 4 E4B set a reminder and came back from the result with `<eos>` and
+    // nothing else, so the person saw a tool card and no words.
+    function reminderTool(): void {
+      mocks.toolFunctions = {
+        set_reminder: {
+          description: 'Remind the person.',
+          params: { type: 'object' },
+          handler: () =>
+            Promise.resolve(
+              'Reminder set: "send the timesheet".\nWhen: Every Fri at 5:00 PM\n\n(Answer the person from this, in plain words.)'
+            )
+        }
+      }
+    }
+
+    it('asks it once what happened, and keeps its own words', async () => {
+      reminderTool()
+      mocks.rounds.push({ chunks: [toolCallChunk('set_reminder', '{}')] })
+      mocks.rounds.push({ chunks: [textChunk('', 'stop')] })
+      mocks.rounds.push({ chunks: [textChunk('I set a reminder for Fridays at 5pm.', 'stop')] })
+
+      const outcome = await (await service()).generate(params({ tools: withTools }))
+
+      expect(outcome.content).toBe('I set a reminder for Fridays at 5pm.')
+      expect(outcome.endedOnToolCall).toBe(false)
+      const asked = mocks.requests[2].messages as Array<Record<string, unknown>>
+      expect(asked.at(-1)).toMatchObject({ role: 'user', content: SAY_WHAT_HAPPENED })
+    })
+
+    it("falls back to the tool's own outcome when it stays quiet", async () => {
+      reminderTool()
+      mocks.rounds.push({ chunks: [toolCallChunk('set_reminder', '{}')] })
+      mocks.rounds.push({ chunks: [textChunk('', 'stop')] })
+      mocks.rounds.push({ chunks: [textChunk('', 'stop')] })
+      const tokens: string[] = []
+
+      const outcome = await (
+        await service()
+      ).generate(params({ tools: withTools, onToken: (t) => tokens.push(t) }))
+
+      expect(outcome.content).toBe('Reminder set: "send the timesheet".')
+      expect(tokens).toEqual(['Reminder set: "send the timesheet".'])
+      expect(mocks.requests).toHaveLength(3)
+    })
+
+    it('does not ask after a reply it already gave', async () => {
+      reminderTool()
+      mocks.rounds.push({ chunks: [toolCallChunk('set_reminder', '{}')] })
+      mocks.rounds.push({ chunks: [textChunk('Done: Fridays at 5pm.', 'stop')] })
+
+      const outcome = await (await service()).generate(params({ tools: withTools }))
+
+      expect(outcome.content).toBe('Done: Fridays at 5pm.')
+      expect(mocks.requests).toHaveLength(2)
+    })
+
+    it('does not ask when the reply was cut off at its limit', async () => {
+      reminderTool()
+      mocks.rounds.push({ chunks: [toolCallChunk('set_reminder', '{}')] })
+      mocks.rounds.push({ chunks: [textChunk('', 'length')] })
+
+      await (await service()).generate(params({ tools: withTools }))
+
+      expect(mocks.requests).toHaveLength(2)
+    })
+  })
+
+  it("puts the person's words ahead of the turn context", async () => {
+    // With the context first, Gemma 4 E4B answered from its own head while the
+    // tool for the question was in view. See `withTurnContextAfter`.
+    mocks.rounds.push({ chunks: [textChunk('Hi.', 'stop')] })
+
+    await (
+      await service()
+    ).generate(
+      params({
+        prompt:
+          '[Anodex context for this message]\n# Environment\nToday.\n[End of Anodex context]\n\nHow much space?',
+        userPrompt: 'How much space?',
+        turnContext: '# Environment\nToday.'
+      })
+    )
+
+    const sent = mocks.requests[0].messages as Array<{ role: string; content: unknown }>
+    const last = String(sent.at(-1)?.content)
+    expect(last.startsWith('How much space?')).toBe(true)
+    expect(last).toContain('# Environment\nToday.')
   })
 
   it('never executes a handler when the model emits unparseable arguments', async () => {

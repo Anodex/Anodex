@@ -256,6 +256,19 @@ describe('delete_scheduled_task', () => {
     expect(deleteMock).toHaveBeenCalledWith('a')
   })
 
+  it('finds a reminder from the words the person used for it', async () => {
+    // Told to use the name "as shown in the Scheduler", Gemma 4 E4B asked the
+    // person for the exact name instead of calling the tool at all.
+    listMock.mockReturnValue([taskNamed('a', 'send the timesheet'), taskNamed('b', 'call Sam')])
+    const { confirm } = captureConfirmations()
+    const ctx = { ...createMockContext('/workspace'), confirm }
+    const tool = deleteScheduledTaskTool(createMockDefine(), ctx) as unknown as DeleteTool
+
+    await tool.handler({ name: 'the timesheet reminder' })
+
+    expect(deleteMock).toHaveBeenCalledWith('a')
+  })
+
   it('names the existing tasks when nothing matches', async () => {
     const { confirm } = captureConfirmations()
     const ctx = { ...createMockContext('/workspace'), confirm }

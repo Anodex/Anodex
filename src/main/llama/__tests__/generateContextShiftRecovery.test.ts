@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { llamaService, type GenerateParams } from '../LlamaService'
 import { ANSWER_CUE } from '../../tools/helpers'
+import { lineFromToolResult, SAY_WHAT_HAPPENED } from '../silentAfterTool'
 import {
   NODE_LLAMA_CPP_CONTEXT_SHIFT_CRASH_FRAGMENT,
   NODE_LLAMA_CPP_CONTEXT_TOO_LONG_CRASH_FRAGMENT
@@ -740,6 +741,82 @@ describe('LlamaService.generate() context-shift recovery', () => {
 
     expect(offered[0]).toContain('my_files')
     expect(String(checked).endsWith(ANSWER_CUE)).toBe(true)
+  })
+
+  describe('a model that goes quiet after its tool call', () => {
+    // Gemma 4 E4B read the Scheduler for "What do I have scheduled this week?"
+    // and returned nothing, so the person saw a tool card and no reply.
+    function quietSession(afterAsking: string): {
+      session: NonNullable<LlamaServiceTestAccess['session']>
+      prompts: unknown[]
+      results: unknown[]
+    } {
+      const prompts: unknown[] = []
+      const results: unknown[] = []
+      const session: NonNullable<LlamaServiceTestAccess['session']> = {
+        promptWithMeta: vi.fn(
+          async (
+            prompt: unknown,
+            options: {
+              onResponseChunk?: (chunk: unknown) => void
+              functions?: Record<string, { handler: (args: unknown) => unknown }>
+            }
+          ) => {
+            prompts.push(prompt)
+            if (prompts.length === 1) {
+              results.push(await options.functions?.check_computer?.handler({ check: 'system' }))
+              return { response: [], responseText: '', stopReason: 'eogToken' }
+            }
+            if (afterAsking) {
+              options.onResponseChunk?.({ type: undefined, text: afterAsking, tokens: [1, 2] })
+            }
+            return { response: [], responseText: afterAsking, stopReason: 'eogToken' }
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+      return { session, prompts, results }
+    }
+
+    async function generateWith(
+      session: NonNullable<LlamaServiceTestAccess['session']>
+    ): ReturnType<typeof llamaService.generate> {
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.session = session
+      vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+      return llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'What is this computer?',
+        onToken: () => {},
+        tools: { ...webOnlyTools(), enabledTools: new Set(['check_computer']) }
+      })
+    }
+
+    it('asks it once what happened, and keeps its own words', async () => {
+      const { session, prompts } = quietSession('It is a Windows PC.')
+
+      const outcome = await generateWith(session)
+
+      expect(prompts).toHaveLength(2)
+      expect(prompts[1]).toBe(SAY_WHAT_HAPPENED)
+      expect(outcome.content).toBe('It is a Windows PC.')
+      expect(outcome.endedOnToolCall).toBe(false)
+    })
+
+    it("falls back to the tool's own outcome when it stays quiet", async () => {
+      const { session, prompts, results } = quietSession('')
+
+      const outcome = await generateWith(session)
+
+      expect(prompts).toHaveLength(2)
+      expect(outcome.content).toBe(lineFromToolResult(String(results[0])))
+      expect(outcome.content.length).toBeGreaterThan(0)
+    })
   })
 
   it('stops at a safe native checkpoint after a completed tool result crowds the context', async () => {
