@@ -137,6 +137,45 @@ Not used yet, and each fits something Anodex already does by hand.
 
 - **Project health** — bring git state, recent checks, active plans, changed files,
   and scheduled or agent activity together in the Workspace Dock.
+- **Fewer, broader tools for local models.** A small local model picks between
+  tools that do nearly the same job badly, and every extra schema costs prompt it
+  re-reads. Measured where it has been done: `my_files` (find, list, open and
+  send a file, in place of three tools) raised Gemma 4 E4B 52 → 53 and Llama 3.1
+  8B 49 → 51 on the everyday set. Email (19 tools → 5 combined plus
+  `list_email_accounts` and `list_mailboxes`) is in progress.
+
+  The rule each step follows, so this does not turn into a rewrite:
+  - The combined tool hands each action to the separate tool that already does
+    it, so approval, cards, checkpoints and safety stay that tool's. Nothing is
+    deleted; the separate tools stay one gateway step away.
+  - Shown only to a local model (`ToolRuntimeContext` flag, copied by name in
+    both engines, with a test that fails if a transport drops it). Cloud models
+    and agent runs keep the full surface until a measurement says otherwise.
+  - Measured before and after on Gemma 4 E4B and Llama 3.1 8B, on the same
+    machine and the same data, twice each where a run is noisy. A group that
+    does not improve is not shipped.
+
+  The project and agent tools have had no reliability round yet. In order, by
+  how often a small model reaches for them and how much a wrong pick costs:
+  1. **A project battery first.** No combining until there is a measurement:
+     explain a file, find where something is defined, fix a failing test, add a
+     small feature, run the checks, summarise the git changes, on a fixture
+     project, through `ANODEX_AGENT_AUTORUN`.
+  2. **Reading and finding** (`read_file`, `read_file_range`,
+     `read_multiple_files`, `get_file_info`; `list_directory`, `find_files`,
+     `search_files`, `search_code`, `code_outline`). The repeated-read loops the
+     loop guard exists for come from here.
+  3. **Background processes** (`start_process`, `stop_process`, `list_processes`,
+     `read_process_output`) as one tool with an action, and `git_status` with
+     `git_diff`.
+  4. **Change tasks** (`propose_change`, `update_change_task`, `archive_change`,
+     `list_changes`), and the small pairs: `request_key`/`save_key`,
+     `find_cleanup`/`move_to_trash`, `delete_file`/`delete_directory`.
+  5. **Editing last** (`edit_file`, `replace_lines`, `patch_file`,
+     `append_file`). The highest-risk group: line endings, stale views and
+     partial writes all live here (see "Anodex ships on Windows, macOS and
+     Linux" in `AGENTS.md`), so it is combined only if steps 1–4 show it is
+     worth the risk.
 
 ## Product improvements to explore
 

@@ -101,7 +101,12 @@ const GLOBAL_OR_CONDITIONAL_TOOLS = [
   'find_my_files',
   'send_file_to_me',
   'my_files',
-  'notify_me_when_done'
+  'notify_me_when_done',
+  'find_email',
+  'open_email',
+  'write_email',
+  'email_attachments',
+  'organize_email'
 ]
 
 const EMAIL_WORKSPACE_TOOLS = ['save_email_attachment']
@@ -368,6 +373,59 @@ describe('buildTools', () => {
     expect(tools).not.toHaveProperty('run_command')
     expect(tools).not.toHaveProperty('web_search')
     expect(tools).toHaveProperty('read_file')
+  })
+
+  it('registers the combined email tools only for a turn that asks for them', () => {
+    const ctx = {
+      ...createMockContext('/workspace'),
+      email: {
+        accounts: [
+          {
+            id: 'account-1',
+            provider: 'imap' as const,
+            address: 'user@example.com',
+            displayName: 'user@example.com',
+            authKind: 'password' as const,
+            syncMode: 'metadata' as const,
+            createdAt: 0
+          }
+        ],
+        primaryAccountId: 'account-1',
+        sendRequiresApproval: true as const
+      }
+    }
+    const combined = [
+      'find_email',
+      'open_email',
+      'write_email',
+      'email_attachments',
+      'organize_email'
+    ]
+
+    const plain = buildTools(createMockDefine(), ctx)
+    for (const name of combined) expect(plain).not.toHaveProperty(name)
+
+    const asked = buildTools(createMockDefine(), { ...ctx, combinedEmail: true })
+    for (const name of combined) expect(asked).toHaveProperty(name)
+    // The separate tools stay, behind the gateway, for whatever the combined ones miss.
+    expect(asked).toHaveProperty('send_email')
+
+    // Each one exists only while the separate tools doing its work are on.
+    const noSending = buildTools(createMockDefine(), {
+      ...ctx,
+      combinedEmail: true,
+      disabledTools: new Set(['send_email', 'reply_email', 'forward_email', 'save_email_draft'])
+    })
+    expect(noSending).not.toHaveProperty('write_email')
+    expect(noSending).toHaveProperty('find_email')
+
+    // No account linked, no email tools of either kind.
+    const unlinked = buildTools(createMockDefine(), {
+      ...ctx,
+      combinedEmail: true,
+      email: { accounts: [], primaryAccountId: null, sendRequiresApproval: true as const }
+    })
+    for (const name of combined) expect(unlinked).not.toHaveProperty(name)
   })
 
   it('registers email tools when Gmail is enabled', () => {

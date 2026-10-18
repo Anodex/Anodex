@@ -31,6 +31,7 @@ import {
 } from './mutationTools'
 import { runCommandTool } from './commandTools'
 import { findMyFilesTool, myFilesTool, sendFileToMeTool } from './personalFileTools'
+import { combinedEmailTools, type EmailToolParts } from './combinedEmailTools'
 import { findCleanupTool, moveToTrashTool } from './cleanupTools'
 import { openItemTool } from './openItemTools'
 import { notifyMeWhenDoneTool } from './notifyTools'
@@ -316,6 +317,14 @@ export function buildTools(
       const workspaceCtx: WorkspaceToolContext = { ...ctx, workspaceRoot: ctx.workspaceRoot }
       for (const [name, factory] of Object.entries(EMAIL_WORKSPACE_FACTORIES)) {
         if (isEnabled(name)) tools[name] = factory(define, workspaceCtx)
+      }
+    }
+    // The same jobs as five tools, for a turn that asks for them. Each action
+    // is available only while the separate tool doing it is switched on.
+    if (ctx.combinedEmail) {
+      const parts: EmailToolParts = tools
+      for (const [name, tool] of Object.entries(combinedEmailTools(define, ctx, parts))) {
+        if (isEnabled(name)) tools[name] = tool
       }
     }
   }

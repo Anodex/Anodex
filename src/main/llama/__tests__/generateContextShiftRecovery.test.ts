@@ -743,6 +743,61 @@ describe('LlamaService.generate() context-shift recovery', () => {
     expect(String(checked).endsWith(ANSWER_CUE)).toBe(true)
   })
 
+  it('carries combinedEmail through to the tools the model is given', async () => {
+    // The engine copies the tool context field by field; a field it drops
+    // leaves the separate email tools deferred with nothing in their place.
+    const access = asTestAccess()
+    prepareFakeEngine(access)
+    const offered: string[][] = []
+    const session: NonNullable<LlamaServiceTestAccess['session']> = {
+      promptWithMeta: vi.fn(
+        (
+          _prompt: unknown,
+          options: { functions?: Record<string, { handler: (args: unknown) => unknown }> }
+        ) => {
+          offered.push(Object.keys(options.functions ?? {}))
+          return Promise.resolve({ response: [], responseText: 'ok', stopReason: 'eogToken' })
+        }
+      ),
+      dispose: vi.fn(),
+      chatWrapper: fakeChatWrapper,
+      getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+    }
+    access.session = session
+    vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+
+    await llamaService.generate({
+      conversationId: 'test-conversation',
+      messageId: 'test-message',
+      history: [],
+      prompt: 'Did Google send me a security alert?',
+      onToken: () => {},
+      toolsUpFront: ['find_email'],
+      tools: {
+        ...webOnlyTools(),
+        enabledTools: new Set(['search_email', 'list_threads', 'find_email']),
+        email: {
+          accounts: [
+            {
+              id: 'account-1',
+              provider: 'imap',
+              address: 'user@example.com',
+              displayName: 'user@example.com',
+              authKind: 'password',
+              syncMode: 'metadata',
+              createdAt: 0
+            }
+          ],
+          primaryAccountId: 'account-1',
+          sendRequiresApproval: true
+        },
+        combinedEmail: true
+      }
+    })
+
+    expect(offered[0]).toContain('find_email')
+  })
+
   describe('a model that goes quiet after its tool call', () => {
     // Gemma 4 E4B read the Scheduler for "What do I have scheduled this week?"
     // and returned nothing, so the person saw a tool card and no reply.

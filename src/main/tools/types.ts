@@ -203,6 +203,13 @@ export interface ToolRuntimeContext {
    */
   myFiles?: boolean
   /**
+   * Whether this turn shows the combined email tools (`find_email`,
+   * `open_email`, `write_email`, `email_attachments`, `organize_email`) beside
+   * the separate ones they stand in for. Set for a local model's plain chat;
+   * see `combinedEmailTools`.
+   */
+  combinedEmail?: boolean
+  /**
    * Whether a successful tool result ends by asking for the answer in words.
    * Set for a local model's plain chat; see `withAnswerCue`.
    */

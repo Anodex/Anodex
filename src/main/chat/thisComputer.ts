@@ -428,8 +428,12 @@ export function mayConcernEmail(messages: string[]): boolean {
 // "replied", "wrote back": both models answered "What did Sinistercraftnetwork
 // say in their reply?" with "I cannot read messages from specific senders",
 // the email tools out of view because the message never said "email".
+//
+// "Did … send me": "Did Google send me a security alert?" never says "email"
+// either, and Llama 3.1 8B answered it from anodex_status. "Send me the
+// budget" stays a file request: only a question asking whether someone did.
 const EMAIL_WORDS =
-  /\b(?:e-?mails?|e-?mailed|inbox|mailbox(?:es)?|gmail|outlook|newsletters?|repl(?:y|ies|ied)|wrote back|written back|sent me|cc'?d|forwarded)\b/i
+  /\b(?:e-?mails?|e-?mailed|inbox|mailbox(?:es)?|gmail|outlook|newsletters?|repl(?:y|ies|ied)|wrote back|written back|sent me|cc'?d|forwarded|(?:did|has|have)\b[^.?!]{1,40}\b(?:send|sent) me)\b/i
 
 export function mayConcernAnodex(messages: string[]): boolean {
   return messages.some((message) => ANODEX_WORDS.test(message))

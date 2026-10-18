@@ -20,11 +20,24 @@ export interface EmailTarget {
  * card: the card names the real email, and words that find several emails list
  * them rather than picking one.
  */
-export async function resolveEmailTarget(ref: {
-  threadId?: string
-  messageId?: string
-  account?: string
-}): Promise<EmailTarget> {
+export async function resolveEmailTarget(
+  ref: {
+    threadId?: string
+    messageId?: string
+    account?: string
+  },
+  {
+    newestOfSeveral = false
+  }: {
+    /**
+     * Take the most recent of several matches instead of listing them. For a
+     * read, where the wrong pick costs nothing: "What did Sinistercraftnetwork
+     * say in their reply?" means their newest one. Words that say so ("the
+     * latest Runpod email") get it for any action.
+     */
+    newestOfSeveral?: boolean
+  } = {}
+): Promise<EmailTarget> {
   const given = (ref.messageId ?? ref.threadId ?? '').trim()
   if (!given) throw new Error('Name the email by its thread id, message id or subject.')
 
@@ -40,7 +53,7 @@ export async function resolveEmailTarget(ref: {
   // A listing line copied whole: "[threadId: subj.…; latestMessageId: …] Subject".
   const copied = /threadId:\s*([^\s;\]]+)/.exec(given)?.[1]
   if (copied && copied !== given)
-    return resolveEmailTarget({ threadId: copied, account: ref.account })
+    return resolveEmailTarget({ threadId: copied, account: ref.account }, { newestOfSeveral })
 
   const words = wordsFrom(given)
   if (!words) throw new Error(`"${given}" is not an email id, and names no email to search for.`)
@@ -56,12 +69,23 @@ export async function resolveEmailTarget(ref: {
       return parts.every((part) => haystack.includes(part))
     })
   }
-  const exact = found.filter((thread) => sameWords(thread.subject, words))
+  // "Wtf. from Reddit" is the subject and the sender together: the email whose
+  // subject is what is left once the sender's words are set aside is the one
+  // meant, over "Wtf is this defacement even about?" from the same sender.
+  const exact = found.filter(
+    (thread) =>
+      sameWords(thread.subject, words) ||
+      sameWords(thread.subject, withoutSenderWords(words, thread.from))
+  )
   const matches = exact.length > 0 ? exact : found
   if (matches.length === 1) {
     return { threadId: matches[0].id, label: labelFor(matches[0].subject, matches[0].from) }
   }
   if (matches.length === 0) throw new Error(`No email matches "${words}".`)
+  if (newestOfSeveral || SAYS_NEWEST.test(given)) {
+    const newest = [...matches].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    return { threadId: newest.id, label: labelFor(newest.subject, newest.from) }
+  }
   throw new Error(
     [
       `More than one email matches "${words}". Give the thread id of the one meant:`,
@@ -71,6 +95,9 @@ export async function resolveEmailTarget(ref: {
     ].join('\n')
   )
 }
+
+/** "The latest Runpod email", "the last one from Sam", "my most recent invoice". */
+const SAYS_NEWEST = /\b(?:latest|newest|last|most recent|recent)\b/i
 
 function labelFor(subject: string, from: string): string {
   return `"${subject || '(no subject)'}" from ${from || 'an unknown sender'}`
@@ -84,14 +111,27 @@ function labelFor(subject: string, from: string): string {
 function wordsFrom(text: string): string {
   const quoted = /["“']([^"”']{2,})["”']/.exec(text)?.[1]
   if (quoted) return quoted.trim()
-  return text
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(
-      /\b(?:the|an?|e-?mails?|messages?|threads?|titled|called|named|subject|about|from|latest|newest|one)\b/gi,
-      ' '
-    )
-    .replace(/\s+/g, ' ')
-    .trim()
+  return (
+    text
+      .replace(/\[[^\]]*\]/g, ' ')
+      // "Sinistercraftnetwork's most recent reply": the name, not the possessive.
+      .replace(/['’]s\b/gi, '')
+      .replace(
+        /\b(?:the|an?|my|their|his|her|e-?mails?|messages?|threads?|titled|called|named|subject|about|from|latest|newest|last|most|recent|one|repl(?:y|ies|ied)|said|say|says|sent)\b/gi,
+        ' '
+      )
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
+}
+
+/** `words` without the ones that are part of who sent the email. */
+function withoutSenderWords(words: string, from: string): string {
+  const sender = from.toLowerCase()
+  return words
+    .split(' ')
+    .filter((word) => !sender.includes(word.toLowerCase().replace(/[.!?,;:]+$/, '')))
+    .join(' ')
 }
 
 function sameWords(a: string, b: string): boolean {

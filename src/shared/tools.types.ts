@@ -712,6 +712,36 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       'Save an email attachment into the workspace. Approval depends on permission mode. Requires an open project.',
     requiresProject: true
+  },
+  {
+    name: 'find_email',
+    kind: 'read',
+    description:
+      'Search email, or list the newest in a folder, in one tool, for local models in a plain chat. Uses search_email and list_threads and follows their settings.'
+  },
+  {
+    name: 'open_email',
+    kind: 'read',
+    description:
+      'Read one email, named by its id or in words ("the latest Runpod email"), for local models in a plain chat. Uses read_email.'
+  },
+  {
+    name: 'write_email',
+    kind: 'write',
+    description:
+      'Send, reply, forward or save a draft in one tool, for local models in a plain chat. Each action is the matching tool above and follows its setting and approval.'
+  },
+  {
+    name: 'email_attachments',
+    kind: 'read',
+    description:
+      'List, read or view the files attached to an email in one tool, for local models in a plain chat. Uses the attachment tools above.'
+  },
+  {
+    name: 'organize_email',
+    kind: 'write',
+    description:
+      'Mark read, star, archive, move or move to the Trash, for one email or every match, in one tool, for local models in a plain chat. Uses manage_email, move_email and batch_email. Never deletes mail.'
   }
 ]
 

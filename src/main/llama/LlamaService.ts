@@ -329,6 +329,12 @@ export interface GenerateParams {
     myFiles?: boolean
     /** See `ToolRuntimeContext.answerCue`. */
     answerCue?: boolean
+    /**
+     * See `ToolRuntimeContext.combinedEmail`. Copied into the tool context by
+     * name, like `myFiles`, so a transport that forgets it keeps the separate
+     * email tools behind the gateway with nothing in their place.
+     */
+    combinedEmail?: boolean
     /** See `ToolRuntimeContext.userProvided`. */
     userProvided?: (text: string) => boolean
     /** See `ToolRuntimeContext.onSecretSaved`. */
@@ -3122,6 +3128,7 @@ Continue the task using this result. If the task is complete, answer instead of 
       switchProject: params.tools.switchProject,
       myFiles: params.tools.myFiles,
       answerCue: params.tools.answerCue,
+      combinedEmail: params.tools.combinedEmail,
       userProvided: params.tools.userProvided,
       onSecretSaved: params.tools.onSecretSaved,
       disabledTools: params.tools.disabledTools,

@@ -79,3 +79,18 @@ describe('resolveEmailTarget', () => {
     )
   })
 })
+
+describe('resolveEmailTarget with a sender beside the subject', () => {
+  it('finds "Wtf." from Reddit over other Reddit emails that say wtf', async () => {
+    h.inbox.push({
+      id: 'thread-11',
+      subject: 'Wtf is this defacement even about?',
+      from: 'Reddit <noreply@redditmail.com>'
+    })
+    h.threads.set('thread-11', [
+      { subject: 'Wtf is this defacement even about?', from: 'Reddit <noreply@redditmail.com>' }
+    ])
+
+    expect((await resolveEmailTarget({ threadId: 'Wtf. from Reddit' })).threadId).toBe('thread-7')
+  })
+})

@@ -104,6 +104,18 @@ describe('confirmCardPresentation', () => {
     expect(withDraft.approveLabel).toBe('Send')
   })
 
+  it('says saving a draft is saving, not sending', () => {
+    const save = confirmCardPresentation(
+      requestFor({
+        toolName: 'save_email_draft',
+        emailDraft: { to: ['a@b.c'], subject: 'Re: Runpod Weekly', body: 'Thanks' }
+      })
+    )
+
+    expect(save.title).toBe('Save this draft?')
+    expect(save.approveLabel).toBe('Save draft')
+  })
+
   it('calls a forward a forward, not a reply', () => {
     const forward = confirmCardPresentation(
       requestFor({

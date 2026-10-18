@@ -1449,6 +1449,7 @@ export class LlamaVisionService {
       switchProject: params.tools.switchProject,
       myFiles: params.tools.myFiles,
       answerCue: params.tools.answerCue,
+      combinedEmail: params.tools.combinedEmail,
       userProvided: params.tools.userProvided,
       onSecretSaved: params.tools.onSecretSaved,
       disabledTools: params.tools.disabledTools,

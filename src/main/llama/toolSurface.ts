@@ -388,6 +388,13 @@ const DIRECT_TOOL_PRIORITY = [
   'schedule_task',
   'set_reminder',
   'delete_scheduled_task',
+  // The combined email tools, on the turns that have them, ahead of the
+  // separate ones they stand in for: see `combinedEmailTools`.
+  'find_email',
+  'open_email',
+  'write_email',
+  'organize_email',
+  'email_attachments',
   'list_threads',
   'search_email',
   'read_email',
