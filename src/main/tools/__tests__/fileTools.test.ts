@@ -470,6 +470,24 @@ describe('AI file tools', () => {
       maxTokensPerResult: tokens
     })
 
+    it('does not say the budget stopped a read that reached the end of the file', async () => {
+      // "lines 11-17 of 17. Output stopped at the active context budget" sent
+      // Llama 3.1 8B back for lines 18-22 of every file it read.
+      await writeFile(
+        join(workspace, 'short.js'),
+        Array.from({ length: 17 }, (_, i) => `line ${i + 1}`).join('\n')
+      )
+      const ctx = createMockContext(workspace)
+      const tool = readFileRangeTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: { path: string; startLine: number; endLine?: number }) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: 'short.js', startLine: 11, endLine: 20 })
+
+      expect(result).toContain('lines 11-17 of 17')
+      expect(result).not.toContain('Output stopped at the active context budget')
+    })
+
     it('does not mark a line it only returned part of as read', async () => {
       // A budget that cuts mid-line: coverage is what the model has actually
       // seen, so recording the cut line as covered puts the rest of it

@@ -633,6 +633,64 @@ describe('LlamaService.generate() context-shift recovery', () => {
       expect(outcome.stopped).toBe(false)
     })
 
+    it('drops the session after a runaway it does not retry, so the next turn starts clean', async () => {
+      // Gemma 4 E4B was stopped mid replace_lines after five completed calls,
+      // and from the next agent turn on said it had no goal.
+      const access = asTestAccess()
+      prepareFakeEngine(access)
+      access.model = {
+        tokenizer: () => [],
+        tokenize: (text: string) => (text === '<tool_call|>' ? [49] : Array.from(text, () => 1))
+      }
+      const prompts: string[] = []
+      const session: NonNullable<LlamaServiceTestAccess['session']> = {
+        promptWithMeta: vi.fn(
+          async (
+            prompt: unknown,
+            options: {
+              functions?: Record<string, { handler: (args: unknown) => unknown }>
+              onFunctionCallParamsChunk?: (chunk: {
+                callIndex: number
+                functionName: string
+                paramsChunk: string
+                done: boolean
+              }) => void
+            }
+          ) => {
+            prompts.push(String(prompt))
+            // One call completes, so the turn is not tried again from the start.
+            await Promise.resolve(
+              options.functions?.web_search?.handler({ query: 'budget' })
+            ).catch(() => null)
+            options.onFunctionCallParamsChunk?.({
+              callIndex: 1,
+              functionName: 'web_search',
+              paramsChunk: '{"query": "C:\\", "count": 5}<tool_call|>',
+              done: false
+            })
+            throw new Error('aborted')
+          }
+        ),
+        dispose: vi.fn(),
+        chatWrapper: fakeChatWrapper,
+        getChatHistory: () => [{ type: 'system', text: 'Test system prompt.' }]
+      }
+      access.session = session
+      vi.spyOn(access, 'ensureSession').mockResolvedValue(session)
+
+      await llamaService.generate({
+        conversationId: 'test-conversation',
+        messageId: 'test-message',
+        history: [],
+        prompt: 'Search for the budget.',
+        onToken: () => {},
+        tools: webOnlyTools()
+      })
+
+      expect(prompts).toEqual(['Search for the budget.'])
+      expect(session.dispose).toHaveBeenCalled()
+    })
+
     it('tries the turn once more when what it wrote cannot be read back', async () => {
       // `count` is not one of web_search's fields, so nothing is guessed.
       const run = runawayThenAnswer('{"query": "C:\\", "count": 5}')

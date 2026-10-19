@@ -51,6 +51,12 @@ interface ToolOutcome {
    * lower when it genuinely cannot tell what a call did.
    */
   provesChange?: boolean
+  /**
+   * The call showed something without changing anything: a read-only command.
+   * Counts as having looked, for `finish_goal`, where `madeProgress: false`
+   * alone would count it as nothing at all.
+   */
+  observed?: boolean
 }
 
 /**
@@ -632,7 +638,8 @@ export async function runGuardedTool(
       preview,
       checkpointChanges,
       madeProgress = true,
-      provesChange
+      provesChange,
+      observed
     } = await spec.run(
       (progressDetail) =>
         ctx.emit({
@@ -663,6 +670,12 @@ export async function runGuardedTool(
     )
     const touchedPaths = recordTouch(ctx, spec.touch)
     if (madeProgress) markProgress(ctx, spec)
+    // A command that only looked (`git diff`, `npm test`) is not a change, and
+    // it is still a look. Counted as neither, a run that answered its question
+    // with commands could never finish it: Gemma 4 E4B ran git status and git
+    // diff for "Summarise what has changed since the last commit" and had
+    // finish_goal refused on every turn for having looked at nothing.
+    else if (observed) ctx.progress.observed = true
     const changes = checkpointChanges ?? checkpointChangesFromDiff(diff)
     noteMutatedReadCoverage(ctx, spec.touch, changes)
     recordCheckpoint(ctx, changes)

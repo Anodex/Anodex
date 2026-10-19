@@ -684,8 +684,12 @@ export const readFileRangeTool: WorkspaceToolFactory = (define, ctx) =>
             start !== normalized.startLine || target.end < normalized.endLine
               ? ` Lines ${normalized.startLine}-${normalized.endLine} were requested; only the first unread segment is shown because other portions overlap earlier reads.`
               : ''
+          // Against the end of what exists, not of what was asked: "lines 11-17
+          // of 17" for a request to 20 is the whole file, and saying the budget
+          // stopped it sent Llama 3.1 8B back for lines 18-22, every file, every
+          // time, until the run ran out of time.
           const budgetNote =
-            actualEnd < target.end
+            actualEnd < Math.min(target.end, lines.length)
               ? ' Output stopped at the active context budget; continue from Next startLine.'
               : ''
           // Surfaced once, on what turns out to be the first read of a large
