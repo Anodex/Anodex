@@ -63,6 +63,25 @@ describe('run_command', () => {
 
     expect(calls.at(-1)).toMatchObject({ status: 'success', madeProgress: false })
     expect(ctx.progress.madeChange).toBe(false)
+    // A look all the same: Gemma 4 E4B answered "what changed since the last
+    // commit?" with git status and git diff and could never finish it.
+    expect(ctx.progress.observed).toBe(true)
+  })
+
+  it('does not count a pause as having looked at anything', async () => {
+    const ctx = {
+      ...createMockContext(workspace),
+      confirm: () => Promise.resolve({ approved: true })
+    }
+    const tool = runCommandTool(createMockDefine(), ctx) as unknown as {
+      handler: (args: { command: string }) => Promise<string>
+    }
+
+    await tool.handler({
+      command: process.platform === 'win32' ? 'Start-Sleep -Seconds 0' : 'sleep 0'
+    })
+
+    expect(ctx.progress.observed).toBe(false)
   })
 
   it('classifies wrapped PowerShell reads without hiding real mutations', () => {

@@ -17,6 +17,14 @@ const SIDE_EFFECT_IMPORT_RE = /^\s*import\s+['"]([^'"]+)['"]/gm
 const SYMBOL_RE =
   /^\s*export\s+(?:default\s+)?(?:async\s+)?(function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gm
 const NAMED_EXPORT_RE = /^\s*export\s*\{([^}]+)\}/gm
+// CommonJS, which plenty of JavaScript still is. Without these a file ending in
+// `module.exports = { slugify }` was outlined as "exports: (none)", and Llama
+// 3.1 8B, told the file exported nothing, called the tool unhelpful and tried
+// two more before reading it.
+const REQUIRE_RE = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g
+const MODULE_EXPORTS_OBJECT_RE = /^\s*module\.exports\s*=\s*\{([^}]*)\}/gm
+const MODULE_EXPORTS_NAME_RE = /^\s*(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=/gm
+const MODULE_EXPORTS_SINGLE_RE = /^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$/gm
 
 interface CodeOutlineArgs {
   path?: string
@@ -181,6 +189,7 @@ function extractImports(source: string): string[] {
   const imports = new Set<string>()
   for (const match of source.matchAll(IMPORT_RE)) imports.add(match[1])
   for (const match of source.matchAll(SIDE_EFFECT_IMPORT_RE)) imports.add(match[1])
+  for (const match of source.matchAll(REQUIRE_RE)) imports.add(match[1])
   return [...imports].slice(0, 20)
 }
 
@@ -194,7 +203,18 @@ function extractSymbols(source: string): string[] {
       .filter(Boolean)
     for (const name of names) symbols.push(`export ${name}`)
   }
-  return symbols.slice(0, 40)
+  for (const match of source.matchAll(MODULE_EXPORTS_OBJECT_RE)) {
+    const names = match[1]
+      .split(',')
+      .map((entry) => entry.trim().split(/\s*:\s*/)[0])
+      .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name))
+    for (const name of names) symbols.push(`export ${name}`)
+  }
+  for (const match of source.matchAll(MODULE_EXPORTS_NAME_RE)) symbols.push(`export ${match[1]}`)
+  for (const match of source.matchAll(MODULE_EXPORTS_SINGLE_RE)) {
+    symbols.push(`export default ${match[1]}`)
+  }
+  return [...new Set(symbols)].slice(0, 40)
 }
 
 function formatOutline(outline: FileOutline): string {

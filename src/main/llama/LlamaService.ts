@@ -1111,6 +1111,13 @@ class LlamaService extends EventEmitter {
         this.disposeSession()
         return await this.generateInternal(params, { seen: false })
       }
+      // Kept, the session would hold a call that was cut off part-way, and the
+      // next turn would continue from it rather than from the conversation as
+      // saved. Measured: Gemma 4 E4B's agent turn was stopped mid replace_lines
+      // after five completed calls, and from the next turn on it said "I do
+      // not have a stated goal" and finished a run whose goal was its first
+      // message. Rebuilt from the saved conversation, the goal is there.
+      if (runaway.seen) this.disposeSession()
       return outcome
     } finally {
       // The single authoritative reset. The lock is held for this entire call,

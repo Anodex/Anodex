@@ -675,16 +675,37 @@ describe('finish_goal on a goal that only asks to look', () => {
     expect(await finish(turn(ledger, true))).toContain('Run finished.')
   })
 
-  it('still refuses a repeat from the same turn', async () => {
+  it('accepts a repeat from the same turn that had looked at something', async () => {
+    // Gemma 4 E4B ran git status and git diff, was refused, claimed again, was
+    // refused again, and was stopped with an empty answer.
     const ledger = createTaskLedger()
     const same = turn(ledger, true)
+    await finish(same)
+    expect(await finish(same)).toContain('Run finished.')
+  })
+
+  it('accepts a later claim when the turn that was asked had looked', async () => {
+    const ledger = createTaskLedger()
+    await finish(turn(ledger, true))
+    expect(await finish(turn(ledger, false))).toContain('Run finished.')
+  })
+
+  it('still refuses a repeat when nothing at all was looked at', async () => {
+    const ledger = createTaskLedger()
+    const same = turn(ledger, false)
     await finish(same)
     expect(await finish(same)).toContain('Nothing has been done yet this turn')
   })
 
+  it('no longer leads a look-only goal toward making a change', async () => {
+    const result = await finish(turn(createTaskLedger(), true))
+    expect(result.indexOf('look and report')).toBeLessThan(result.indexOf('edit a file'))
+    expect(result).not.toContain('on your next turn')
+  })
+
   it('still refuses a later claim with nothing looked at behind it', async () => {
     const ledger = createTaskLedger()
-    await finish(turn(ledger, true))
+    await finish(turn(ledger, false))
     expect(await finish(turn(ledger, false))).toContain('Nothing has been done yet this turn')
   })
 })

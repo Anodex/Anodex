@@ -46,6 +46,41 @@ describe('code_outline', () => {
 })
 
 describe('code_outline in a project it cannot map', () => {
+  it('reads CommonJS requires and exports, in either line ending', async () => {
+    // "exports: (none)" for a file ending in module.exports = { slugify } told
+    // Llama 3.1 8B the file exported nothing.
+    const workspace = await makeWorkspace()
+    try {
+      await writeFile(
+        join(workspace, 'strings.js'),
+        [
+          "const path = require('node:path')",
+          'function slugify(text) { return text }',
+          'function capitalize(text) { return text }',
+          'exports.VERSION = 2',
+          'module.exports = { slugify, capitalize: capitalize }'
+        ].join('\r\n'),
+        'utf-8'
+      )
+      await writeFile(join(workspace, 'single.js'), 'function main() {}\nmodule.exports = main\n')
+      const ctx = createMockContext(workspace)
+      const tool = codeOutlineTool(createMockDefine(), ctx) as unknown as {
+        handler: (args: unknown) => Promise<string>
+      }
+
+      const result = await tool.handler({ path: '.' })
+
+      expect(result).toContain('imports: node:path')
+      expect(result).toContain('export slugify')
+      expect(result).toContain('export capitalize')
+      expect(result).toContain('export VERSION')
+      expect(result).toContain('export default main')
+      expect(result).not.toContain('exports: (none)')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+    }
+  })
+
   it('does not claim a directory full of Python has no source files', async () => {
     const workspace = await makeWorkspace()
     try {

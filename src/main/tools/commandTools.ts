@@ -9,7 +9,11 @@ import {
   checkPrintOnly,
   describeEmptySearchResult
 } from './commandGuidance'
-import { isKnownMutatingCommand, isObservationalCommand } from './commandEffect'
+import {
+  isKnownMutatingCommand,
+  isNonAdvancingCommand,
+  isObservationalCommand
+} from './commandEffect'
 import { availableTools } from './toolAvailability'
 
 /** Default and caller-selectable ceiling for a shell command that does not exit. */
@@ -177,7 +181,9 @@ export const runCommandTool: WorkspaceToolFactory = (define, ctx) =>
             // The gathering streak asks a stricter question - is there positive
             // evidence something changed - so an unrecognised command stops
             // buying a free reset. See `recordOutcome`.
-            provesChange: isKnownMutatingCommand(args.command)
+            provesChange: isKnownMutatingCommand(args.command),
+            // A look, for finish_goal: see `ToolOutcome.observed`.
+            observed: isObservationalCommand(args.command) && !isNonAdvancingCommand(args.command)
           }
         }
       })

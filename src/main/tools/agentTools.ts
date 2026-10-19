@@ -87,22 +87,32 @@ export const finishGoalTool: ToolFactory = (define, ctx) =>
           // claims completion is accepted. A claim with nothing behind it at all is
           // still refused every time, and a fabricated one is still flagged by the
           // turn's claim check.
-          const reconsidering =
-            ctx.progress.observed &&
-            unchangedFinishRefusedIn.has(ctx.ledger) &&
-            unchangedFinishRefusedIn.get(ctx.ledger) !== ctx
+          //
+          // The question is asked once per run, and the second claim is the
+          // answer: accepted whenever this run has looked at something, in this
+          // turn or the one that was asked. Requiring a fresh look on a later
+          // turn was a trap. Measured: Gemma 4 E4B ran git status and git diff
+          // for "Summarise what has changed since the last commit", was refused,
+          // claimed again with nothing new to look at, was refused, said "I
+          // cannot call finish_goal", and was stopped with an empty answer. Llama
+          // 3.1 8B read config.js for "Where is DEFAULT_PORT defined?", was
+          // refused ten times, then edited files it had been told not to touch.
+          // The wording changed too: it led with "create or edit a file", which a
+          // model on a look-only goal took as the order. What the person sees
+          // stays honest either way: the run's account says it changed nothing.
+          const refused = unchangedFinishRefusedIn.get(ctx.ledger)
+          const reconsidering = refused !== undefined && (ctx.progress.observed || refused.observed)
           if (!lookOnly && !ctx.progress.madeChange && !reconsidering) {
-            unchangedFinishRefusedIn.set(ctx.ledger, ctx)
+            unchangedFinishRefusedIn.set(ctx.ledger, { observed: ctx.progress.observed })
             throw new Error(
               'Nothing has been done yet this turn, so this cannot be accepted as the goal ' +
-                'being complete — a claim of completion needs real action behind it. Reading ' +
-                'files and writing or updating the plan do not count: they describe the work ' +
-                'rather than carry it out. Do the thing the goal asks for (create or edit a ' +
-                'file, run a command, send an email, and so on), then call finish_goal again. ' +
-                'If the goal only asks you to look and report — and changes nothing — read or ' +
-                'list what it asks about on your next turn and call finish_goal then; it will ' +
-                'be accepted. If you genuinely cannot make further progress, explain why in ' +
-                'your reply instead of calling finish_goal.'
+                'being complete. Reading files and writing or updating the plan do not count ' +
+                'as doing the work. If the goal only asks you to look and report, and changes ' +
+                'nothing, read or list what it asks about, then call finish_goal again with ' +
+                'what you found; it will be accepted. If the goal asks for a change, make it ' +
+                'first (edit a file, run a command, send an email), then call finish_goal ' +
+                'again. If you genuinely cannot make further progress, explain why in your ' +
+                'reply instead of calling finish_goal.'
             )
           }
           // A run that inspected something visually and then changed it again
@@ -230,11 +240,11 @@ function openPlanSteps(plan: Plan | null): string[] {
 const openStepsToldIn = new WeakMap<object, object>()
 
 /**
- * For each run, the generation in which `finish_goal` was last refused because
- * nothing had been changed. A later generation that observed something may claim
- * completion again and be accepted — see the guard's comment.
+ * For each run, whether `finish_goal` has been refused because nothing had been
+ * changed, and whether that turn had looked at anything. A second claim is
+ * accepted when either turn did — see the guard's comment.
  */
-const unchangedFinishRefusedIn = new WeakMap<object, object>()
+const unchangedFinishRefusedIn = new WeakMap<object, { observed: boolean }>()
 
 /**
  * The generation in which `finish_goal` has already been accepted.

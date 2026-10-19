@@ -67,6 +67,11 @@ export function isObservationalCommand(command: string): boolean {
 const NON_ADVANCING_RE =
   /^(?:Start-Process|start|explorer|open|xdg-open|cmd(?:\.exe)?\s+\/c\s+start)\b[^|;&]*https?:\/\/|^(?:Start-Sleep|sleep|timeout(?:\.exe)?\s+\/t|ping\s+-n)\b/i
 
+/** Waiting, or opening a web page: observational, and shows nothing either. */
+export function isNonAdvancingCommand(command: string): boolean {
+  return NON_ADVANCING_RE.test(command)
+}
+
 /** Stable identity for differently-spelled reads of the same evidence. */
 /**
  * Whether this command is one Anodex positively recognises as changing
